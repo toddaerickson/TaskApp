@@ -21,3 +21,4 @@ Thumbs.db
 # Build
 *.ipa
 *.apk
+*.db
