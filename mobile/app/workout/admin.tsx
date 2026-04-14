@@ -1,0 +1,404 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Image, ActivityIndicator, Platform,
+} from 'react-native';
+import { Stack } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Exercise } from '@/lib/stores';
+import * as api from '@/lib/api';
+
+const SAMPLE = `# Paste one row per URL: slug<TAB>url
+# Or multiple URLs per slug on one row: slug<TAB>url1<TAB>url2
+# Lines starting with # are ignored.
+wall_ankle_dorsiflexion\thttps://example.com/wall-stretch.jpg
+single_leg_glute_bridge\thttps://example.com/sl-bridge.jpg`;
+
+interface ParsedRow {
+  slug: string;
+  urls: string[];
+  line: number;
+  error?: string;
+}
+
+function parsePaste(text: string, knownSlugs: Set<string>): ParsedRow[] {
+  const out: ParsedRow[] = [];
+  const lines = text.split(/\r?\n/);
+  const merged = new Map<string, { urls: string[]; line: number }>();
+  lines.forEach((raw, idx) => {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const parts = trimmed.split(/\t|,/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length < 2) {
+      out.push({ slug: trimmed, urls: [], line: idx + 1, error: 'no url on this line' });
+      return;
+    }
+    const [slug, ...urls] = parts;
+    const existing = merged.get(slug);
+    if (existing) {
+      existing.urls.push(...urls);
+    } else {
+      merged.set(slug, { urls: [...urls], line: idx + 1 });
+    }
+  });
+  for (const [slug, { urls, line }] of merged) {
+    const error = knownSlugs.has(slug) ? undefined : `unknown slug`;
+    out.push({ slug, urls, line, error });
+  }
+  return [...out].sort((a, b) => a.line - b.line);
+}
+
+export default function AdminScreen() {
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [paste, setPaste] = useState('');
+  const [replace, setReplace] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const reload = () => {
+    setLoading(true);
+    api.getExercises()
+      .then(setExercises)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(reload, []);
+
+  const knownSlugs = useMemo(
+    () => new Set(exercises.filter((e) => e.slug).map((e) => e.slug as string)),
+    [exercises]
+  );
+  const parsed = useMemo(() => parsePaste(paste, knownSlugs), [paste, knownSlugs]);
+
+  const applyable = parsed.filter((r) => !r.error && r.urls.length > 0);
+
+  const handleApply = async () => {
+    if (applyable.length === 0) return;
+    setApplying(true);
+    setResult(null);
+    try {
+      const res = await api.bulkExerciseImages(
+        applyable.map((r) => ({ slug: r.slug, urls: r.urls, replace }))
+      );
+      const addedTotal = res.reduce((s, r) => s + r.added, 0);
+      const replacedTotal = res.reduce((s, r) => s + r.replaced, 0);
+      const notFound = res.filter((r) => r.status === 'not_found').map((r) => r.slug);
+      setResult(
+        `Added ${addedTotal} image${addedTotal === 1 ? '' : 's'}`
+        + (replacedTotal ? ` (replaced ${replacedTotal})` : '')
+        + (notFound.length ? `. Not found: ${notFound.join(', ')}` : '.')
+      );
+      setPaste('');
+      reload();
+    } catch (e: any) {
+      setResult(`Error: ${e?.response?.data?.detail || e?.message || 'unknown'}`);
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  if (loading) {
+    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />;
+  }
+
+  return (
+    <View style={styles.container}>
+      <Stack.Screen options={{ title: 'Image Admin' }} />
+      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
+        {/* Paste panel */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Bulk paste URLs</Text>
+          <Text style={styles.hint}>
+            Tab- or comma-separated. One row per URL or multiple URLs per row. Copy-pastable from a spreadsheet.
+          </Text>
+          <TextInput
+            style={styles.pasteBox}
+            placeholder={SAMPLE}
+            placeholderTextColor="#bbb"
+            value={paste}
+            onChangeText={setPaste}
+            multiline
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+          />
+
+          {parsed.length > 0 && (
+            <View style={styles.previewBox}>
+              <Text style={styles.previewTitle}>Preview ({parsed.length} row{parsed.length === 1 ? '' : 's'})</Text>
+              {parsed.map((r, i) => (
+                <View key={`${r.slug}-${i}`} style={styles.previewRow}>
+                  <Text style={[styles.previewSlug, r.error && { color: '#e74c3c' }]}>{r.slug}</Text>
+                  <Text style={styles.previewUrls} numberOfLines={2}>
+                    {r.error ? `⚠ ${r.error}` : `${r.urls.length} url${r.urls.length === 1 ? '' : 's'}`}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.applyRow}>
+            <Pressable style={styles.checkRow} onPress={() => setReplace(!replace)}>
+              <Ionicons
+                name={replace ? 'checkbox' : 'square-outline'}
+                size={18} color={replace ? '#e67e22' : '#999'}
+              />
+              <Text style={styles.checkLabel}>Replace existing (instead of append)</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.applyBtn,
+                (applying || applyable.length === 0) && { opacity: 0.5 },
+              ]}
+              onPress={handleApply}
+              disabled={applying || applyable.length === 0}
+            >
+              <Ionicons name="cloud-upload" size={16} color="#fff" />
+              <Text style={styles.applyBtnText}>
+                {applying ? 'Applying…' : `Apply ${applyable.length}`}
+              </Text>
+            </Pressable>
+          </View>
+
+          {result && <Text style={styles.resultText}>{result}</Text>}
+        </View>
+
+        {/* Table */}
+        <Text style={styles.sectionTitle}>Exercises ({exercises.length})</Text>
+        {exercises.map((ex) => (
+          <ExerciseRow key={ex.id} exercise={ex} onChange={reload} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () => void }) {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [name, setName] = useState(exercise.name);
+  const [instructions, setInstructions] = useState(exercise.instructions || '');
+  const [cue, setCue] = useState(exercise.cue || '');
+  const [primaryMuscle, setPrimaryMuscle] = useState(exercise.primary_muscle || '');
+  const [equipment, setEquipment] = useState(exercise.equipment || '');
+  const dirty = name !== exercise.name
+    || instructions !== (exercise.instructions || '')
+    || cue !== (exercise.cue || '')
+    || primaryMuscle !== (exercise.primary_muscle || '')
+    || equipment !== (exercise.equipment || '');
+
+  const handleSaveEdit = async () => {
+    setBusy(true);
+    try {
+      await api.updateExercise(exercise.id, {
+        name, instructions, cue,
+        primary_muscle: primaryMuscle,
+        equipment,
+      });
+      onChange();
+    } catch (e: any) {
+      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!url.trim()) return;
+    setBusy(true);
+    try {
+      await api.addExerciseImage(exercise.id, url.trim());
+      setUrl('');
+      onChange();
+    } catch (e: any) {
+      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (imageId: number) => {
+    if (Platform.OS === 'web' && !window.confirm('Remove image?')) return;
+    setBusy(true);
+    try {
+      await api.deleteExerciseImage(imageId);
+      onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.exRow}>
+      <Pressable style={styles.exHeader} onPress={() => setExpanded(!expanded)}>
+        <Ionicons
+          name={expanded ? 'chevron-down' : 'chevron-forward'}
+          size={16} color="#999"
+        />
+        <View style={{ flex: 1, marginLeft: 6 }}>
+          <Text style={styles.exName}>{exercise.name}</Text>
+          <Text style={styles.exSlug}>{exercise.slug || '—'}</Text>
+        </View>
+        <Text style={styles.exCount}>{exercise.images.length}</Text>
+      </Pressable>
+
+      {expanded && (
+        <View style={styles.editPanel}>
+          <Text style={styles.fieldLabel}>Name</Text>
+          <TextInput value={name} onChangeText={setName} style={styles.fieldInput} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Primary muscle</Text>
+              <TextInput value={primaryMuscle} onChangeText={setPrimaryMuscle} style={styles.fieldInput} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>Equipment</Text>
+              <TextInput value={equipment} onChangeText={setEquipment} style={styles.fieldInput} />
+            </View>
+          </View>
+          <Text style={styles.fieldLabel}>Instructions</Text>
+          <TextInput
+            value={instructions}
+            onChangeText={setInstructions}
+            multiline
+            style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
+          />
+          <Text style={styles.fieldLabel}>Cue</Text>
+          <TextInput
+            value={cue}
+            onChangeText={setCue}
+            multiline
+            style={[styles.fieldInput, { minHeight: 40, textAlignVertical: 'top' }]}
+          />
+          <Pressable
+            style={[styles.saveEditBtn, (!dirty || busy) && { opacity: 0.5 }]}
+            onPress={handleSaveEdit}
+            disabled={!dirty || busy}
+          >
+            <Ionicons name="save-outline" size={14} color="#fff" />
+            <Text style={styles.saveEditText}>{busy ? 'Saving…' : dirty ? 'Save changes' : 'No changes'}</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {exercise.images.length > 0 && (
+        <ScrollView horizontal style={styles.imgRow} showsHorizontalScrollIndicator={false}>
+          {exercise.images.map((img) => (
+            <View key={img.id} style={styles.imgWrap}>
+              <Image source={{ uri: img.url }} style={styles.img} resizeMode="cover" />
+              <Pressable style={styles.imgDelete} onPress={() => handleDelete(img.id)}>
+                <Ionicons name="close" size={14} color="#fff" />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
+      <View style={styles.addImgRow}>
+        <TextInput
+          style={styles.addImgInput}
+          placeholder="Paste image URL…"
+          value={url}
+          onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onSubmitEditing={handleAdd}
+        />
+        <Pressable
+          style={[styles.addImgBtn, (!url.trim() || busy) && { opacity: 0.5 }]}
+          onPress={handleAdd}
+          disabled={!url.trim() || busy}
+        >
+          <Ionicons name="add" size={18} color="#fff" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
+
+  card: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
+  },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#222' },
+  hint: { fontSize: 12, color: '#888', marginTop: 4, marginBottom: 10 },
+  pasteBox: {
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
+    fontSize: 13, minHeight: 120, textAlignVertical: 'top',
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+    backgroundColor: '#fafafa',
+  },
+  previewBox: {
+    marginTop: 10, backgroundColor: '#f5f6fa', borderRadius: 6, padding: 10,
+  },
+  previewTitle: { fontSize: 12, color: '#666', fontWeight: '700', marginBottom: 6 },
+  previewRow: { flexDirection: 'row', paddingVertical: 3 },
+  previewSlug: { flex: 1, fontSize: 12, color: '#222', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  previewUrls: { flex: 1, fontSize: 12, color: '#666', textAlign: 'right' },
+
+  applyRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12,
+  },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6, cursor: 'pointer' as any },
+  checkLabel: { fontSize: 12, color: '#666' },
+  applyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#1a73e8', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8,
+    cursor: 'pointer' as any,
+  },
+  applyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  resultText: { marginTop: 10, fontSize: 13, color: '#27ae60' },
+
+  sectionTitle: {
+    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    letterSpacing: 1, paddingVertical: 8,
+  },
+
+  exRow: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8,
+    shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 2, shadowOffset: { width: 0, height: 1 },
+  },
+  exHeader: { flexDirection: 'row', alignItems: 'center' },
+  exName: { fontSize: 14, fontWeight: '600', color: '#222' },
+  exSlug: { fontSize: 11, color: '#999', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  exCount: {
+    fontSize: 11, color: '#666', backgroundColor: '#eee',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
+  },
+  imgRow: { marginTop: 8 },
+  imgWrap: { marginRight: 6, position: 'relative' },
+  img: { width: 80, height: 80, borderRadius: 6, backgroundColor: '#f0f0f0' },
+  imgDelete: {
+    position: 'absolute', top: 2, right: 2,
+    backgroundColor: 'rgba(231,76,60,0.9)', borderRadius: 10, padding: 2,
+    cursor: 'pointer' as any,
+  },
+  addImgRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  addImgInput: {
+    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
+    fontSize: 12, backgroundColor: '#fafafa',
+  },
+  addImgBtn: {
+    backgroundColor: '#27ae60', borderRadius: 6, width: 34, alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
+  editPanel: {
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
+  },
+  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldInput: {
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
+    fontSize: 13, backgroundColor: '#fafafa',
+  },
+  saveEditBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#1a73e8', borderRadius: 6, padding: 8, marginTop: 10,
+    cursor: 'pointer' as any,
+  },
+  saveEditText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+});

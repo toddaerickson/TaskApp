@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 
@@ -47,13 +47,13 @@ export default function LoginScreen() {
           placeholderTextColor="#999"
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+        <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
           <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
+        <Pressable onPress={() => router.push('/(auth)/register')}>
           <Text style={styles.link}>Don't have an account? Register</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );

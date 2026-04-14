@@ -30,12 +30,22 @@ export default function CreateTaskScreen() {
   const [priority, setPriority] = useState(0);
   const [status, setStatus] = useState('none');
   const [starred, setStarred] = useState(false);
+  const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [repeatType, setRepeatType] = useState('none');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { loadFolders(); loadTags(); }, []);
+
+  const parseDate = (input: string): string | undefined => {
+    if (!input) return undefined;
+    const match = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (!match) return input;
+    const [, mm, dd, yy] = match;
+    const year = 2000 + parseInt(yy, 10);
+    return `${year}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  };
 
   const handleSave = async () => {
     if (!title.trim()) return Alert.alert('Error', 'Title is required');
@@ -48,7 +58,8 @@ export default function CreateTaskScreen() {
         priority,
         status,
         starred,
-        due_date: dueDate || undefined,
+        start_date: parseDate(startDate),
+        due_date: parseDate(dueDate),
         repeat_type: repeatType,
         tag_ids: selectedTagIds,
       });
@@ -137,11 +148,21 @@ export default function CreateTaskScreen() {
         <Switch value={starred} onValueChange={setStarred} trackColor={{ true: '#f39c12' }} />
       </View>
 
-      {/* Due Date (simple text for now) */}
-      <Text style={styles.label}>Due Date (YYYY-MM-DD)</Text>
+      {/* Start Date */}
+      <Text style={styles.label}>Start Date (MM/DD/YY)</Text>
       <TextInput
         style={styles.input}
-        placeholder="2026-04-01"
+        placeholder="03/28/26"
+        value={startDate}
+        onChangeText={setStartDate}
+        placeholderTextColor="#999"
+      />
+
+      {/* Due Date */}
+      <Text style={styles.label}>Due Date (MM/DD/YY)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="04/15/26"
         value={dueDate}
         onChangeText={setDueDate}
         placeholderTextColor="#999"

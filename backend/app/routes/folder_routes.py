@@ -17,7 +17,29 @@ def list_folders(user_id: int = Depends(get_current_user_id)):
             WHERE f.user_id = ?
             ORDER BY f.sort_order, f.name
         """, (user_id,))
-        return cur.fetchall()
+        folders = cur.fetchall()
+
+        # Fetch subfolders for all folders
+        folder_ids = [f["id"] for f in folders]
+        if folder_ids:
+            placeholders = ",".join(["?"] * len(folder_ids))
+            cur.execute(f"""
+                SELECT sf.id, sf.folder_id, sf.name, sf.sort_order,
+                       (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND t.completed = 0) AS task_count
+                FROM subfolders sf
+                WHERE sf.folder_id IN ({placeholders})
+                ORDER BY sf.sort_order, sf.name
+            """, folder_ids)
+            subfolders_map: dict[int, list] = {}
+            for row in cur.fetchall():
+                subfolders_map.setdefault(row["folder_id"], []).append(row)
+            for f in folders:
+                f["subfolders"] = subfolders_map.get(f["id"], [])
+        else:
+            for f in folders:
+                f["subfolders"] = []
+
+        return folders
 
 
 @router.post("", response_model=FolderResponse)

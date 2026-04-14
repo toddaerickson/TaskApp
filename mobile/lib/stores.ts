@@ -1,6 +1,16 @@
 import { create } from 'zustand';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as api from './api';
+
+// Web fallback for SecureStore (uses localStorage)
+const tokenStorage = Platform.OS === 'web'
+  ? {
+      getItemAsync: async (key: string) => localStorage.getItem(key),
+      setItemAsync: async (key: string, value: string) => { localStorage.setItem(key, value); },
+      deleteItemAsync: async (key: string) => { localStorage.removeItem(key); },
+    }
+  : SecureStore;
 
 // --- Auth Store ---
 interface AuthState {
@@ -19,14 +29,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
 
   loadToken: async () => {
-    const token = await SecureStore.getItemAsync('token');
+    const token = await tokenStorage.getItemAsync('token');
     if (token) {
       set({ token });
       try {
         const user = await api.getMe();
         set({ user, isLoading: false });
       } catch {
-        await SecureStore.deleteItemAsync('token');
+        await tokenStorage.deleteItemAsync('token');
         set({ token: null, user: null, isLoading: false });
       }
     } else {
@@ -36,7 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (email, password) => {
     const { access_token } = await api.login(email, password);
-    await SecureStore.setItemAsync('token', access_token);
+    await tokenStorage.setItemAsync('token', access_token);
     set({ token: access_token });
     const user = await api.getMe();
     set({ user });
@@ -44,43 +54,56 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   register: async (email, password, displayName) => {
     const { access_token } = await api.register(email, password, displayName);
-    await SecureStore.setItemAsync('token', access_token);
+    await tokenStorage.setItemAsync('token', access_token);
     set({ token: access_token });
     const user = await api.getMe();
     set({ user });
   },
 
   logout: async () => {
-    await SecureStore.deleteItemAsync('token');
+    await tokenStorage.deleteItemAsync('token');
     set({ token: null, user: null });
   },
 }));
 
 // --- Folder Store ---
-interface Folder {
+export interface SubfolderItem {
   id: number;
+  folder_id: number;
   name: string;
   sort_order: number;
   task_count: number;
 }
 
+export interface Folder {
+  id: number;
+  name: string;
+  sort_order: number;
+  task_count: number;
+  subfolders: SubfolderItem[];
+}
+
 interface FolderState {
   folders: Folder[];
   selectedFolderId: number | null;
+  selectedSubfolderId: number | null;
   load: () => Promise<void>;
   selectFolder: (id: number | null) => void;
+  selectSubfolder: (id: number | null) => void;
 }
 
 export const useFolderStore = create<FolderState>((set) => ({
   folders: [],
   selectedFolderId: null,
+  selectedSubfolderId: null,
 
   load: async () => {
     const folders = await api.getFolders();
     set({ folders });
   },
 
-  selectFolder: (id) => set({ selectedFolderId: id }),
+  selectFolder: (id) => set({ selectedFolderId: id, selectedSubfolderId: null }),
+  selectSubfolder: (id: number | null) => set({ selectedSubfolderId: id }),
 }));
 
 // --- Tag Store ---
@@ -103,24 +126,39 @@ export const useTagStore = create<TagState>((set) => ({
 }));
 
 // --- Task Store ---
+export interface Reminder {
+  id: number;
+  task_id: number;
+  remind_at: string;
+  reminded: boolean;
+  created_at: string;
+}
+
 export interface Task {
   id: number;
   title: string;
   folder_id: number | null;
   folder_name: string | null;
+  subfolder_id: number | null;
+  subfolder_name: string | null;
+  parent_id: number | null;
   note: string | null;
   priority: number;
   status: string;
   starred: boolean;
+  start_date: string | null;
   due_date: string | null;
   due_time: string | null;
   repeat_type: string;
   repeat_from: string;
+  sort_order: number;
   completed: boolean;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
   tags: Tag[];
+  subtasks: Task[];
+  reminders: Reminder[];
 }
 
 interface TaskState {
@@ -183,5 +221,61 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   toggleStar: async (id, starred) => {
     await api.updateTask(id, { starred: !starred });
     get().load();
+  },
+}));
+
+// --- Workouts ---
+export interface ExerciseImage { id: number; url: string; caption?: string | null; sort_order: number; }
+export interface Exercise {
+  id: number; user_id: number | null; name: string; slug?: string;
+  category: string; primary_muscle?: string; equipment?: string;
+  difficulty: number; is_bodyweight: boolean; measurement: string;
+  instructions?: string; cue?: string; contraindications?: string;
+  images: ExerciseImage[];
+}
+export interface RoutineExercise {
+  id: number; routine_id: number; exercise_id: number; sort_order: number;
+  target_sets?: number; target_reps?: number; target_weight?: number;
+  target_duration_sec?: number; rest_sec?: number; tempo?: string;
+  keystone: boolean; notes?: string; exercise?: Exercise;
+}
+export interface Routine {
+  id: number; user_id: number; name: string; goal: string;
+  notes?: string; sort_order: number; created_at: string;
+  exercises: RoutineExercise[];
+}
+export interface SessionSet {
+  id: number; session_id: number; exercise_id: number; set_number: number;
+  reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
+  rpe?: number; completed: boolean; notes?: string;
+}
+export interface WorkoutSession {
+  id: number; user_id: number; routine_id: number | null;
+  started_at: string; ended_at: string | null; rpe?: number;
+  mood?: number; notes?: string; sets: SessionSet[];
+}
+
+interface WorkoutState {
+  routines: Routine[];
+  isLoading: boolean;
+  loadRoutines: () => Promise<void>;
+  removeRoutine: (id: number) => Promise<void>;
+}
+
+export const useWorkoutStore = create<WorkoutState>((set, get) => ({
+  routines: [],
+  isLoading: false,
+  loadRoutines: async () => {
+    set({ isLoading: true });
+    try {
+      const data = await api.getRoutines();
+      set({ routines: data });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  removeRoutine: async (id) => {
+    await api.deleteRoutine(id);
+    get().loadRoutines();
   },
 }));
