@@ -1,4 +1,9 @@
+import os
+import urllib.parse
+import urllib.request
+import json as _json
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from app.database import get_db
 from app.auth import get_current_user_id
 from app.models import (
@@ -163,6 +168,100 @@ def bulk_images(req: BulkImageRequest, user_id: int = Depends(get_current_user_i
             results.append(BulkImageResult(slug=entry.slug, status="ok",
                                             added=added, replaced=replaced))
     return results
+
+
+class ImageCandidate(BaseModel):
+    url: str
+    thumb: str | None = None
+    source: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+def _search_pixabay(query: str, n: int) -> list[ImageCandidate]:
+    key = os.environ.get("PIXABAY_KEY")
+    if not key:
+        return []
+    url = "https://pixabay.com/api/?" + urllib.parse.urlencode({
+        "key": key, "q": query, "per_page": max(3, min(n, 10)),
+        "image_type": "photo", "safesearch": "true",
+    })
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = _json.loads(r.read().decode())
+    except Exception:
+        return []
+    return [
+        ImageCandidate(
+            url=h.get("webformatURL") or h.get("largeImageURL", ""),
+            thumb=h.get("previewURL"),
+            source="pixabay.com",
+            width=h.get("imageWidth"), height=h.get("imageHeight"),
+        )
+        for h in data.get("hits", [])[:n]
+        if h.get("webformatURL") or h.get("largeImageURL")
+    ]
+
+
+def _search_ddg(query: str, n: int) -> list[ImageCandidate]:
+    try:
+        from ddgs import DDGS  # type: ignore
+    except ImportError:
+        return []
+    try:
+        with DDGS() as d:
+            rows = list(d.images(query, max_results=n, safesearch="moderate"))
+    except Exception:
+        return []
+    out: list[ImageCandidate] = []
+    for r in rows[:n]:
+        u = r.get("image")
+        if not u:
+            continue
+        def _int(v):
+            try: return int(v) if v not in (None, "") else None
+            except (TypeError, ValueError): return None
+        out.append(ImageCandidate(
+            url=u,
+            thumb=r.get("thumbnail"),
+            source=r.get("source") or r.get("host"),
+            width=_int(r.get("width")), height=_int(r.get("height")),
+        ))
+    return out
+
+
+@router.get("/{exercise_id}/search-images", response_model=list[ImageCandidate])
+def search_images(
+    exercise_id: int,
+    q: str | None = Query(None, description="Override the search query (defaults to exercise name)"),
+    n: int = Query(6, ge=1, le=15),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Return candidate image URLs from free sources (DuckDuckGo + optional
+    Pixabay). Caller picks one and POSTs to /exercises/{id}/images.
+    Pixabay is used when PIXABAY_KEY env is set; otherwise DDG only."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM exercises WHERE id = ?", (exercise_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Exercise not found")
+        query = q or row["name"]
+    # Interleave sources so a slow/empty provider doesn't starve results.
+    pix = _search_pixabay(query, n)
+    ddg = _search_ddg(query, n)
+    merged: list[ImageCandidate] = []
+    seen: set[str] = set()
+    for pair in zip(pix, ddg):
+        for c in pair:
+            if c.url and c.url not in seen:
+                seen.add(c.url)
+                merged.append(c)
+    for c in pix[len(ddg):] + ddg[len(pix):]:
+        if c.url and c.url not in seen:
+            seen.add(c.url)
+            merged.append(c)
+    return merged[:n]
 
 
 @router.delete("/images/{image_id}")

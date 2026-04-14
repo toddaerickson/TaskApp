@@ -210,6 +210,21 @@ export async function deleteExerciseImage(imageId: number) {
   await api.delete(`/exercises/images/${imageId}`);
 }
 
+export interface ImageCandidate {
+  url: string;
+  thumb?: string | null;
+  source?: string | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export async function searchExerciseImages(exerciseId: number, q?: string, n = 6) {
+  const { data } = await api.get(`/exercises/${exerciseId}/search-images`, {
+    params: { q, n },
+  });
+  return data as ImageCandidate[];
+}
+
 // --- Workouts: Routines ---
 export async function getRoutines() {
   const { data } = await api.get('/routines');
