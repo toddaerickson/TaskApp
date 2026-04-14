@@ -6,22 +6,13 @@ from app.models import (
     ExerciseImageCreate, ExerciseImageResponse,
     BulkImageRequest, BulkImageResult,
 )
+from app.hydrate import hydrate_exercises_with_images
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
 
-def _load_images(cur, exercise_id: int) -> list[dict]:
-    cur.execute(
-        "SELECT id, url, caption, sort_order FROM exercise_images "
-        "WHERE exercise_id = ? ORDER BY sort_order ASC, id ASC",
-        (exercise_id,),
-    )
-    return cur.fetchall()
-
-
-def _hydrate(cur, row: dict) -> dict:
-    row["is_bodyweight"] = bool(row["is_bodyweight"])
-    row["images"] = _load_images(cur, row["id"])
+def _hydrate_one(cur, row: dict) -> dict:
+    hydrate_exercises_with_images(cur, [row])
     return row
 
 
@@ -44,7 +35,7 @@ def list_exercises(
         sql += " ORDER BY name ASC"
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
-        return [_hydrate(cur, r) for r in rows]
+        return hydrate_exercises_with_images(cur, rows)
 
 
 @router.get("/{exercise_id}", response_model=ExerciseResponse)
@@ -58,7 +49,7 @@ def get_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id)):
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Exercise not found")
-        return _hydrate(cur, row)
+        return _hydrate_one(cur, row)
 
 
 @router.post("", response_model=ExerciseResponse)
@@ -76,7 +67,7 @@ def create_exercise(req: ExerciseCreate, user_id: int = Depends(get_current_user
         )
         ex_id = cur.lastrowid
         cur.execute("SELECT * FROM exercises WHERE id = ?", (ex_id,))
-        return _hydrate(cur, cur.fetchone())
+        return _hydrate_one(cur, cur.fetchone())
 
 
 @router.put("/{exercise_id}", response_model=ExerciseResponse)
@@ -97,7 +88,7 @@ def update_exercise(exercise_id: int, req: ExerciseUpdate, user_id: int = Depend
             params = list(fields.values()) + [exercise_id]
             cur.execute(f"UPDATE exercises SET {sets} WHERE id = ?", tuple(params))
         cur.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,))
-        return _hydrate(cur, cur.fetchone())
+        return _hydrate_one(cur, cur.fetchone())
 
 
 @router.delete("/{exercise_id}")

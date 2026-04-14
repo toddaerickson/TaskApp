@@ -7,6 +7,7 @@ from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
 )
+from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 
 
 class RoutineExerciseUpdate(BaseModel):
@@ -28,34 +29,11 @@ router = APIRouter(prefix="/routines", tags=["routines"])
 
 
 def _load_exercise(cur, exercise_id: int) -> dict | None:
-    cur.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,))
-    ex = cur.fetchone()
-    if not ex:
-        return None
-    ex["is_bodyweight"] = bool(ex["is_bodyweight"])
-    cur.execute(
-        "SELECT id, url, caption, sort_order FROM exercise_images "
-        "WHERE exercise_id = ? ORDER BY sort_order ASC",
-        (exercise_id,),
-    )
-    ex["images"] = cur.fetchall()
-    return ex
-
-
-def _load_routine_exercises(cur, routine_id: int) -> list[dict]:
-    cur.execute(
-        "SELECT * FROM routine_exercises WHERE routine_id = ? ORDER BY sort_order ASC, id ASC",
-        (routine_id,),
-    )
-    rows = cur.fetchall()
-    for r in rows:
-        r["keystone"] = bool(r["keystone"])
-        r["exercise"] = _load_exercise(cur, r["exercise_id"])
-    return rows
+    return load_exercises_by_ids(cur, [exercise_id]).get(exercise_id)
 
 
 def _hydrate_routine(cur, row: dict) -> dict:
-    row["exercises"] = _load_routine_exercises(cur, row["id"])
+    hydrate_routines_full(cur, [row])
     return row
 
 
@@ -67,7 +45,7 @@ def list_routines(user_id: int = Depends(get_current_user_id)):
             "SELECT * FROM routines WHERE user_id = ? ORDER BY sort_order ASC, id ASC",
             (user_id,),
         )
-        return [_hydrate_routine(cur, r) for r in cur.fetchall()]
+        return hydrate_routines_full(cur, cur.fetchall())
 
 
 @router.get("/{routine_id}", response_model=RoutineResponse)

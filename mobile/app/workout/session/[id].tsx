@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise, WorkoutSession, SessionSet } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { beep } from '@/lib/timer';
+import { formatTime, severityColor as sevColor } from '@/lib/format';
 
 export default function ActiveSessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -42,18 +43,25 @@ export default function ActiveSessionScreen() {
     setSession(s);
   };
 
+  const logInFlight = useRef(false);
+
   const handleLogSet = async (re: RoutineExercise, payload: Partial<SessionSet>) => {
-    if (!session) return;
-    const existing = session.sets.filter((s) => s.exercise_id === re.exercise_id);
-    await api.logSet(session.id, {
-      exercise_id: re.exercise_id,
-      set_number: existing.length + 1,
-      reps: payload.reps,
-      duration_sec: payload.duration_sec,
-      weight: payload.weight,
-      rpe: payload.rpe,
-    });
-    reload();
+    if (!session || logInFlight.current) return;
+    logInFlight.current = true;
+    try {
+      // Server assigns set_number atomically; don't send one from the client
+      // to avoid stale-closure races on double-tap.
+      await api.logSet(session.id, {
+        exercise_id: re.exercise_id,
+        reps: payload.reps,
+        duration_sec: payload.duration_sec,
+        weight: payload.weight,
+        rpe: payload.rpe,
+      });
+      await reload();
+    } finally {
+      logInFlight.current = false;
+    }
   };
 
   const handleFinish = async () => {
@@ -240,19 +248,6 @@ const SYMPTOM_PARTS = [
   'left_calf', 'lower_back', 'right_knee',
 ];
 
-function formatTime(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
-}
-
-function sevColor(sev: number): string {
-  if (sev <= 2) return '#27ae60';
-  if (sev <= 5) return '#f0ad4e';
-  if (sev <= 7) return '#e67e22';
-  return '#e74c3c';
-}
-
 function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }: {
   re: RoutineExercise;
   idx: number;
@@ -275,6 +270,10 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
   const [timerMode, setTimerMode] = useState<'idle' | 'running' | 'rest'>('idle');
   const [remaining, setRemaining] = useState(0);
   const tickRef = useRef<any>(null);
+  // Keep sets in a ref so the timer's onDone closure reads fresh values,
+  // not the length captured when the timer started.
+  const setsRef = useRef(sets);
+  useEffect(() => { setsRef.current = sets; }, [sets]);
 
   const stopTimer = () => {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
@@ -282,7 +281,17 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
     setRemaining(0);
   };
 
-  useEffect(() => () => { if (tickRef.current) clearInterval(tickRef.current); }, []);
+  // Clear the interval when this block is deactivated OR unmounted. Prevents
+  // ghost beeps/logs firing for an exercise the user has left.
+  useEffect(() => {
+    if (!isActive && tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+      setTimerMode('idle');
+      setRemaining(0);
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [isActive]);
 
   const startTimer = (seconds: number, mode: 'running' | 'rest', onDone?: () => void) => {
     if (tickRef.current) clearInterval(tickRef.current);
@@ -308,8 +317,9 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
       duration_sec: isDuration && duration ? Number(duration) : undefined,
       weight: weight ? Number(weight) : undefined,
     });
-    const willBeDone = sets.length + 1 >= targetSets;
-    if (willBeDone) {
+    // Read fresh length AFTER onLog's reload so we don't miss sets logged
+    // concurrently elsewhere in the session.
+    if (setsRef.current.length >= targetSets) {
       onAdvance();
     } else if (re.rest_sec && re.rest_sec > 0) {
       startTimer(re.rest_sec, 'rest');
@@ -320,8 +330,7 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
     const secs = Number(duration) || re.target_duration_sec || 30;
     startTimer(secs, 'running', async () => {
       await onLog({ duration_sec: secs });
-      const willBeDone = sets.length + 1 >= targetSets;
-      if (willBeDone) {
+      if (setsRef.current.length >= targetSets) {
         onAdvance();
       } else if (re.rest_sec && re.rest_sec > 0) {
         startTimer(re.rest_sec, 'rest');

@@ -266,7 +266,9 @@ export async function endSession(id: number, extras?: { rpe?: number; mood?: num
 }
 
 export async function logSet(sessionId: number, payload: {
-  exercise_id: number; set_number: number;
+  exercise_id: number;
+  /** Omit to have the server auto-assign the next set_number atomically. */
+  set_number?: number;
   reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
   rpe?: number; completed?: boolean; notes?: string;
 }) {

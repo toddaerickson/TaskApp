@@ -3,7 +3,6 @@ Database layer supporting both SQLite (local dev) and PostgreSQL (production).
 SQLite requires no installation — just works. Set DATABASE_URL to a postgresql:// URL to use Postgres.
 """
 import os
-import re
 import sqlite3
 from contextlib import contextmanager
 from app.config import DATABASE_URL, DB_TYPE
@@ -49,16 +48,6 @@ def get_db():
         raise
     finally:
         conn.close()
-
-
-def _convert_pg_to_sqlite(sql: str) -> str:
-    """Convert PostgreSQL DDL to SQLite-compatible SQL."""
-    sql = sql.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
-    sql = sql.replace("TIMESTAMPTZ", "TEXT")
-    sql = sql.replace("DEFAULT NOW()", "DEFAULT (datetime('now'))")
-    sql = re.sub(r"CREATE INDEX IF NOT EXISTS \w+ ON", "CREATE INDEX IF NOT EXISTS idx ON", sql)
-    # Remove CHECK constraints that SQLite handles differently (keep them, SQLite supports CHECK)
-    return sql
 
 
 # SQLite schema (hand-tuned for compatibility)
@@ -239,6 +228,12 @@ CREATE INDEX IF NOT EXISTS idx_routine_ex_routine ON routine_exercises(routine_i
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON workout_sessions(user_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_session_sets_session ON session_sets(session_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user ON symptom_logs(user_id, logged_at);
+CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_global_slug ON exercises(slug) WHERE user_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_user_slug ON exercises(user_id, slug) WHERE user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_session_sets_key ON session_sets(session_id, exercise_id, set_number);
+CREATE INDEX IF NOT EXISTS idx_routine_ex_exercise ON routine_exercises(exercise_id);
+CREATE INDEX IF NOT EXISTS idx_session_sets_exercise ON session_sets(exercise_id);
 """
 
 

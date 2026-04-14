@@ -275,7 +275,7 @@ class RoutineResponse(BaseModel):
 
 class SessionSetCreate(BaseModel):
     exercise_id: int
-    set_number: int
+    set_number: Optional[int] = None  # server-assigned when omitted
     reps: Optional[int] = None
     weight: Optional[float] = None
     duration_sec: Optional[int] = None

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Platform,
+  View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession } from '@/lib/stores';
 import * as api from '@/lib/api';
+import { formatRel } from '@/lib/format';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: '#e67e22', strength: '#1a73e8', mobility: '#27ae60',
@@ -101,13 +102,6 @@ function computeStreak(sessions: WorkoutSession[]): number {
     cur.setDate(cur.getDate() - 1);
   }
   return streak;
-}
-
-function formatRel(iso: string): string {
-  const d = new Date(iso);
-  const hrs = (Date.now() - d.getTime()) / 3600_000;
-  if (hrs < 24) return `${Math.round(hrs)}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
 }
 
 const styles = StyleSheet.create({
