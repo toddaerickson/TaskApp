@@ -33,6 +33,10 @@ export default function WorkoutsScreen() {
           <Text style={styles.headerSub}>{routines.length} routine{routines.length === 1 ? '' : 's'}</Text>
         </View>
         <View style={styles.headerActions}>
+          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/progress')}>
+            <Ionicons name="stats-chart-outline" size={16} color="#1a73e8" />
+            <Text style={styles.trackBtnText}>Progress</Text>
+          </Pressable>
           <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/admin')}>
             <Ionicons name="images-outline" size={16} color="#1a73e8" />
             <Text style={styles.trackBtnText}>Admin</Text>

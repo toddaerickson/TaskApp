@@ -179,7 +179,11 @@ export default function ActiveSessionScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>Log symptom</Text>
-              <Pressable onPress={() => setSymptomOpen(false)}>
+              <Pressable
+                onPress={() => setSymptomOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close symptom log"
+              >
                 <Ionicons name="close" size={22} color="#888" />
               </Pressable>
             </View>
@@ -387,17 +391,21 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
           </View>
 
           {timerMode !== 'idle' && (
-            <View style={[
-              styles.timerBox,
-              timerMode === 'rest' && { backgroundColor: '#e3f2fd', borderColor: '#1a73e8' },
-            ]}>
+            <View
+              style={[
+                styles.timerBox,
+                timerMode === 'rest' && { backgroundColor: '#e3f2fd', borderColor: '#1a73e8' },
+              ]}
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={`${timerMode === 'running' ? 'Hold' : 'Rest'} timer, ${remaining} seconds remaining`}
+            >
               <Text style={[styles.timerLabel, timerMode === 'rest' && { color: '#1a73e8' }]}>
                 {timerMode === 'running' ? 'Hold' : 'Rest'}
               </Text>
               <Text style={[styles.timerValue, timerMode === 'rest' && { color: '#1a73e8' }]}>
                 {formatTime(remaining)}
               </Text>
-              <Pressable style={styles.timerStopBtn} onPress={stopTimer}>
+              <Pressable style={styles.timerStopBtn} onPress={stopTimer} accessibilityRole="button">
                 <Text style={styles.timerStopText}>Stop</Text>
               </Pressable>
             </View>

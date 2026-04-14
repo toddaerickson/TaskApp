@@ -329,7 +329,12 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
           {exercise.images.map((img) => (
             <View key={img.id} style={styles.imgWrap}>
               <Image source={{ uri: img.url }} style={styles.img} resizeMode="cover" />
-              <Pressable style={styles.imgDelete} onPress={() => handleDelete(img.id)}>
+              <Pressable
+                style={styles.imgDelete}
+                onPress={() => handleDelete(img.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Remove this image"
+              >
                 <Ionicons name="close" size={14} color="#fff" />
               </Pressable>
             </View>
@@ -358,7 +363,12 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
           <Ionicons name="sparkles" size={14} color="#fff" />
           <Text style={styles.searchBtnText}>Find</Text>
         </Pressable>
-        <Pressable style={styles.searchBtnAlt} onPress={() => openImageSearch(exercise.name)}>
+        <Pressable
+          style={styles.searchBtnAlt}
+          onPress={() => openImageSearch(exercise.name)}
+          accessibilityRole="link"
+          accessibilityLabel={`Open Google Images search for ${exercise.name}`}
+        >
           <Ionicons name="open-outline" size={14} color="#666" />
         </Pressable>
       </View>
@@ -368,7 +378,11 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
           <View style={styles.modalCard}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>Find image for {exercise.name}</Text>
-              <Pressable onPress={() => setPickerOpen(false)}>
+              <Pressable
+                onPress={() => setPickerOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close image picker"
+              >
                 <Ionicons name="close" size={22} color="#888" />
               </Pressable>
             </View>

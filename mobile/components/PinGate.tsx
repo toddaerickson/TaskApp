@@ -157,11 +157,17 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       {!!message && mode !== 'locked' && <Text style={styles.subtitle}>{message}</Text>}
 
       {mode !== 'locked' && (
-        <View style={styles.dots}>
+        <View
+          style={styles.dots}
+          accessibilityRole="progressbar"
+          accessibilityLabel={`${entered.length} of 4 digits entered`}
+        >
           {Array.from({ length: 4 }).map((_, i) => (
             <View
               key={i}
               style={[styles.dot, i < entered.length && styles.dotFilled, shake && styles.dotWrong]}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
             />
           ))}
         </View>
@@ -190,15 +196,31 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       {mode !== 'locked' && (
         <View style={styles.pad}>
           {['1','2','3','4','5','6','7','8','9'].map((n) => (
-            <Pressable key={n} style={styles.key} onPress={() => press(n)}>
+            <Pressable
+              key={n}
+              style={styles.key}
+              onPress={() => press(n)}
+              accessibilityRole="button"
+              accessibilityLabel={`Digit ${n}`}
+            >
               <Text style={styles.keyText}>{n}</Text>
             </Pressable>
           ))}
-          <View style={styles.key} />
-          <Pressable style={styles.key} onPress={() => press('0')}>
+          <View style={styles.key} accessibilityElementsHidden importantForAccessibility="no" />
+          <Pressable
+            style={styles.key}
+            onPress={() => press('0')}
+            accessibilityRole="button"
+            accessibilityLabel="Digit 0"
+          >
             <Text style={styles.keyText}>0</Text>
           </Pressable>
-          <Pressable style={styles.key} onPress={backspace}>
+          <Pressable
+            style={styles.key}
+            onPress={backspace}
+            accessibilityRole="button"
+            accessibilityLabel="Delete last digit"
+          >
             <Ionicons name="backspace-outline" size={24} color="#666" />
           </Pressable>
         </View>
