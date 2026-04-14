@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  isPinSet, setPin, verifyPin, isLockedOut, getFailedAttempts, MAX_ATTEMPTS,
+  isPinSet, setPin, verifyPin, isLockedOut, getFailedAttempts, touchUnlock,
+  MAX_ATTEMPTS,
 } from '@/lib/pin';
+import {
+  biometricKind, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled,
+  authenticateBiometric, BiometricKind,
+} from '@/lib/biometric';
 
 type Mode = 'loading' | 'enter' | 'set' | 'confirm' | 'locked';
 
@@ -14,10 +19,16 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const [wrong, setWrong] = useState(0);
   const [shake, setShake] = useState(false);
   const [message, setMessage] = useState('');
+  const [bioKind, setBioKind] = useState<BiometricKind>('none');
+  const [bioEnabled, setBioEnabled] = useState(false);
+  const [offerEnableBio, setOfferEnableBio] = useState(false);
   const shakeTimer = useRef<any>(null);
+  const bioAutoTried = useRef(false);
 
   useEffect(() => {
     (async () => {
+      setBioKind(await biometricKind());
+      setBioEnabled(await isBiometricEnabled());
       if (await isLockedOut()) { setMode('locked'); return; }
       const has = await isPinSet();
       if (!has) { setMode('set'); setMessage('Set a 4-digit PIN to lock the app.'); return; }
@@ -27,12 +38,36 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     return () => { if (shakeTimer.current) clearTimeout(shakeTimer.current); };
   }, []);
 
+  // Auto-prompt biometric on first entry into 'enter' mode if the user has
+  // enabled it. One try — if they cancel, fall through to PIN.
+  useEffect(() => {
+    if (mode !== 'enter' || bioAutoTried.current) return;
+    if (!bioEnabled || bioKind === 'none') return;
+    bioAutoTried.current = true;
+    (async () => {
+      const ok = await authenticateBiometric(bioPrompt(bioKind));
+      if (ok) {
+        await touchUnlock();
+        onUnlock();
+      }
+    })();
+  }, [mode, bioEnabled, bioKind]);
+
+  const tryBiometric = async () => {
+    const ok = await authenticateBiometric(bioPrompt(bioKind));
+    if (ok) { await touchUnlock(); onUnlock(); }
+  };
+
   useEffect(() => {
     if (entered.length !== 4) return;
     (async () => {
       if (mode === 'enter') {
         const ok = await verifyPin(entered);
-        if (ok) { onUnlock(); return; }
+        if (ok) {
+          if (bioKind !== 'none' && !bioEnabled) { setOfferEnableBio(true); return; }
+          onUnlock();
+          return;
+        }
         const attempts = await getFailedAttempts();
         setWrong(attempts);
         shakeIt();
@@ -45,6 +80,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       } else if (mode === 'confirm') {
         if (entered === firstPin) {
           await setPin(entered);
+          if (bioKind !== 'none') { setOfferEnableBio(true); return; }
           onUnlock();
         } else {
           setFirstPin(null);
@@ -67,6 +103,41 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color="#1a73e8" /></View>;
+  }
+
+  if (offerEnableBio) {
+    return (
+      <View style={styles.container}>
+        <Ionicons
+          name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
+          size={56} color="#1a73e8"
+        />
+        <Text style={styles.title}>Enable {bioLabel(bioKind)}?</Text>
+        <Text style={styles.subtitle}>
+          Unlock TaskApp with {bioLabel(bioKind)} instead of your PIN. Your PIN still works as a fallback.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+          <Pressable
+            style={styles.ghostBtn}
+            onPress={() => { setOfferEnableBio(false); onUnlock(); }}
+          >
+            <Text style={styles.ghostBtnText}>Not now</Text>
+          </Pressable>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={async () => {
+              const ok = await authenticateBiometric(`Enable ${bioLabel(bioKind)}`);
+              if (ok) { await setBiometricEnabled(true); setBioEnabled(true); }
+              setOfferEnableBio(false);
+              onUnlock();
+            }}
+          >
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.primaryBtnText}>Enable</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   }
 
   const title = mode === 'set' ? 'Set PIN'
@@ -101,6 +172,15 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
           Wrong PIN. {remaining} attempt{remaining === 1 ? '' : 's'} left.
         </Text>
       )}
+      {mode === 'enter' && bioKind !== 'none' && bioEnabled && (
+        <Pressable style={styles.bioBtn} onPress={tryBiometric}>
+          <Ionicons
+            name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
+            size={16} color="#1a73e8"
+          />
+          <Text style={styles.bioBtnText}>Use {bioLabel(bioKind)}</Text>
+        </Pressable>
+      )}
       {mode === 'locked' && (
         <Text style={styles.lockedText}>
           Too many wrong attempts. Close and reopen the app to try again.
@@ -125,6 +205,17 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       )}
     </View>
   );
+}
+
+function bioLabel(kind: BiometricKind): string {
+  if (kind === 'face') return 'Face ID';
+  if (kind === 'fingerprint') return 'Touch ID';
+  if (kind === 'iris') return 'Iris';
+  return 'Biometrics';
+}
+
+function bioPrompt(kind: BiometricKind): string {
+  return `Unlock TaskApp with ${bioLabel(kind)}`;
 }
 
 const styles = StyleSheet.create({
@@ -154,4 +245,23 @@ const styles = StyleSheet.create({
     cursor: 'pointer' as any,
   },
   keyText: { fontSize: 26, color: '#333', fontWeight: '500' },
+
+  bioBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: '#e8f0fe', marginTop: 12, cursor: 'pointer' as any,
+  },
+  bioBtnText: { color: '#1a73e8', fontSize: 13, fontWeight: '600' },
+
+  primaryBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#1a73e8', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8,
+    cursor: 'pointer' as any,
+  },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  ghostBtn: {
+    paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8,
+    borderWidth: 1, borderColor: '#ddd', cursor: 'pointer' as any,
+  },
+  ghostBtnText: { color: '#666', fontWeight: '600', fontSize: 14 },
 });
