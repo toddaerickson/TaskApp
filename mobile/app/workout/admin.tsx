@@ -312,9 +312,25 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
         >
           <Ionicons name="add" size={18} color="#fff" />
         </Pressable>
+        <Pressable style={styles.searchBtn} onPress={() => openImageSearch(exercise.name)}>
+          <Ionicons name="search" size={14} color="#fff" />
+          <Text style={styles.searchBtnText}>Search</Text>
+        </Pressable>
       </View>
     </View>
   );
+}
+
+function openImageSearch(query: string) {
+  const q = encodeURIComponent(query);
+  const url = `https://www.google.com/search?tbm=isch&q=${q}`;
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } else {
+    // Native: lazy-require Linking so web bundler doesn't complain.
+    const { Linking } = require('react-native');
+    Linking.openURL(url).catch(() => {});
+  }
 }
 
 const styles = StyleSheet.create({
@@ -386,6 +402,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#27ae60', borderRadius: 6, width: 34, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
+  searchBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#1a73e8',
+    cursor: 'pointer' as any,
+  },
+  searchBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   editPanel: {
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',

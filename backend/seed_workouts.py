@@ -57,9 +57,16 @@ IMAGES = {
     "figure_4_stretch": [
         f"{_BASE}/Ankle_On_The_Knee/0.jpg",
     ],
-    # Not found in free-exercise-db — paste via Admin screen:
-    # clamshell_banded, side_lying_hip_abduction, seated_soleus_stretch,
-    # isometric_seated_external_rotation, banded_fire_hydrant
+    # Wikimedia Commons matches for exercises missing from free-exercise-db.
+    "side_lying_hip_abduction": [
+        "https://upload.wikimedia.org/wikipedia/commons/5/54/Side_Leg_Raise.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/f/f7/Side-reclining_leg_lift_pose.jpg",
+    ],
+    "isometric_seated_external_rotation": [
+        "https://upload.wikimedia.org/wikipedia/commons/7/7a/Piriformis_stretch.jpg",
+    ],
+    # Still needing images — use the Admin screen's "Search" button:
+    # clamshell_banded, seated_soleus_stretch, banded_fire_hydrant
 }
 
 
