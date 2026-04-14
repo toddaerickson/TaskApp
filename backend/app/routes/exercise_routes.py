@@ -1,9 +1,14 @@
+import asyncio
+import logging
 import os
+import time
 import urllib.parse
 import urllib.request
 import json as _json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+log = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth import get_current_user_id
 from app.models import (
@@ -178,18 +183,33 @@ class ImageCandidate(BaseModel):
     height: int | None = None
 
 
+def _coerce_int(v) -> int | None:
+    try:
+        return int(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+# In-memory TTL cache for search results. Key: (query_lower, n).
+# Scoped to the process; fine for single-instance deployments.
+_SEARCH_CACHE: dict[tuple[str, int], tuple[float, list[ImageCandidate]]] = {}
+_SEARCH_TTL_SEC = 300  # 5 min — long enough to help the "reopen modal" flow
+_SEARCH_BUDGET_SEC = 8.0
+
+
 def _search_pixabay(query: str, n: int) -> list[ImageCandidate]:
     key = os.environ.get("PIXABAY_KEY")
     if not key:
         return []
     url = "https://pixabay.com/api/?" + urllib.parse.urlencode({
-        "key": key, "q": query, "per_page": max(3, min(n, 10)),
+        "key": key, "q": query, "per_page": max(3, min(n, 200)),
         "image_type": "photo", "safesearch": "true",
     })
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
+        with urllib.request.urlopen(url, timeout=6) as r:
             data = _json.loads(r.read().decode())
-    except Exception:
+    except Exception as e:
+        log.warning("Pixabay search failed for %r: %s", query, e)
         return []
     return [
         ImageCandidate(
@@ -207,49 +227,30 @@ def _search_ddg(query: str, n: int) -> list[ImageCandidate]:
     try:
         from ddgs import DDGS  # type: ignore
     except ImportError:
+        log.warning("ddgs package not installed; skipping DDG search")
         return []
     try:
-        with DDGS() as d:
+        with DDGS(timeout=6) as d:
             rows = list(d.images(query, max_results=n, safesearch="moderate"))
-    except Exception:
+    except Exception as e:
+        log.warning("DDG search failed for %r: %s", query, e)
         return []
     out: list[ImageCandidate] = []
     for r in rows[:n]:
         u = r.get("image")
         if not u:
             continue
-        def _int(v):
-            try: return int(v) if v not in (None, "") else None
-            except (TypeError, ValueError): return None
         out.append(ImageCandidate(
             url=u,
             thumb=r.get("thumbnail"),
             source=r.get("source") or r.get("host"),
-            width=_int(r.get("width")), height=_int(r.get("height")),
+            width=_coerce_int(r.get("width")),
+            height=_coerce_int(r.get("height")),
         ))
     return out
 
 
-@router.get("/{exercise_id}/search-images", response_model=list[ImageCandidate])
-def search_images(
-    exercise_id: int,
-    q: str | None = Query(None, description="Override the search query (defaults to exercise name)"),
-    n: int = Query(6, ge=1, le=15),
-    user_id: int = Depends(get_current_user_id),
-):
-    """Return candidate image URLs from free sources (DuckDuckGo + optional
-    Pixabay). Caller picks one and POSTs to /exercises/{id}/images.
-    Pixabay is used when PIXABAY_KEY env is set; otherwise DDG only."""
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM exercises WHERE id = ?", (exercise_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(404, "Exercise not found")
-        query = q or row["name"]
-    # Interleave sources so a slow/empty provider doesn't starve results.
-    pix = _search_pixabay(query, n)
-    ddg = _search_ddg(query, n)
+def _merge_candidates(pix: list[ImageCandidate], ddg: list[ImageCandidate], n: int) -> list[ImageCandidate]:
     merged: list[ImageCandidate] = []
     seen: set[str] = set()
     for pair in zip(pix, ddg):
@@ -262,6 +263,61 @@ def search_images(
             seen.add(c.url)
             merged.append(c)
     return merged[:n]
+
+
+@router.get("/{exercise_id}/search-images", response_model=list[ImageCandidate])
+async def search_images(
+    exercise_id: int,
+    q: str | None = Query(None, description="Override the search query (defaults to exercise name)"),
+    n: int = Query(6, ge=1, le=15),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Return candidate image URLs from free sources (DuckDuckGo + optional
+    Pixabay). Caller picks one and POSTs to /exercises/{id}/images. Pixabay
+    is used when PIXABAY_KEY env is set; otherwise DDG only.
+
+    - Providers run concurrently in a thread pool (both do blocking I/O).
+    - Total time is capped at 8s; if a provider misses the deadline its
+      results are dropped and whatever arrived is returned.
+    - Results are cached in-process for 5 minutes keyed on (query, n).
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+        # Scope to globals or the caller's own exercise. Matches other endpoints.
+        cur.execute(
+            "SELECT name FROM exercises WHERE id = ? AND (user_id IS NULL OR user_id = ?)",
+            (exercise_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Exercise not found")
+        query = (q or row["name"]).strip()
+
+    key = (query.lower(), n)
+    cached = _SEARCH_CACHE.get(key)
+    now = time.time()
+    if cached and now - cached[0] < _SEARCH_TTL_SEC:
+        return cached[1]
+
+    tasks = [
+        asyncio.to_thread(_search_pixabay, query, n),
+        asyncio.to_thread(_search_ddg, query, n),
+    ]
+    try:
+        pix, ddg = await asyncio.wait_for(asyncio.gather(*tasks), timeout=_SEARCH_BUDGET_SEC)
+    except asyncio.TimeoutError:
+        log.warning("Image search exceeded %.1fs budget for %r", _SEARCH_BUDGET_SEC, query)
+        # Whatever finished by cancellation is gone; return empty rather than hang.
+        pix, ddg = [], []
+
+    merged = _merge_candidates(pix, ddg, n)
+    _SEARCH_CACHE[key] = (now, merged)
+    # Bound the cache so a long-running server doesn't leak memory.
+    if len(_SEARCH_CACHE) > 200:
+        oldest = sorted(_SEARCH_CACHE.items(), key=lambda kv: kv[1][0])[:100]
+        for k, _ in oldest:
+            _SEARCH_CACHE.pop(k, None)
+    return merged
 
 
 @router.delete("/images/{image_id}")
