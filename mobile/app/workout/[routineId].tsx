@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine } from '@/lib/stores';
 import * as api from '@/lib/api';
@@ -13,12 +13,17 @@ export default function RoutineDetailScreen() {
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [starting, setStarting] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
 
-  const reload = () => {
+  const reload = useCallback(() => {
     if (!routineId) return;
-    api.getRoutine(Number(routineId)).then(setRoutine).catch(() => {});
-  };
-  useEffect(reload, [routineId]);
+    const id = Number(routineId);
+    api.getRoutine(id).then(setRoutine).catch(() => {});
+    api.getRoutineSuggestions(id).then(setSuggestions).catch(() => setSuggestions([]));
+  }, [routineId]);
+  // Reload on focus so returning from a finished session picks up the new
+  // suggestion immediately, not the pre-workout one.
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
   const moveExercise = async (idx: number, dir: -1 | 1) => {
     if (!routine) return;
@@ -112,6 +117,23 @@ export default function RoutineDetailScreen() {
                     )}
                   </View>
                   <Text style={styles.exTarget}>{formatTarget(re)}</Text>
+                  {(() => {
+                    const sg = suggestions.find((s) => s.routine_exercise_id === re.id);
+                    if (!sg || !sg.reason || sg.reason.startsWith('No prior')) return null;
+                    return (
+                      <View
+                        style={styles.suggestBox}
+                        accessibilityLabel={`Suggestion: ${formatSuggest(sg)}. ${sg.reason}`}
+                      >
+                        <Ionicons name="sparkles-outline" size={11} color="#27ae60" />
+                        <Text style={styles.suggestText}>
+                          Next: <Text style={{ fontWeight: '700' }}>{formatSuggest(sg)}</Text>
+                          {' · '}
+                          <Text style={styles.suggestReason}>{sg.reason}</Text>
+                        </Text>
+                      </View>
+                    );
+                  })()}
                 </View>
                 {editMode && (
                   <View style={styles.editControls}>
@@ -300,6 +322,14 @@ function EditField({ label, value, onChange, numeric }: {
   );
 }
 
+function formatSuggest(sg: api.RoutineSuggestion): string {
+  const parts: string[] = [];
+  if (sg.reps) parts.push(`${sg.reps} reps`);
+  if (sg.weight) parts.push(`@${sg.weight} lb`);
+  if (sg.duration_sec) parts.push(`${sg.duration_sec}s`);
+  return parts.join(' ') || '—';
+}
+
 function formatTarget(re: any): string {
   const parts: string[] = [];
   if (re.target_sets) parts.push(`${re.target_sets}×`);
@@ -330,6 +360,13 @@ const styles = StyleSheet.create({
   },
   exName: { fontSize: 16, fontWeight: '600', color: '#222' },
   exTarget: { fontSize: 12, color: '#1a73e8', marginTop: 2, fontWeight: '600' },
+  suggestBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
+    backgroundColor: '#e8f5e9', paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 4, alignSelf: 'flex-start',
+  },
+  suggestText: { fontSize: 11, color: '#1b5e20', flexShrink: 1 },
+  suggestReason: { fontStyle: 'italic', color: '#2e7d32' },
   keystoneBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: '#f39c12', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,

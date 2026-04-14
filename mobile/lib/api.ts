@@ -196,6 +196,20 @@ export async function reorderRoutineExercises(routineId: number, routineExercise
   return data;
 }
 
+export interface RoutineSuggestion {
+  routine_exercise_id: number;
+  exercise_id: number;
+  reps?: number | null;
+  weight?: number | null;
+  duration_sec?: number | null;
+  reason: string;
+}
+
+export async function getRoutineSuggestions(routineId: number) {
+  const { data } = await api.get(`/routines/${routineId}/suggestions`);
+  return data as RoutineSuggestion[];
+}
+
 export async function bulkExerciseImages(entries: { slug: string; urls: string[]; replace?: boolean }[]) {
   const { data } = await api.post('/exercises/images/bulk', { entries });
   return data as { slug: string; status: string; added: number; replaced: number }[];

@@ -25,6 +25,7 @@ export default function ActiveSessionScreen() {
   const [symptomNotes, setSymptomNotes] = useState('');
   const [symptomSaving, setSymptomSaving] = useState(false);
   const [symptomCount, setSymptomCount] = useState(0);
+  const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -33,6 +34,10 @@ export default function ActiveSessionScreen() {
       if (s.routine_id) {
         const r = await api.getRoutine(s.routine_id);
         setRoutine(r);
+        // Fetch suggestions once up-front; inputs pre-fill from them on mount.
+        api.getRoutineSuggestions(s.routine_id)
+          .then(setSuggestions)
+          .catch(() => setSuggestions([]));
       }
     });
   }, [id]);
@@ -141,6 +146,7 @@ export default function ActiveSessionScreen() {
             idx={idx}
             isActive={idx === activeIdx}
             sets={session.sets.filter((s) => s.exercise_id === re.exercise_id)}
+            suggestion={suggestions.find((sg) => sg.routine_exercise_id === re.id)}
             onActivate={() => setActiveIdx(idx)}
             onLog={(payload) => handleLogSet(re, payload)}
             onAdvance={() => setActiveIdx(Math.min(routine.exercises.length - 1, idx + 1))}
@@ -252,11 +258,12 @@ const SYMPTOM_PARTS = [
   'left_calf', 'lower_back', 'right_knee',
 ];
 
-function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }: {
+function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog, onAdvance }: {
   re: RoutineExercise;
   idx: number;
   isActive: boolean;
   sets: SessionSet[];
+  suggestion?: api.RoutineSuggestion;
   onActivate: () => void;
   onLog: (payload: Partial<SessionSet>) => Promise<void>;
   onAdvance: () => void;
@@ -264,9 +271,25 @@ function ExerciseBlock({ re, idx, isActive, sets, onActivate, onLog, onAdvance }
   const ex = re.exercise!;
   const targetSets = re.target_sets ?? 1;
   const isDone = sets.length >= targetSets;
-  const [reps, setReps] = useState(String(re.target_reps ?? ''));
-  const [duration, setDuration] = useState(String(re.target_duration_sec ?? ''));
-  const [weight, setWeight] = useState(String(re.target_weight ?? ''));
+  // Pre-fill from the progression suggestion when one exists, else the routine target.
+  const initReps = suggestion?.reps ?? re.target_reps ?? '';
+  const initDur = suggestion?.duration_sec ?? re.target_duration_sec ?? '';
+  const initW = suggestion?.weight ?? re.target_weight ?? '';
+  const [reps, setReps] = useState(String(initReps));
+  const [duration, setDuration] = useState(String(initDur));
+  const [weight, setWeight] = useState(String(initW));
+
+  // When the suggestion arrives after the block rendered, update inputs —
+  // but only if the user hasn't typed anything yet (compare against the
+  // route target as the "untouched" signal).
+  const suggestKey = suggestion ? `${suggestion.reps ?? ''}|${suggestion.duration_sec ?? ''}|${suggestion.weight ?? ''}` : '';
+  useEffect(() => {
+    if (!suggestion) return;
+    if (reps === String(re.target_reps ?? '') && suggestion.reps != null) setReps(String(suggestion.reps));
+    if (duration === String(re.target_duration_sec ?? '') && suggestion.duration_sec != null) setDuration(String(suggestion.duration_sec));
+    if (weight === String(re.target_weight ?? '') && suggestion.weight != null) setWeight(String(suggestion.weight));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestKey]);
 
   const isDuration = ex.measurement === 'duration';
 

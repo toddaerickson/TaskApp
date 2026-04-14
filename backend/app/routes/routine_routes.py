@@ -8,6 +8,7 @@ from app.models import (
     RoutineExerciseCreate, RoutineExerciseResponse,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
+from app.progression import suggest as compute_suggest, Suggestion
 
 
 class RoutineExerciseUpdate(BaseModel):
@@ -185,6 +186,77 @@ def reorder_exercises(
             )
         cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
         return _hydrate_routine(cur, cur.fetchone())
+
+
+class SuggestionResponse(BaseModel):
+    routine_exercise_id: int
+    exercise_id: int
+    reps: Optional[int] = None
+    weight: Optional[float] = None
+    duration_sec: Optional[int] = None
+    reason: str = ""
+
+
+@router.get("/{routine_id}/suggestions", response_model=list[SuggestionResponse])
+def get_suggestions(routine_id: int, user_id: int = Depends(get_current_user_id)):
+    """Per-routine-exercise suggested targets derived from the user's most
+    recent session for that exercise. Conservative: ≤5% load or ±15s. Used
+    to pre-fill the session screen and surface a hint on the routine detail."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
+                    (routine_id, user_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "Routine not found")
+
+        cur.execute("""
+            SELECT re.*, e.measurement, e.is_bodyweight
+            FROM routine_exercises re
+            JOIN exercises e ON e.id = re.exercise_id
+            WHERE re.routine_id = ?
+            ORDER BY re.sort_order ASC, re.id ASC
+        """, (routine_id,))
+        re_rows = cur.fetchall()
+        if not re_rows:
+            return []
+
+        ex_ids = [r["exercise_id"] for r in re_rows]
+        # Pull all sets by this user for these exercises (newest first).
+        # Limit to last 30 sessions to keep the query bounded.
+        placeholders = ",".join("?" for _ in ex_ids)
+        cur.execute(f"""
+            SELECT s.exercise_id, s.session_id, s.reps, s.weight, s.duration_sec,
+                   s.distance_m, s.rpe, ws.started_at
+            FROM session_sets s
+            JOIN workout_sessions ws ON ws.id = s.session_id
+            WHERE ws.user_id = ? AND s.exercise_id IN ({placeholders})
+            ORDER BY ws.started_at DESC, ws.id DESC, s.set_number ASC
+            LIMIT 500
+        """, tuple([user_id, *ex_ids]))
+        all_sets = cur.fetchall()
+
+    # Bucket sets by exercise_id, preserving newest-first order.
+    by_ex: dict[int, list[dict]] = {}
+    for s in all_sets:
+        by_ex.setdefault(s["exercise_id"], []).append(dict(s))
+
+    out: list[SuggestionResponse] = []
+    for re in re_rows:
+        s: Suggestion = compute_suggest(
+            measurement=re["measurement"],
+            target_reps=re["target_reps"],
+            target_weight=re["target_weight"],
+            target_duration_sec=re["target_duration_sec"],
+            is_bodyweight=bool(re["is_bodyweight"]),
+            last_sets=by_ex.get(re["exercise_id"], []),
+        )
+        out.append(SuggestionResponse(
+            routine_exercise_id=re["id"],
+            exercise_id=re["exercise_id"],
+            reps=s.reps, weight=s.weight, duration_sec=s.duration_sec,
+            reason=s.reason,
+        ))
+    return out
 
 
 @router.delete("/exercises/{routine_exercise_id}")
