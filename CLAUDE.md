@@ -33,6 +33,16 @@ the skill** instead of winging it — they catch things I miss.
 | When a feature is "broken end-to-end" across files | `focused-fix` — systematic deep-dive repair, not single-bug patching. E.g. "session logging is flaky across mobile + API + DB." |
 | When a free API doesn't cover what we need (image search, tutorial sites, open-data extraction) | `browser-automation` — Playwright-based scraping with anti-detection patterns. Use instead of brittle `urllib`+regex attempts. |
 
+### Skill bundles (under `.claude/skills/_*/`)
+
+Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-management/senior-pm`.
+
+| Bundle | Top picks for this project |
+|---|---|
+| `_product-team` | `ux-researcher-designer`, `ui-design-system`, `product-manager-toolkit`, `experiment-designer`, `spec-to-repo` |
+| `_project-management` | `senior-pm`, `scrum-master`, `meeting-analyzer`, `team-communications` |
+| `_ra-qm-team` | `gdpr-dsgvo-expert`, `information-security-manager-iso27001` — only relevant if this app starts handling other users' health data |
+
 ## Workflow conventions
 
 - **Don't commit** `taskapp.db`, `__pycache__/`, `.env`, or the TickTick CSV.
