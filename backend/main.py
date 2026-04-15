@@ -29,7 +29,11 @@ if not _extra:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
-    allow_credentials=True,
+    # Auth is Bearer-token in the Authorization header (see app/auth.py
+    # using HTTPBearer) — no cookies, no sessions. Keeping credentials off
+    # avoids the spec gotcha where `*` origins/headers get silently
+    # ignored on credentialed requests.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
