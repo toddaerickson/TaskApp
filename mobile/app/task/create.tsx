@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch,
+  ScrollView, Alert, Switch, Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore } from '@/lib/stores';
+import Dropdown from '@/components/Dropdown';
+import DateField from '@/components/DateField';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -14,9 +16,27 @@ const PRIORITIES = [
   { value: 3, label: 'Top', color: '#e74c3c' },
 ];
 
-const STATUSES = ['none', 'next_action', 'active', 'waiting', 'hold', 'postponed', 'someday', 'cancelled'];
+const STATUS_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'next_action', label: 'Next action' },
+  { value: 'active', label: 'Active' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'hold', label: 'Hold' },
+  { value: 'postponed', label: 'Postponed' },
+  { value: 'someday', label: 'Someday' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
 
-const REPEAT_TYPES = ['none', 'daily', 'weekly', 'biweekly', 'monthly', 'quarterly', 'semiannual', 'yearly'];
+const REPEAT_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'semiannual', label: 'Every 6 months' },
+  { value: 'yearly', label: 'Yearly' },
+];
 
 export default function CreateTaskScreen() {
   const router = useRouter();
@@ -35,17 +55,14 @@ export default function CreateTaskScreen() {
   const [repeatType, setRepeatType] = useState('none');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => { loadFolders(); loadTags(); }, []);
 
-  const parseDate = (input: string): string | undefined => {
-    if (!input) return undefined;
-    const match = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-    if (!match) return input;
-    const [, mm, dd, yy] = match;
-    const year = 2000 + parseInt(yy, 10);
-    return `${year}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-  };
+  const folderOptions = [
+    { value: null as number | null, label: 'None' },
+    ...folders.map((f) => ({ value: f.id as number | null, label: f.name })),
+  ];
 
   const handleSave = async () => {
     if (!title.trim()) return Alert.alert('Error', 'Title is required');
@@ -58,8 +75,8 @@ export default function CreateTaskScreen() {
         priority,
         status,
         starred,
-        start_date: parseDate(startDate),
-        due_date: parseDate(dueDate),
+        start_date: startDate || undefined,
+        due_date: dueDate || undefined,
         repeat_type: repeatType,
         tag_ids: selectedTagIds,
       });
@@ -77,8 +94,19 @@ export default function CreateTaskScreen() {
     );
   };
 
+  // Summary of hidden advanced values so user knows something's set.
+  const advancedSummary = (() => {
+    const bits: string[] = [];
+    if (status !== 'none') bits.push(status.replace('_', ' '));
+    if (startDate) bits.push(`start ${startDate}`);
+    if (dueDate) bits.push(`due ${dueDate}`);
+    if (repeatType !== 'none') bits.push(repeatType);
+    if (note) bits.push('note');
+    return bits.join(' · ');
+  })();
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Title */}
       <Text style={styles.label}>Task</Text>
       <TextInput
@@ -90,136 +118,147 @@ export default function CreateTaskScreen() {
         placeholderTextColor="#999"
       />
 
-      {/* Folder */}
+      {/* Folder — dropdown replaces the chip strip */}
       <Text style={styles.label}>Folder</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-        <TouchableOpacity
-          style={[styles.chip, folderId === null && styles.chipActive]}
-          onPress={() => setFolderId(null)}
-        >
-          <Text style={folderId === null ? styles.chipTextActive : styles.chipText}>None</Text>
-        </TouchableOpacity>
-        {folders.map((f) => (
-          <TouchableOpacity
-            key={f.id}
-            style={[styles.chip, folderId === f.id && styles.chipActive]}
-            onPress={() => setFolderId(f.id)}
-          >
-            <Text style={folderId === f.id ? styles.chipTextActive : styles.chipText}>{f.name}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <Dropdown
+        value={folderId}
+        options={folderOptions}
+        onChange={setFolderId}
+        placeholder="Pick a folder"
+      />
 
-      {/* Priority */}
+      {/* Priority — small set, color-coded chips */}
       <Text style={styles.label}>Priority</Text>
       <View style={styles.chipRow}>
-        {PRIORITIES.map((p) => (
-          <TouchableOpacity
-            key={p.value}
-            style={[styles.chip, priority === p.value && { backgroundColor: p.color }]}
-            onPress={() => setPriority(p.value)}
-          >
-            <Text style={priority === p.value ? styles.chipTextActive : styles.chipText}>
-              {p.value} {p.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {PRIORITIES.map((p) => {
+          const active = priority === p.value;
+          return (
+            <TouchableOpacity
+              key={p.value}
+              style={[
+                styles.priChip,
+                { borderColor: p.color },
+                active && { backgroundColor: p.color },
+              ]}
+              onPress={() => setPriority(p.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Priority ${p.label}`}
+            >
+              <Text style={[
+                styles.priChipText,
+                { color: active ? '#fff' : p.color },
+              ]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
-
-      {/* Status */}
-      <Text style={styles.label}>Status</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-        {STATUSES.map((s) => (
-          <TouchableOpacity
-            key={s}
-            style={[styles.chip, status === s && styles.chipActive]}
-            onPress={() => setStatus(s)}
-          >
-            <Text style={status === s ? styles.chipTextActive : styles.chipText}>
-              {s.replace('_', ' ')}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
 
       {/* Starred */}
       <View style={styles.switchRow}>
         <Text style={styles.label}>Starred</Text>
-        <Switch value={starred} onValueChange={setStarred} trackColor={{ true: '#f39c12' }} />
+        <Switch
+          value={starred}
+          onValueChange={setStarred}
+          trackColor={{ true: '#f39c12' }}
+          accessibilityLabel="Starred"
+        />
       </View>
 
-      {/* Start Date */}
-      <Text style={styles.label}>Start Date (MM/DD/YY)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="03/28/26"
-        value={startDate}
-        onChangeText={setStartDate}
-        placeholderTextColor="#999"
-      />
-
-      {/* Due Date */}
-      <Text style={styles.label}>Due Date (MM/DD/YY)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="04/15/26"
-        value={dueDate}
-        onChangeText={setDueDate}
-        placeholderTextColor="#999"
-      />
-
-      {/* Repeat */}
-      <Text style={styles.label}>Repeat</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-        {REPEAT_TYPES.map((r) => (
-          <TouchableOpacity
-            key={r}
-            style={[styles.chip, repeatType === r && styles.chipActive]}
-            onPress={() => setRepeatType(r)}
-          >
-            <Text style={repeatType === r ? styles.chipTextActive : styles.chipText}>{r}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Tags */}
+      {/* Tags (visible only if any tags exist — usually none on first run) */}
       {tags.length > 0 && (
         <>
           <Text style={styles.label}>Tags</Text>
           <View style={[styles.chipRow, { flexWrap: 'wrap' }]}>
-            {tags.map((t) => (
-              <TouchableOpacity
-                key={t.id}
-                style={[styles.chip, selectedTagIds.includes(t.id) && styles.tagActive]}
-                onPress={() => toggleTag(t.id)}
-              >
-                <Text style={selectedTagIds.includes(t.id) ? styles.chipTextActive : styles.chipText}>
-                  {t.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {tags.map((t) => {
+              const on = selectedTagIds.includes(t.id);
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[styles.tagChip, on && styles.tagChipOn]}
+                  onPress={() => toggleTag(t.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                >
+                  <Text style={on ? styles.chipTextActive : styles.chipText}>
+                    {t.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </>
       )}
 
-      {/* Note */}
-      <Text style={styles.label}>Note</Text>
-      <TextInput
-        style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-        placeholder="Additional details..."
-        value={note}
-        onChangeText={setNote}
-        multiline
-        placeholderTextColor="#999"
-      />
+      {/* Advanced collapse — status + dates + repeat + note live here */}
+      <Pressable
+        style={styles.advancedToggle}
+        onPress={() => setAdvancedOpen(!advancedOpen)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: advancedOpen }}
+      >
+        <Ionicons
+          name={advancedOpen ? 'chevron-down' : 'chevron-forward'}
+          size={16} color="#1a73e8"
+        />
+        <Text style={styles.advancedToggleText}>
+          {advancedOpen ? 'Hide' : 'More'} options
+        </Text>
+        {!advancedOpen && advancedSummary ? (
+          <Text style={styles.advancedSummary} numberOfLines={1}>
+            · {advancedSummary}
+          </Text>
+        ) : null}
+      </Pressable>
 
-      {/* Save Button */}
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+      {advancedOpen && (
+        <View>
+          <Text style={styles.label}>Status</Text>
+          <Dropdown
+            value={status}
+            options={STATUS_OPTIONS}
+            onChange={setStatus}
+            placeholder="Select status"
+          />
+
+          <Text style={styles.label}>Start date</Text>
+          <DateField value={startDate} onChange={setStartDate} placeholder="Pick a start date" />
+
+          <Text style={styles.label}>Due date</Text>
+          <DateField value={dueDate} onChange={setDueDate} placeholder="Pick a due date" />
+
+          <Text style={styles.label}>Repeat</Text>
+          <Dropdown
+            value={repeatType}
+            options={REPEAT_OPTIONS}
+            onChange={setRepeatType}
+            placeholder="Repeat cadence"
+          />
+
+          <Text style={styles.label}>Note</Text>
+          <TextInput
+            style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+            placeholder="Additional details..."
+            value={note}
+            onChangeText={setNote}
+            multiline
+            placeholderTextColor="#999"
+          />
+        </View>
+      )}
+
+      {/* Save */}
+      <TouchableOpacity
+        style={[styles.saveButton, (!title.trim() || saving) && { opacity: 0.6 }]}
+        onPress={handleSave}
+        disabled={!title.trim() || saving}
+        accessibilityRole="button"
+      >
         <Ionicons name="checkmark" size={20} color="#fff" />
-        <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Task'}</Text>
+        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save Task'}</Text>
       </TouchableOpacity>
-
-      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
@@ -228,13 +267,36 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', padding: 16 },
   label: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 16, marginBottom: 6, textTransform: 'uppercase' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
-  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f0f0f0' },
-  chipActive: { backgroundColor: '#1a73e8' },
-  tagActive: { backgroundColor: '#8e44ad' },
+
+  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+
+  priChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1.5, backgroundColor: '#fff',
+  },
+  priChipText: { fontSize: 13, fontWeight: '600' },
+
+  tagChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3e8ff' },
+  tagChipOn: { backgroundColor: '#8e44ad' },
   chipText: { fontSize: 13, color: '#555' },
   chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
-  saveButton: { flexDirection: 'row', backgroundColor: '#27ae60', borderRadius: 8, padding: 16, alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24 },
+
+  switchRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 12,
+  },
+
+  advancedToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 12, marginTop: 20,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
+  },
+  advancedToggleText: { color: '#1a73e8', fontSize: 14, fontWeight: '600' },
+  advancedSummary: { color: '#888', fontSize: 12, flex: 1 },
+
+  saveButton: {
+    flexDirection: 'row', backgroundColor: '#27ae60', borderRadius: 8, padding: 16,
+    alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24,
+  },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
