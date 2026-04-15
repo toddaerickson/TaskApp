@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Repo-local pre-commit: runs backend pytest + mobile jest against STAGED
+# changes. Skip with `git commit --no-verify` when you need to (hook
+# bypasses are logged in the commit trailer of any future CI run).
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# Fast-path: skip tests for commits that don't touch code (docs/schema-only
+# changes still run tests because they can break migrations).
+
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+changed_backend=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^backend/.*\.(py)$' || true)
+changed_mobile=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^mobile/.*\.(ts|tsx|js|jsx)$' || true)
+
+fail=0
+
+if [ -n "$changed_backend" ]; then
+  echo "→ backend pytest"
+  if [ -x "backend/venv/bin/pytest" ]; then
+    (cd backend && venv/bin/pytest -q) || fail=1
+  else
+    echo "  skipping: backend/venv/bin/pytest not found. Run \`cd backend && python -m venv venv && venv/bin/pip install -r requirements.txt\`."
+  fi
+else
+  echo "→ backend pytest skipped (no backend/*.py staged)"
+fi
+
+if [ -n "$changed_mobile" ]; then
+  echo "→ mobile jest"
+  if [ -d "mobile/node_modules" ]; then
+    (cd mobile && npx --no-install jest --silent) || fail=1
+  else
+    echo "  skipping: mobile/node_modules not found. Run \`cd mobile && npm install\`."
+  fi
+else
+  echo "→ mobile jest skipped (no mobile/*.ts(x) staged)"
+fi
+
+if [ "$fail" = "1" ]; then
+  echo
+  echo "✗ Pre-commit failed. Fix the failures above or bypass with --no-verify."
+  exit 1
+fi
+echo "✓ Pre-commit passed."

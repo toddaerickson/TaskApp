@@ -62,6 +62,23 @@ venv/bin/python seed_workouts.py your@email.com all   # seed routines
 cd mobile && npx expo start
 ```
 
+## Tests
+
+183 tests across backend (pytest) and mobile (jest). Run:
+```bash
+cd backend && venv/bin/pytest    # 138 cases
+cd mobile && npm test            # 45 cases
+```
+
+## CI / pre-commit
+
+- **GitHub Actions** (`.github/workflows/ci.yml`) runs backend pytest and
+  mobile tsc+jest on every push and PR.
+- **Pre-commit hook** is shipped in `.githooks/pre-commit`. Enable once
+  per clone: `git config core.hooksPath .githooks`. It runs the relevant
+  suite only when staged changes touch that stack, and skips cleanly
+  when venv/node_modules aren't present yet.
+
 ## Known gaps worth flagging when relevant
 
 - No automated tests yet. Backend is tested manually via curl scripts in
