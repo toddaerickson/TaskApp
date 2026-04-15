@@ -1,0 +1,35 @@
+# Fly.io app config. Run `fly launch` the first time to create the app
+# with the name you pick; thereafter `fly deploy` reuses this file.
+#
+# Required env (set via `fly secrets set`):
+#   DATABASE_URL = postgresql://...     Postgres connection string
+#   JWT_SECRET   = <long random string>  64+ random chars. Rotate to
+#                                         invalidate all sessions at once.
+
+app = "taskapp-backend"  # rename on first launch
+primary_region = "iad"   # pick closer to you if desired
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0   # Fly will spin up on request; free-tier-friendly.
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"           # plenty for FastAPI; bump if you add workers

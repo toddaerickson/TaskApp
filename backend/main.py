@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import (
@@ -10,9 +11,24 @@ from app.database import init_db
 
 app = FastAPI(title="TaskApp API", version="1.0.0")
 
+# CORS: allow local dev origins + anything in CORS_ORIGINS env (comma-
+# separated). Set CORS_ORIGINS to your deployed frontend URL in prod, e.g.
+# `https://taskapp.vercel.app,https://taskapp-teric.vercel.app`.
+_extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+_origins = [
+    "http://localhost:8081",    # expo web
+    "http://localhost:19006",   # older expo web
+    "http://localhost:3000",
+    *_extra,
+]
+# For quick setup, if CORS_ORIGINS is not set, fall back to allow-all. Swap
+# to the locked list once your frontend URL is stable.
+if not _extra:
+    _origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

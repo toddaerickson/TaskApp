@@ -1,7 +1,12 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 
-const BASE_URL = 'http://localhost:8000';
+// EXPO_PUBLIC_ env vars are inlined at build time and available on the
+// device. Override for production by setting EXPO_PUBLIC_API_URL in the
+// host's build env (Vercel / EAS / .env.production).
+const BASE_URL =
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
+  'http://localhost:8000';
 
 const api = axios.create({ baseURL: BASE_URL });
 
