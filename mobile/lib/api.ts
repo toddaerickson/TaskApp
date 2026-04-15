@@ -8,6 +8,26 @@ const BASE_URL =
   (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
   'http://localhost:8000';
 
+// Fail loudly on the web when the production bundle was built without
+// EXPO_PUBLIC_API_URL: otherwise the deployed site silently tries to talk
+// to the visitor's own localhost. This is the #1 cause of "Vercel deploy
+// looks fine but nothing works".
+if (
+  Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(BASE_URL) &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1'
+) {
+  // eslint-disable-next-line no-console
+  console.error(
+    '[TaskApp] EXPO_PUBLIC_API_URL was not set at build time; API calls ' +
+      'will fail because they target http://localhost:8000. Set ' +
+      'EXPO_PUBLIC_API_URL in your Vercel project env (Production + Preview) ' +
+      'and redeploy.',
+  );
+}
+
 const api = axios.create({ baseURL: BASE_URL });
 
 api.interceptors.request.use(async (config) => {

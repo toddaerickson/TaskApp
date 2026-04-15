@@ -130,8 +130,14 @@ From then on, every `git push origin master` triggers a new Vercel deploy.
 Once you have the Vercel URL, tighten CORS on the backend:
 ```bash
 cd /home/teric/TaskApp/backend
-fly secrets set CORS_ORIGINS='https://taskapp-teric.vercel.app,https://taskapp-teric-*.vercel.app'
+fly secrets set CORS_ORIGINS='https://taskapp-teric.vercel.app'
 ```
+
+`CORS_ORIGINS` is a plain comma-separated list of exact origins — **no
+glob/wildcard support**. If you want Vercel preview deploys (which get
+URLs like `https://taskapp-teric-git-feature-foo.vercel.app`) to work
+too, add each preview URL you care about, or for development just leave
+`CORS_ORIGINS` unset to fall back to allow-all.
 
 ---
 
