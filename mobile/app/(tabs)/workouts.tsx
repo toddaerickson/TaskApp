@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { formatRel } from '@/lib/format';
+import { syncRoutineReminders } from '@/lib/routineReminders';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: '#e67e22', strength: '#1a73e8', mobility: '#27ae60',
@@ -22,6 +23,14 @@ export default function WorkoutsScreen() {
     loadRoutines();
     api.listSessions({ limit: 10 }).then(setRecent).catch(() => {});
   }, []);
+
+  // Re-sync local notifications whenever the routine list (and therefore
+  // its reminder_time / reminder_days) changes. No-op on web.
+  useEffect(() => {
+    if (routines.length > 0) {
+      syncRoutineReminders(routines).catch(() => {});
+    }
+  }, [routines]);
 
   const streak = computeStreak(recent);
 

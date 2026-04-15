@@ -254,6 +254,8 @@ class RoutineCreate(BaseModel):
     goal: Optional[str] = "general"
     notes: Optional[str] = None
     sort_order: Optional[int] = 0
+    reminder_time: Optional[str] = None    # "HH:MM"
+    reminder_days: Optional[str] = None    # CSV of mon..sun or "daily"
     exercises: Optional[list[RoutineExerciseCreate]] = []
 
 class RoutineUpdate(BaseModel):
@@ -261,6 +263,8 @@ class RoutineUpdate(BaseModel):
     goal: Optional[str] = None
     notes: Optional[str] = None
     sort_order: Optional[int] = None
+    reminder_time: Optional[str] = None
+    reminder_days: Optional[str] = None
 
 class RoutineResponse(BaseModel):
     id: int
@@ -269,6 +273,8 @@ class RoutineResponse(BaseModel):
     goal: str
     notes: Optional[str]
     sort_order: int
+    reminder_time: Optional[str] = None
+    reminder_days: Optional[str] = None
     created_at: datetime
     exercises: list[RoutineExerciseResponse] = []
 

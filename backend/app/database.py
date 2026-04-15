@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS routines (
     )),
     notes TEXT,
     sort_order INTEGER DEFAULT 0,
+    reminder_time TEXT,
+    reminder_days TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -251,3 +253,30 @@ def init_db():
             cur.executescript(sql)
         else:
             cur.execute(sql)
+
+        # Idempotent column adds for existing databases. CREATE TABLE IF NOT
+        # EXISTS won't modify a pre-existing table, so features that add new
+        # columns must also apply ALTER TABLEs here (guarded against rerun).
+        _ensure_columns(cur, "routines", [
+            ("reminder_time", "TEXT"),
+            ("reminder_days", "TEXT"),
+        ])
+
+
+def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:
+    """Add columns to `table` if they don't already exist. Safe to run on
+    every startup. Works identically on SQLite and Postgres because
+    `ALTER TABLE ... ADD COLUMN` is supported on both with the same syntax
+    for simple-typed columns."""
+    if DB_TYPE == "sqlite":
+        cur.execute(f"PRAGMA table_info({table})")
+        have = {r["name"] for r in cur.fetchall()}
+    else:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table,),
+        )
+        have = {r["column_name"] for r in cur.fetchall()}
+    for name, typ in columns:
+        if name not in have:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")

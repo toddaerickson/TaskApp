@@ -68,8 +68,11 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO routines (user_id, name, goal, notes, sort_order) VALUES (?, ?, ?, ?, ?)",
-            (user_id, req.name, req.goal, req.notes, req.sort_order or 0),
+            """INSERT INTO routines
+               (user_id, name, goal, notes, sort_order, reminder_time, reminder_days)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, req.name, req.goal, req.notes, req.sort_order or 0,
+             req.reminder_time, req.reminder_days),
         )
         rid = cur.lastrowid
         for idx, ex in enumerate(req.exercises or []):

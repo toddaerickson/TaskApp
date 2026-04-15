@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS routines (
     )),
     notes TEXT,
     sort_order INTEGER DEFAULT 0,
+    reminder_time TEXT,          -- "HH:MM" local time; NULL = off
+    reminder_days TEXT,          -- CSV of "mon,tue,..." or "daily"; NULL = daily when time set
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

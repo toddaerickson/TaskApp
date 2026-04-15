@@ -35,6 +35,12 @@
         {
           "faceIDPermission": "Unlock TaskApp with Face ID instead of entering your PIN."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#1a73e8"
+        }
       ]
     ]
   }

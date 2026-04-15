@@ -63,6 +63,8 @@ class RoutineExport(BaseModel):
     goal: str
     notes: Optional[str] = None
     sort_order: int = 0
+    reminder_time: Optional[str] = None
+    reminder_days: Optional[str] = None
     exercises: list[RoutineExerciseExport] = []
 
 
@@ -189,7 +191,10 @@ def export_workouts(user_id: int = Depends(get_current_user_id)):
                 ))
             routine_exports.append(RoutineExport(
                 name=r["name"], goal=r["goal"], notes=r["notes"],
-                sort_order=r["sort_order"], exercises=re_out,
+                sort_order=r["sort_order"],
+                reminder_time=r["reminder_time"] if "reminder_time" in r.keys() else None,
+                reminder_days=r["reminder_days"] if "reminder_days" in r.keys() else None,
+                exercises=re_out,
             ))
 
         # Sessions + sets.
@@ -347,8 +352,11 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                 result.routines_added += 1
                 continue
             cur.execute(
-                "INSERT INTO routines (user_id, name, goal, notes, sort_order) VALUES (?, ?, ?, ?, ?)",
-                (user_id, r.name, r.goal, r.notes, r.sort_order),
+                """INSERT INTO routines
+                   (user_id, name, goal, notes, sort_order, reminder_time, reminder_days)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, r.name, r.goal, r.notes, r.sort_order,
+                 r.reminder_time, r.reminder_days),
             )
             rid = cur.lastrowid
             routine_name_to_id[r.name] = rid

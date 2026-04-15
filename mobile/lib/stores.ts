@@ -242,6 +242,8 @@ export interface RoutineExercise {
 export interface Routine {
   id: number; user_id: number; name: string; goal: string;
   notes?: string; sort_order: number; created_at: string;
+  reminder_time?: string | null;   // "HH:MM"
+  reminder_days?: string | null;   // "mon,tue,..." or "daily"
   exercises: RoutineExercise[];
 }
 export interface SessionSet {

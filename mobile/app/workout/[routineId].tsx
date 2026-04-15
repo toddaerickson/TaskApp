@@ -95,6 +95,14 @@ export default function RoutineDetailScreen() {
             <Text style={styles.meta}>
               {routine.exercises.length} exercises · ~{totalMins} min · {routine.goal}
             </Text>
+            {routine.reminder_time ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                <Ionicons name="alarm-outline" size={13} color="#e67e22" />
+                <Text style={{ fontSize: 12, color: '#e67e22' }}>
+                  {routine.reminder_time} · {routine.reminder_days || 'daily'}
+                </Text>
+              </View>
+            ) : null}
             {routine.notes ? <Text style={styles.notes}>{routine.notes}</Text> : null}
           </View>
         )}
@@ -201,16 +209,47 @@ export default function RoutineDetailScreen() {
   );
 }
 
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+function parseDays(csv: string | null | undefined): Set<string> {
+  if (!csv) return new Set();
+  const norm = csv.toLowerCase().trim();
+  if (norm === 'daily') return new Set(DAYS);
+  return new Set(norm.split(',').map((s) => s.trim()).filter((s) => (DAYS as readonly string[]).includes(s)));
+}
+
+function daysCsv(set: Set<string>): string | null {
+  if (set.size === 0) return null;
+  if (set.size === 7) return 'daily';
+  return DAYS.filter((d) => set.has(d)).join(',');
+}
+
 function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: () => void }) {
   const [name, setName] = useState(routine.name);
   const [notes, setNotes] = useState(routine.notes || '');
+  const [time, setTime] = useState(routine.reminder_time || '');
+  const [days, setDays] = useState<Set<string>>(parseDays(routine.reminder_days));
   const [busy, setBusy] = useState(false);
-  const dirty = name !== routine.name || notes !== (routine.notes || '');
+
+  const dirty = name !== routine.name
+    || notes !== (routine.notes || '')
+    || time !== (routine.reminder_time || '')
+    || daysCsv(days) !== (routine.reminder_days || null);
+
+  const toggleDay = (d: string) => {
+    const next = new Set(days);
+    if (next.has(d)) next.delete(d); else next.add(d);
+    setDays(next);
+  };
 
   const save = async () => {
     setBusy(true);
     try {
-      await api.updateRoutine(routine.id, { name, notes });
+      await api.updateRoutine(routine.id, {
+        name, notes,
+        reminder_time: time.trim() || null,
+        reminder_days: time.trim() ? daysCsv(days) : null,
+      });
       onSaved();
     } finally { setBusy(false); }
   };
@@ -226,6 +265,36 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         multiline
         style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
       />
+      <Text style={styles.fieldLabel}>Reminder time (HH:MM, blank = off)</Text>
+      <TextInput
+        value={time}
+        onChangeText={setTime}
+        placeholder="07:00"
+        autoCapitalize="none"
+        style={styles.fieldInput}
+      />
+      {!!time && (
+        <>
+          <Text style={styles.fieldLabel}>Days</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            {DAYS.map((d) => {
+              const on = days.has(d);
+              return (
+                <Pressable
+                  key={d}
+                  onPress={() => toggleDay(d)}
+                  style={[styles.dayChip, on && styles.dayChipOn]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  accessibilityLabel={`${d} ${on ? 'selected' : 'off'}`}
+                >
+                  <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{d}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
       <Pressable
         style={[styles.saveBtn, (!dirty || busy) && { opacity: 0.5 }]}
         onPress={save}
@@ -419,4 +488,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     backgroundColor: '#fafafa', cursor: 'pointer' as any,
   },
+  dayChip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
+    cursor: 'pointer' as any,
+  },
+  dayChipOn: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  dayChipText: { fontSize: 12, color: '#555', textTransform: 'uppercase' },
+  dayChipTextOn: { color: '#fff', fontWeight: '700' },
 });
