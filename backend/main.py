@@ -4,6 +4,7 @@ from app.routes import (
     auth_routes, folder_routes, tag_routes, task_routes,
     subfolder_routes, reminder_routes,
     exercise_routes, routine_routes, session_routes,
+    export_routes,
 )
 from app.database import init_db
 
@@ -26,6 +27,7 @@ app.include_router(reminder_routes.router)
 app.include_router(exercise_routes.router)
 app.include_router(routine_routes.router)
 app.include_router(session_routes.router)
+app.include_router(export_routes.router)
 
 
 @app.on_event("startup")

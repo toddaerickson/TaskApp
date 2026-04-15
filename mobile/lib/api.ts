@@ -205,6 +205,21 @@ export interface RoutineSuggestion {
   reason: string;
 }
 
+export async function exportWorkouts() {
+  const { data } = await api.get('/export/workouts');
+  return data;
+}
+
+export async function importWorkouts(payload: any, mode: 'merge' | 'replace' = 'merge', dryRun = false) {
+  const { data } = await api.post('/import/workouts', { payload, mode, dry_run: dryRun });
+  return data as {
+    exercises_added: number; exercises_skipped: number;
+    routines_added: number; routines_skipped: number;
+    sessions_added: number; symptoms_added: number;
+    warnings: string[]; dry_run: boolean;
+  };
+}
+
 export async function getRoutineSuggestions(routineId: number) {
   const { data } = await api.get(`/routines/${routineId}/suggestions`);
   return data as RoutineSuggestion[];
