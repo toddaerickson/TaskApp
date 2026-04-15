@@ -120,9 +120,10 @@ vercel --prod           # deploy to production
 2. On Vercel, "Add New Project" → import the GitHub repo.
 3. Framework preset: **Other**.
 4. Root directory: `mobile`.
-5. Build command: `npx expo export --platform web`.
-6. Output directory: `dist`.
-7. Environment variables: `EXPO_PUBLIC_API_URL=https://YOUR-APP-NAME.fly.dev`.
+5. Leave **Build Command** and **Output Directory** blank — `mobile/vercel.json`
+   already pins them to `npx expo export --platform web` and `dist`.
+6. Environment variables: `EXPO_PUBLIC_API_URL=https://YOUR-APP-NAME.fly.dev`
+   — tick both **Production** and **Preview**.
 
 From then on, every `git push origin master` triggers a new Vercel deploy.
 
