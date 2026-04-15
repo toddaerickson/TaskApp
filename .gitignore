@@ -22,3 +22,6 @@ Thumbs.db
 *.ipa
 *.apk
 *.db
+
+# Claude runtime
+.claude/scheduled_tasks.lock
