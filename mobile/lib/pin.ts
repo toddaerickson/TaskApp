@@ -12,8 +12,12 @@
  *  - pin.unlockAt — ms epoch the app was last unlocked (for timeout gating).
  */
 import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
-import * as Crypto from 'expo-crypto';
+
+// Lazy-load native-only modules. expo-crypto@55 is paired with SDK 55's
+// expo-modules-core; we're on SDK 52, so its top-level import triggers
+// registerWebModule with an incompatible class on web.
+const SecureStore: typeof import('expo-secure-store') =
+  Platform.OS === 'web' ? (null as any) : require('expo-secure-store');
 
 const storage = Platform.OS === 'web'
   ? {
@@ -43,10 +47,13 @@ function randomSalt(): string {
 }
 
 async function hash(pin: string, salt: string): Promise<string> {
-  return Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    `${salt}:${pin}`,
-  );
+  const input = `${salt}:${pin}`;
+  if (Platform.OS === 'web') {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const Crypto = require('expo-crypto');
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, input);
 }
 
 export async function isPinSet(): Promise<boolean> {

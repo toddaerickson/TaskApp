@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import * as api from './api';
+
+// Lazy-load to avoid pulling the module into web module-eval — consistent
+// with lib/api.ts, lib/pin.ts, lib/biometric.ts.
+const SecureStore: typeof import('expo-secure-store') =
+  Platform.OS === 'web' ? (null as any) : require('expo-secure-store');
 
 // Web fallback for SecureStore (uses localStorage)
 const tokenStorage = Platform.OS === 'web'
