@@ -6,7 +6,7 @@
 #   JWT_SECRET   = <long random string>  64+ random chars. Rotate to
 #                                         invalidate all sessions at once.
 
-app = "taskapp-backend"  # rename on first launch
+app = "taskapp-workout"
 primary_region = "iad"   # pick closer to you if desired
 
 [build]

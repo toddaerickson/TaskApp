@@ -199,3 +199,33 @@ Face ID, push notifications, and offline cache all work in this build.
 **First login says 500 / Internal Server Error**
 - Almost always a missing `DATABASE_URL` secret. Verify with:
   `fly secrets list` — should show DATABASE_URL and JWT_SECRET.
+
+**Backend refuses to boot: "JWT_SECRET is unset in a non-SQLite environment"**
+- Intentional guard in `backend/app/config.py`. Set a real secret:
+  `fly secrets set JWT_SECRET="$(openssl rand -hex 48)"`.
+
+---
+
+## Future maintenance: align Expo SDK versions
+
+`mobile/package.json` currently has a few packages pinned to SDK-55
+versions on an SDK-52 project (expo-crypto, expo-local-authentication,
+expo-notifications). The web bundle works because `lib/` lazy-requires
+these behind `Platform.OS !== 'web'` guards — but the mismatch is a
+latent trap.
+
+When you have a dedicated session to do it (not during a deploy fire):
+
+```bash
+cd mobile
+npx expo install --check    # see what's skewed
+npx expo install --fix      # align everything to SDK 52
+npm test                    # confirm jest still passes
+npx tsc --noEmit            # confirm types still OK
+npx expo export --platform web   # confirm the web bundle still builds
+```
+
+After the alignment lands, you can optionally revert the lazy-require
+workarounds in `lib/biometric.ts`, `lib/routineReminders.ts`, `lib/pin.ts`,
+`lib/stores.ts` back to top-level imports — or keep them as
+defense-in-depth. The bundle size difference is negligible.
