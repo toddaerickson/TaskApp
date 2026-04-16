@@ -16,6 +16,9 @@ COPY app ./app
 COPY main.py ./
 COPY migrations ./migrations
 COPY seed_workouts.py ./
+COPY scripts ./scripts
+# seed_data/ is optional — the fresh-env fallback path kicks in if absent.
+COPY seed_data ./seed_data
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
