@@ -1,20 +1,9 @@
-import sqlite3
 from fastapi import APIRouter, HTTPException, Depends
-from app.database import get_db
+from app.database import get_db, is_unique_violation
 from app.auth import hash_password, verify_password, create_token, get_current_user_id
 from app.models import RegisterRequest, LoginRequest, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _is_unique_violation(exc: Exception) -> bool:
-    """Detect UNIQUE / duplicate-key violations across SQLite and Postgres
-    without requiring psycopg2 at import time."""
-    if isinstance(exc, sqlite3.IntegrityError):
-        return True
-    # psycopg2.errors.UniqueViolation (SQLSTATE 23505). Avoid importing
-    # psycopg2 here so the SQLite dev path doesn't need it.
-    return getattr(exc, "pgcode", None) == "23505"
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -47,7 +36,7 @@ def register(req: RegisterRequest):
     except Exception as exc:
         # Race: two concurrent registers slip past the SELECT and one loses
         # on the UNIQUE email index. Convert the raw DB error to a clean 400.
-        if _is_unique_violation(exc):
+        if is_unique_violation(exc):
             raise HTTPException(400, "Email already registered")
         raise
     return TokenResponse(access_token=create_token(user_id))

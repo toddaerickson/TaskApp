@@ -220,9 +220,13 @@ def export_workouts(user_id: int = Depends(get_current_user_id)):
                     notes=st["notes"],
                 ))
             session_id_to_index[s["id"]] = i
+            # psycopg2 returns TIMESTAMP columns as datetime objects; SQLite
+            # returns strings. Normalize to ISO-8601 strings so the export
+            # payload is identical across DB backends.
             session_exports.append(SessionExport(
                 routine_name=routine_id_to_name.get(s["routine_id"]) if s["routine_id"] else None,
-                started_at=s["started_at"], ended_at=s["ended_at"],
+                started_at=str(s["started_at"]) if s["started_at"] is not None else "",
+                ended_at=str(s["ended_at"]) if s["ended_at"] is not None else None,
                 rpe=s["rpe"], mood=s["mood"], notes=s["notes"],
                 sets=set_out,
             ))
@@ -234,7 +238,7 @@ def export_workouts(user_id: int = Depends(get_current_user_id)):
         sym_exports = [
             SymptomLogExport(
                 body_part=s["body_part"], severity=s["severity"], notes=s["notes"],
-                logged_at=s["logged_at"],
+                logged_at=str(s["logged_at"]) if s["logged_at"] is not None else "",
                 session_index=session_id_to_index.get(s["session_id"]) if s["session_id"] else None,
             )
             for s in sym_rows
@@ -323,7 +327,7 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                     equipment, difficulty, is_bodyweight, measurement, instructions, cue, contraindications)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, ex.name, ex.slug, ex.category, ex.primary_muscle,
-                 ex.equipment, ex.difficulty, int(ex.is_bodyweight),
+                 ex.equipment, ex.difficulty, bool(ex.is_bodyweight),
                  ex.measurement, ex.instructions, ex.cue, ex.contraindications),
             )
             new_id = cur.lastrowid
@@ -376,7 +380,7 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (rid, ex_id, re.sort_order, re.target_sets, re.target_reps,
                      re.target_weight, re.target_duration_sec, re.rest_sec, re.tempo,
-                     int(re.keystone), re.notes),
+                     bool(re.keystone), re.notes),
                 )
             result.routines_added += 1
 
@@ -408,7 +412,7 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                         duration_sec, distance_m, rpe, completed, notes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (sid, ex_id, st.set_number, st.reps, st.weight,
-                     st.duration_sec, st.distance_m, st.rpe, int(st.completed), st.notes),
+                     st.duration_sec, st.distance_m, st.rpe, bool(st.completed), st.notes),
                 )
             result.sessions_added += 1
 

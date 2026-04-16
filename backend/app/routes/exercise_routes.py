@@ -72,7 +72,7 @@ def create_exercise(req: ExerciseCreate, user_id: int = Depends(get_current_user
              is_bodyweight, measurement, instructions, cue, contraindications, min_age, max_age)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, req.name, req.slug, req.category, req.primary_muscle, req.equipment,
-             req.difficulty, int(bool(req.is_bodyweight)), req.measurement, req.instructions,
+             req.difficulty, bool(req.is_bodyweight), req.measurement, req.instructions,
              req.cue, req.contraindications, req.min_age, req.max_age),
         )
         ex_id = cur.lastrowid

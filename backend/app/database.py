@@ -1,7 +1,14 @@
 """
 Database layer supporting both SQLite (local dev) and PostgreSQL (production).
 SQLite requires no installation — just works. Set DATABASE_URL to a postgresql:// URL to use Postgres.
+
+Routes throughout this app are written in SQLite dialect: `?` placeholders
+and reads of `cur.lastrowid` after INSERTs. On PostgreSQL we wrap the raw
+psycopg2 cursor in `_CompatCursor` so the same SQL Just Works — `?` is
+rewritten to `%s` at execute time, and `lastrowid` is resolved via
+`SELECT lastval()` on demand.
 """
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -10,6 +17,19 @@ from app.config import DATABASE_URL, DB_TYPE
 if DB_TYPE == "postgresql":
     import psycopg2
     import psycopg2.extras
+
+log = logging.getLogger(__name__)
+
+
+def is_unique_violation(exc: Exception) -> bool:
+    """Portable check for a UNIQUE / duplicate-key constraint violation.
+    Matches both sqlite3.IntegrityError and psycopg2.errors.UniqueViolation
+    without importing psycopg2 at call sites that might run on SQLite only."""
+    if isinstance(exc, sqlite3.IntegrityError):
+        # SQLite lumps all constraint violations together — good enough for
+        # the retry and 400-mapping cases we use this for.
+        return True
+    return getattr(exc, "pgcode", None) == "23505"
 
 
 class DictRow(dict):
@@ -20,6 +40,78 @@ class DictRow(dict):
 
 def _dict_factory(cursor, row):
     return DictRow({col[0]: row[idx] for idx, col in enumerate(cursor.description)})
+
+
+def _adapt_sql_for_pg(sql: str, *, has_params: bool) -> str:
+    """SQL dialect shims so SQLite-flavored queries run on Postgres:
+      - `?` placeholder  → `%s` (only when params were passed)
+      - `datetime('now')` → `NOW()`
+      - `1`/`0` boolean literals have to be handled by the caller; we
+        don't try to guess which integer columns are BOOLEAN.
+    """
+    if has_params and "?" in sql:
+        sql = sql.replace("?", "%s")
+    if "datetime('now')" in sql:
+        sql = sql.replace("datetime('now')", "NOW()")
+    return sql
+
+
+class _CompatCursor:
+    """Wraps a psycopg2 cursor so SQLite-style code works unchanged:
+      - `?` placeholders are rewritten to `%s` at execute time.
+      - `lastrowid` is resolved via `SELECT lastval()` on demand.
+    Any attribute/method not listed here delegates to the wrapped cursor
+    (fetchone, fetchall, fetchmany, execute, close, description, etc.).
+    """
+    __slots__ = ("_cur",)
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    def execute(self, sql, params=None):
+        sql = _adapt_sql_for_pg(sql, has_params=params is not None)
+        if params is None:
+            return self._cur.execute(sql)
+        return self._cur.execute(sql, params)
+
+    def executemany(self, sql, params):
+        sql = _adapt_sql_for_pg(sql, has_params=True)
+        return self._cur.executemany(sql, params)
+
+    @property
+    def lastrowid(self):
+        # psycopg2 cursors don't populate lastrowid. lastval() returns the
+        # most-recent sequence value in the session; correct for any table
+        # with a SERIAL/IDENTITY id, which is all of ours.
+        self._cur.execute("SELECT lastval() AS v")
+        row = self._cur.fetchone()
+        return row["v"] if row else None
+
+    def __getattr__(self, name):
+        return getattr(self._cur, name)
+
+    def __iter__(self):
+        return iter(self._cur)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._cur.close()
+
+
+class _CompatConnection:
+    """Wraps a psycopg2 connection so `conn.cursor()` yields `_CompatCursor`."""
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        return _CompatCursor(self._conn.cursor(*args, **kwargs))
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 def _get_sqlite_connection():
@@ -34,7 +126,7 @@ def _get_sqlite_connection():
 def _get_pg_connection():
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     conn.autocommit = False
-    return conn
+    return _CompatConnection(conn)
 
 
 @contextmanager
@@ -42,10 +134,11 @@ def get_db():
     conn = _get_pg_connection() if DB_TYPE == "postgresql" else _get_sqlite_connection()
     try:
         yield conn
-        conn.commit()
     except Exception:
         conn.rollback()
         raise
+    else:
+        conn.commit()
     finally:
         conn.close()
 

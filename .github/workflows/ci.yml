@@ -8,11 +8,32 @@ on:
 
 jobs:
   backend:
-    name: backend pytest
+    name: backend pytest (${{ matrix.db }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        # Only actually used by the postgres matrix leg; harmless to stand
+        # up for the sqlite leg as well.
+        image: postgres:16
+        env:
+          POSTGRES_USER: taskapp
+          POSTGRES_PASSWORD: taskapp
+          POSTGRES_DB: taskapp_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql://taskapp:taskapp@localhost:5432/taskapp_test' || '' }}
     steps:
       - uses: actions/checkout@v4
 

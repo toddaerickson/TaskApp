@@ -15,7 +15,7 @@ def get_subfolders(folder_id: int, user_id: int = Depends(get_current_user_id)):
             raise HTTPException(404, "Folder not found")
         cur.execute("""
             SELECT sf.id, sf.folder_id, sf.name, sf.sort_order,
-                   (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND t.completed = 0) AS task_count
+                   (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND NOT t.completed) AS task_count
             FROM subfolders sf
             WHERE sf.folder_id = ? AND sf.user_id = ?
             ORDER BY sf.sort_order, sf.name
@@ -62,7 +62,7 @@ def update_subfolder(subfolder_id: int, req: SubfolderUpdate, user_id: int = Dep
         cur.execute(f"UPDATE subfolders SET {', '.join(updates)} WHERE id = ? AND user_id = ?", params)
         cur.execute("""
             SELECT sf.id, sf.folder_id, sf.name, sf.sort_order,
-                   (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND t.completed = 0) AS task_count
+                   (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND NOT t.completed) AS task_count
             FROM subfolders sf WHERE sf.id = ?
         """, (subfolder_id,))
         return cur.fetchone()

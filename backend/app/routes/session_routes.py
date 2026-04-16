@@ -1,6 +1,5 @@
-import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.database import get_db
+from app.database import get_db, is_unique_violation
 from app.auth import get_current_user_id
 from app.models import (
     SessionCreate, SessionUpdate, SessionResponse,
@@ -101,7 +100,7 @@ def delete_session(session_id: int, user_id: int = Depends(get_current_user_id))
 def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_current_user_id)):
     """Log a set. set_number is server-assigned when omitted. Retries on
     concurrent-double-tap races (UNIQUE index collision)."""
-    completed = int(bool(req.completed if req.completed is not None else True))
+    completed = bool(req.completed) if req.completed is not None else True
     for attempt in range(10):
         try:
             with get_db() as conn:
@@ -132,7 +131,9 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
                 row = cur.fetchone()
                 row["completed"] = bool(row["completed"])
                 return row
-        except sqlite3.IntegrityError:
+        except Exception as exc:
+            if not is_unique_violation(exc):
+                raise
             # Concurrent insert chose the same set_number — retry with a fresh
             # read of MAX. Only retry when the client didn't pin a number.
             if req.set_number is not None or attempt >= 9:

@@ -12,7 +12,7 @@ def list_folders(user_id: int = Depends(get_current_user_id)):
         cur = conn.cursor()
         cur.execute("""
             SELECT f.id, f.name, f.sort_order,
-                   (SELECT COUNT(*) FROM tasks t WHERE t.folder_id = f.id AND t.completed = 0) AS task_count
+                   (SELECT COUNT(*) FROM tasks t WHERE t.folder_id = f.id AND NOT t.completed) AS task_count
             FROM folders f
             WHERE f.user_id = ?
             ORDER BY f.sort_order, f.name
@@ -25,7 +25,7 @@ def list_folders(user_id: int = Depends(get_current_user_id)):
             placeholders = ",".join(["?"] * len(folder_ids))
             cur.execute(f"""
                 SELECT sf.id, sf.folder_id, sf.name, sf.sort_order,
-                       (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND t.completed = 0) AS task_count
+                       (SELECT COUNT(*) FROM tasks t WHERE t.subfolder_id = sf.id AND NOT t.completed) AS task_count
                 FROM subfolders sf
                 WHERE sf.folder_id IN ({placeholders})
                 ORDER BY sf.sort_order, sf.name

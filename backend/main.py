@@ -1,6 +1,8 @@
+import logging
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.routes import (
     auth_routes, folder_routes, tag_routes, task_routes,
     subfolder_routes, reminder_routes,
@@ -9,7 +11,26 @@ from app.routes import (
 )
 from app.database import init_db
 
+# Uvicorn configures its own loggers, but our app modules (logger names
+# starting with `app.` or `__main__`) don't inherit its handlers. Set up
+# basicConfig so `log.exception(...)` lands in `fly logs` with a traceback
+# instead of being silently dropped into a 500.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+log = logging.getLogger("taskapp")
+
 app = FastAPI(title="TaskApp API", version="1.0.0")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Last-resort catch-all so prod exceptions leave a traceback in the
+    logs instead of a bare `500 Internal Server Error`. Route-level
+    HTTPExceptions are handled by FastAPI's default and don't reach here."""
+    log.exception("Unhandled exception in %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 # CORS: allow local dev origins + anything in CORS_ORIGINS env (comma-
 # separated). Set CORS_ORIGINS to your deployed frontend URL in prod, e.g.

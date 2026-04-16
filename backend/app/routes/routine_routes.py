@@ -83,7 +83,7 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (rid, ex.exercise_id, ex.sort_order if ex.sort_order is not None else idx,
                  ex.target_sets, ex.target_reps, ex.target_weight, ex.target_duration_sec,
-                 ex.rest_sec, ex.tempo, int(bool(ex.keystone)), ex.notes),
+                 ex.rest_sec, ex.tempo, bool(ex.keystone), ex.notes),
             )
         cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
         return _hydrate_routine(cur, cur.fetchone())
@@ -130,7 +130,7 @@ def add_exercise(routine_id: int, req: RoutineExerciseCreate, user_id: int = Dep
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (routine_id, req.exercise_id, req.sort_order or 0, req.target_sets, req.target_reps,
              req.target_weight, req.target_duration_sec, req.rest_sec, req.tempo,
-             int(bool(req.keystone)), req.notes),
+             bool(req.keystone), req.notes),
         )
         re_id = cur.lastrowid
         cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (re_id,))
@@ -157,7 +157,7 @@ def update_routine_exercise(
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
         if "keystone" in fields and fields["keystone"] is not None:
-            fields["keystone"] = int(bool(fields["keystone"]))
+            fields["keystone"] = bool(fields["keystone"])
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(

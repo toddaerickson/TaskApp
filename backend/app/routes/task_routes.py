@@ -145,7 +145,7 @@ def list_tasks(
 
     if completed is not None:
         where.append("t.completed = ?")
-        params.append(1 if completed else 0)
+        params.append(bool(completed))
     if folder_id is not None:
         where.append("t.folder_id = ?")
         params.append(folder_id)
@@ -160,7 +160,7 @@ def list_tasks(
         params.append(priority)
     if starred is not None:
         where.append("t.starred = ?")
-        params.append(1 if starred else 0)
+        params.append(bool(starred))
     if search:
         where.append("(t.title LIKE ? OR t.note LIKE ?)")
         params.extend([f"%{search}%", f"%{search}%"])
@@ -225,12 +225,28 @@ def create_task(req: TaskCreate, user_id: int = Depends(get_current_user_id)):
             folder_id = parent["folder_id"]
             subfolder_id = parent["subfolder_id"]
 
-        # Auto-assign sort_order if not provided
+        # Auto-assign sort_order if not provided. Build the folder/parent
+        # filter dynamically — SQLite's `IS ?` accepts NULL values but
+        # Postgres only allows IS with literal NULL/NOT NULL, and uses `=`
+        # for values (where `= NULL` always yields UNKNOWN). So emit
+        # `IS NULL` or `= ?` per-field based on whether the value is None.
         sort_order = req.sort_order
         if sort_order is None:
+            clauses = ["user_id = ?"]
+            params: list = [user_id]
+            if folder_id is None:
+                clauses.append("folder_id IS NULL")
+            else:
+                clauses.append("folder_id = ?")
+                params.append(folder_id)
+            if req.parent_id is None:
+                clauses.append("parent_id IS NULL")
+            else:
+                clauses.append("parent_id = ?")
+                params.append(req.parent_id)
             cur.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM tasks WHERE user_id = ? AND folder_id IS ? AND parent_id IS ?",
-                (user_id, folder_id, req.parent_id),
+                f"SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM tasks WHERE {' AND '.join(clauses)}",
+                tuple(params),
             )
             sort_order = cur.fetchone()["next_order"]
 
@@ -241,7 +257,7 @@ def create_task(req: TaskCreate, user_id: int = Depends(get_current_user_id)):
         """, (
             user_id, req.title, folder_id, subfolder_id, req.parent_id,
             req.note, req.priority, req.status,
-            1 if req.starred else 0,
+            bool(req.starred),
             str(req.start_date) if req.start_date else None,
             str(req.due_date) if req.due_date else None,
             str(req.due_time) if req.due_time else None,
@@ -285,7 +301,7 @@ def update_task(task_id: int, req: TaskUpdate, user_id: int = Depends(get_curren
 
         if req.starred is not None:
             updates.append("starred = ?")
-            params.append(1 if req.starred else 0)
+            params.append(bool(req.starred))
         if req.due_date is not None:
             updates.append("due_date = ?")
             params.append(str(req.due_date))
@@ -351,8 +367,8 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
                 )
         else:
             cur.execute(
-                "UPDATE tasks SET completed = 1, completed_at = ?, updated_at = datetime('now') WHERE id = ?",
-                (now.isoformat(), task_id),
+                "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = datetime('now') WHERE id = ?",
+                (True, now.isoformat(), task_id),
             )
 
         task = _get_task_by_id(cur, task_id)
@@ -386,10 +402,10 @@ def batch_update(req: BatchUpdate, user_id: int = Depends(get_current_user_id)):
         params.append(req.status)
     if req.starred is not None:
         updates.append("starred = ?")
-        params.append(1 if req.starred else 0)
+        params.append(bool(req.starred))
     if req.completed is not None:
         updates.append("completed = ?")
-        params.append(1 if req.completed else 0)
+        params.append(bool(req.completed))
 
     if len(updates) <= 1:
         raise HTTPException(400, "No fields to update")
