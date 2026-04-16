@@ -76,14 +76,35 @@ Check the app is up at:
 <https://YOUR-APP-NAME.fly.dev/docs> — Swagger UI.
 
 ### Seed
+Global exercises are seeded **automatically on every deploy** via Fly's
+`release_command` (see `backend/fly.toml`). The script reads
+`backend/seed_data/exercise_snapshot.json` if present, and falls back to
+the hardcoded defaults in `seed_workouts.py` when the snapshot file is
+missing.
+
 After you've registered a user through the frontend (next step), come back
-and seed their routines:
+and seed their routines (one-time, per user):
 ```bash
-fly ssh console
+fly ssh console -a taskapp-workout
 cd /app
 python seed_workouts.py your@real-email.com all
 exit
 ```
+
+### Refresh the exercise library (curate once, persist forever)
+If you add or edit exercises + images via the admin UI and want them baked
+into future deploys:
+```bash
+# From your workstation, against the live DB:
+fly ssh console -a taskapp-workout -C \
+  "cd /app && python scripts/snapshot_exercises.py --user your@real-email.com --out /tmp/snapshot.json"
+fly sftp get /tmp/snapshot.json backend/seed_data/exercise_snapshot.json
+git add backend/seed_data/exercise_snapshot.json
+git commit -m "Refresh exercise snapshot"
+git push
+```
+The next deploy will upsert those exercises (and image URLs) as globals
+for every user on the backend.
 
 ---
 

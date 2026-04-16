@@ -12,6 +12,13 @@ primary_region = "iad"   # pick closer to you if desired
 [build]
   dockerfile = "Dockerfile"
 
+[deploy]
+  # Runs once in a fresh machine before the new version takes traffic.
+  # Idempotent: re-seeds globals from seed_data/exercise_snapshot.json
+  # (or falls back to the hardcoded defaults in seed_workouts.py when no
+  # snapshot is committed yet). Non-zero exit aborts the deploy.
+  release_command = "python seed_workouts.py"
+
 [env]
   PORT = "8080"
 

@@ -2,12 +2,28 @@
 Seed the workout module with global exercises + (optionally) an "Ankle Mobility AM"
 routine for a specific user.
 
+Run modes (in order of precedence when `seed_data/exercise_snapshot.json` exists):
+  1. Snapshot-driven: globals are upserted from the JSON snapshot (the
+     canonical source once adopted). Image lists are replaced wholesale
+     so curation changes roll out.
+  2. Hardcoded defaults (the `EXERCISES` list + `IMAGES` dict below): used
+     only when no snapshot file is present — the fresh-bootstrap path for
+     a brand-new environment.
+
 Usage:
     python seed_workouts.py                    # seed global exercises only
     python seed_workouts.py user@example.com   # also create the ankle routine for that user
+    python seed_workouts.py --resync-images    # re-apply the hardcoded IMAGES dict
 """
+import json
+import os
 import sys
+from pathlib import Path
+
 from app.database import get_db, init_db
+
+ROOT = Path(__file__).resolve().parent
+SNAPSHOT_PATH = ROOT / "seed_data" / "exercise_snapshot.json"
 
 
 # Image URLs from wger (CC-BY-SA, https://wger.de). Substitute your own later.
@@ -463,7 +479,7 @@ def seed_exercises():
                  is_bodyweight, measurement, instructions, cue)
                 VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ex["name"], ex["slug"], ex["category"], ex["primary_muscle"],
-                 ex["equipment"], ex["difficulty"], int(ex["is_bodyweight"]),
+                 ex["equipment"], ex["difficulty"], bool(ex["is_bodyweight"]),
                  ex["measurement"], ex["instructions"], ex["cue"]),
             )
             ex_id = cur.lastrowid
@@ -474,6 +490,81 @@ def seed_exercises():
                 )
             inserted += 1
     print(f"Seeded {inserted} new exercises (skipped {len(EXERCISES) - inserted} existing).")
+
+
+def _replace_images(cur, exercise_id: int, urls: list[str]) -> None:
+    """Wipe and re-insert images for an exercise. Used by the snapshot path
+    where the JSON is the source of truth."""
+    cur.execute("DELETE FROM exercise_images WHERE exercise_id = ?", (exercise_id,))
+    for i, url in enumerate(urls):
+        if not url:
+            continue
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order) VALUES (?, ?, ?)",
+            (exercise_id, url, i),
+        )
+
+
+def seed_from_snapshot(snapshot_path: Path = SNAPSHOT_PATH) -> int:
+    """Upsert global exercises (and their image lists) from the JSON snapshot
+    produced by `scripts/snapshot_exercises.py`. Returns the number of rows
+    touched. Safe to re-run."""
+    if not snapshot_path.exists():
+        return 0
+    try:
+        payload = json.loads(snapshot_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"WARN: couldn't read snapshot {snapshot_path}: {exc}", file=sys.stderr)
+        return 0
+
+    exercises = payload.get("exercises") or []
+    inserted = 0
+    updated = 0
+    with get_db() as conn:
+        cur = conn.cursor()
+        for ex in exercises:
+            slug = ex.get("slug")
+            if not slug:
+                continue
+            cur.execute(
+                "SELECT id FROM exercises WHERE slug = ? AND user_id IS NULL",
+                (slug,),
+            )
+            row = cur.fetchone()
+            fields = (
+                ex.get("name"), slug, ex.get("category"),
+                ex.get("primary_muscle"), ex.get("equipment"), ex.get("difficulty"),
+                bool(ex.get("is_bodyweight")), ex.get("measurement"),
+                ex.get("instructions"), ex.get("cue"), ex.get("contraindications"),
+                ex.get("min_age"), ex.get("max_age"),
+            )
+            if row:
+                ex_id = row["id"]
+                cur.execute(
+                    """UPDATE exercises SET
+                        name = ?, slug = ?, category = ?, primary_muscle = ?,
+                        equipment = ?, difficulty = ?, is_bodyweight = ?,
+                        measurement = ?, instructions = ?, cue = ?,
+                        contraindications = ?, min_age = ?, max_age = ?
+                       WHERE id = ?""",
+                    fields + (ex_id,),
+                )
+                updated += 1
+            else:
+                cur.execute(
+                    """INSERT INTO exercises
+                       (user_id, name, slug, category, primary_muscle, equipment, difficulty,
+                        is_bodyweight, measurement, instructions, cue, contraindications,
+                        min_age, max_age)
+                       VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    fields,
+                )
+                ex_id = cur.lastrowid
+                inserted += 1
+            _replace_images(cur, ex_id, ex.get("images") or [])
+
+    print(f"Snapshot: {inserted} inserted, {updated} updated ({snapshot_path.name}).")
+    return inserted + updated
 
 
 def resync_global_images():
@@ -537,7 +628,7 @@ def seed_routine_for(email: str, routine_key: str):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (rid, ex["id"], idx, t.get("target_sets"), t.get("target_reps"),
                  t.get("target_duration_sec"), t.get("rest_sec", 60), t.get("tempo"),
-                 int(t.get("keystone", False)), t.get("notes")),
+                 bool(t.get("keystone", False)), t.get("notes")),
             )
         print(f"Created '{spec['name']}' routine for {email} ({len(spec['exercises'])} exercises).")
 
@@ -559,7 +650,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--resync-images":
         resync_global_images()
         sys.exit(0)
-    seed_exercises()
+    # Snapshot is the canonical source once adopted. The hardcoded EXERCISES
+    # list only runs when no snapshot exists (fresh-env bootstrap).
+    if seed_from_snapshot() == 0:
+        seed_exercises()
     if len(sys.argv) > 1:
         email = sys.argv[1]
         which = sys.argv[2] if len(sys.argv) > 2 else "ankle"
