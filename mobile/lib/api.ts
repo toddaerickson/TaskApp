@@ -1,12 +1,16 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 
-// EXPO_PUBLIC_ env vars are inlined at build time and available on the
-// device. Override for production by setting EXPO_PUBLIC_API_URL in the
-// host's build env (Vercel / EAS / .env.production).
-const BASE_URL =
-  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
-  'http://localhost:8000';
+// EXPO_PUBLIC_ env vars are inlined at build time by Metro. Override for
+// production by setting EXPO_PUBLIC_API_URL in the host's build env
+// (Vercel / EAS / .env.production).
+//
+// CRITICAL: Metro's static replace only fires on `process.env.EXPO_PUBLIC_*`
+// literal dot access. Optional chaining (`process.env?.EXPO_PUBLIC_API_URL`)
+// or `typeof process !== 'undefined'` guards short-circuit the transform,
+// and on web `process` is undefined at runtime — so the fallback silently
+// masks a misconfigured build. Keep the line exactly as written.
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 
 // Fail loudly on the web when the production bundle was built without
 // EXPO_PUBLIC_API_URL: otherwise the deployed site silently tries to talk
