@@ -10,8 +10,14 @@
  * launches.
  */
 import { Platform } from 'react-native';
-import * as LocalAuthentication from 'expo-local-authentication';
-import * as SecureStore from 'expo-secure-store';
+
+// Lazy-load native-only modules. Top-level import triggers registerWebModule
+// on web with an incompatible shim under SDK version skew ("Module
+// implementation must be a class") — breaks the whole bundle.
+const LocalAuthentication: typeof import('expo-local-authentication') =
+  Platform.OS === 'web' ? (null as any) : require('expo-local-authentication');
+const SecureStore: typeof import('expo-secure-store') =
+  Platform.OS === 'web' ? (null as any) : require('expo-secure-store');
 
 const K_BIOMETRIC_OPT_IN = 'pin.biometricOptIn';
 

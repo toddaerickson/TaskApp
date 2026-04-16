@@ -9,8 +9,13 @@
  * workers; not worth the complexity for a personal app).
  */
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import type { Routine } from './stores';
+
+// Lazy-load expo-notifications only on native. Top-level import triggers
+// registerWebModule on web with an incompatible shim under SDK version
+// skew ("Module implementation must be a class") — breaks the whole bundle.
+const Notifications: typeof import('expo-notifications') =
+  Platform.OS === 'web' ? (null as any) : require('expo-notifications');
 
 // iOS weekday: 1 = Sunday ... 7 = Saturday. Matches Date.getDay() + 1.
 const WEEKDAYS: Record<string, number> = {
