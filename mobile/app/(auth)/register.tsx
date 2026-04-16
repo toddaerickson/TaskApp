@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
+import { describeApiError } from '@/lib/apiErrors';
 
 const showAlert = (title: string, msg: string) => {
   if (Platform.OS === 'web') {
@@ -23,16 +24,22 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     setError('');
-    if (!email || !password) {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
+    if (!trimmedEmail || !password) {
       setError('Email and password required');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     setLoading(true);
     try {
-      await registerFn(email.trim().toLowerCase(), password, name || undefined);
+      await registerFn(trimmedEmail, password, trimmedName || undefined);
       router.replace('/(tabs)/tasks');
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || 'Registration failed. Try again.');
+    } catch (e: unknown) {
+      setError(describeApiError(e, 'Registration failed. Try again.'));
     } finally {
       setLoading(false);
     }

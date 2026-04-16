@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
+import { describeApiError } from '@/lib/apiErrors';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -16,8 +17,8 @@ export default function LoginScreen() {
     try {
       await loginFn(email.trim().toLowerCase(), password);
       router.replace('/(tabs)/tasks');
-    } catch (e: any) {
-      Alert.alert('Login Failed', e?.response?.data?.detail || 'Check your credentials');
+    } catch (e: unknown) {
+      Alert.alert('Login Failed', describeApiError(e, 'Check your credentials'));
     } finally {
       setLoading(false);
     }

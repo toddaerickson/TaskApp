@@ -1,17 +1,45 @@
-from pydantic import BaseModel
+import re
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import date, time, datetime
+
+
+# RFC 5322 is overkill; this catches the common mistakes without requiring
+# the email-validator dep.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 # --- Auth ---
 class RegisterRequest(BaseModel):
     email: str
-    password: str
-    display_name: Optional[str] = None
+    password: str = Field(min_length=8, max_length=128)
+    display_name: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Enter a valid email address")
+        return v
+
+    @field_validator("display_name")
+    @classmethod
+    def _normalize_display_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: str) -> str:
+        return (v or "").strip().lower()
 
 class TokenResponse(BaseModel):
     access_token: str
