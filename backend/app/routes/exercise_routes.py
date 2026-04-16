@@ -5,12 +5,13 @@ import time
 import urllib.parse
 import urllib.request
 import json as _json
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth import get_current_user_id
+from app.github_dispatch import dispatch_library_updated
 from app.models import (
     ExerciseCreate, ExerciseUpdate, ExerciseResponse,
     ExerciseImageCreate, ExerciseImageResponse,
@@ -116,7 +117,12 @@ def delete_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id
 
 
 @router.post("/{exercise_id}/images", response_model=ExerciseImageResponse)
-def add_image(exercise_id: int, req: ExerciseImageCreate, user_id: int = Depends(get_current_user_id)):
+def add_image(
+    exercise_id: int,
+    req: ExerciseImageCreate,
+    background_tasks: BackgroundTasks,
+    user_id: int = Depends(get_current_user_id),
+):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
@@ -131,11 +137,18 @@ def add_image(exercise_id: int, req: ExerciseImageCreate, user_id: int = Depends
         )
         img_id = cur.lastrowid
         cur.execute("SELECT id, url, caption, sort_order FROM exercise_images WHERE id = ?", (img_id,))
-        return cur.fetchone()
+        result = cur.fetchone()
+    # Tell GitHub the library changed; workflow debounces via concurrency group.
+    background_tasks.add_task(dispatch_library_updated)
+    return result
 
 
 @router.post("/images/bulk", response_model=list[BulkImageResult])
-def bulk_images(req: BulkImageRequest, user_id: int = Depends(get_current_user_id)):
+def bulk_images(
+    req: BulkImageRequest,
+    background_tasks: BackgroundTasks,
+    user_id: int = Depends(get_current_user_id),
+):
     """Admin: paste rows mapping slug -> [urls]. Appends by default; replace=true clears existing first."""
     results: list[BulkImageResult] = []
     with get_db() as conn:
@@ -172,6 +185,8 @@ def bulk_images(req: BulkImageRequest, user_id: int = Depends(get_current_user_i
                 added += 1
             results.append(BulkImageResult(slug=entry.slug, status="ok",
                                             added=added, replaced=replaced))
+    if any(r.status == "ok" and (r.added or r.replaced) for r in results):
+        background_tasks.add_task(dispatch_library_updated)
     return results
 
 

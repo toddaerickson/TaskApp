@@ -1,0 +1,67 @@
+name: snapshot
+
+on:
+  repository_dispatch:
+    types: [library-updated]
+  # Manual trigger for ad-hoc refresh from the Actions tab.
+  workflow_dispatch: {}
+
+# Debounce: if a second dispatch arrives while one is running, cancel the
+# in-flight run. The last save wins.
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so the auto-commit user's push isn't refused
+          # by shallow-fetch / ref-mismatch.
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch current snapshot from backend
+        env:
+          BACKEND_URL: ${{ secrets.SNAPSHOT_BACKEND_URL }}
+          SNAPSHOT_AUTH_TOKEN: ${{ secrets.SNAPSHOT_AUTH_TOKEN }}
+          SNAPSHOT_USER_EMAIL: ${{ secrets.SNAPSHOT_USER_EMAIL }}
+        run: |
+          set -euo pipefail
+          mkdir -p backend/seed_data
+          curl --silent --show-error --fail \
+            --max-time 30 \
+            -H "Authorization: Bearer $SNAPSHOT_AUTH_TOKEN" \
+            -o backend/seed_data/exercise_snapshot.json \
+            "$BACKEND_URL/admin/snapshot?user_email=$SNAPSHOT_USER_EMAIL"
+          # Sanity: non-empty + valid JSON + version key present.
+          python3 -c "import json,sys; d=json.load(open('backend/seed_data/exercise_snapshot.json')); assert d.get('version'), 'snapshot missing version'; print('exercises:', len(d['exercises']))"
+
+      - name: Commit + push if changed
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `captured_at` changes every run — strip it before diffing so
+          # identical library content produces no commit.
+          if git diff --quiet -- backend/seed_data/exercise_snapshot.json; then
+            echo "No change."
+            exit 0
+          fi
+          # Quick structural diff check: if the only change is captured_at, skip.
+          if git diff backend/seed_data/exercise_snapshot.json | grep -E '^[+-]' | grep -v '^[+-]{3}' | grep -vE '^[+-]\s*"captured_at":' | grep -qE '^[+-]'; then
+            :
+          else
+            echo "Only captured_at changed — not committing."
+            git checkout -- backend/seed_data/exercise_snapshot.json
+            exit 0
+          fi
+          git add backend/seed_data/exercise_snapshot.json
+          ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          git commit -m "snapshot: auto-sync @ $ts"
+          git push

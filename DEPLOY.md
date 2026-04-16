@@ -91,11 +91,12 @@ python seed_workouts.py your@real-email.com all
 exit
 ```
 
-### Refresh the exercise library (curate once, persist forever)
-If you add or edit exercises + images via the admin UI and want them baked
-into future deploys:
+### Refresh the exercise library (manual path)
+
+**You usually won't need this** — see the automated path in the next
+section. But if you want an out-of-band refresh, e.g. after a raw SQL
+edit or when the Action is broken:
 ```bash
-# From your workstation, against the live DB:
 fly ssh console -a taskapp-workout -C \
   "cd /app && python scripts/snapshot_exercises.py --user your@real-email.com --out /tmp/snapshot.json"
 fly sftp get /tmp/snapshot.json backend/seed_data/exercise_snapshot.json
@@ -103,8 +104,56 @@ git add backend/seed_data/exercise_snapshot.json
 git commit -m "Refresh exercise snapshot"
 git push
 ```
-The next deploy will upsert those exercises (and image URLs) as globals
-for every user on the backend.
+
+### Automatic exercise-snapshot backup (every image save)
+
+Once configured, every time you POST an image via the admin UI (or the
+bulk-images endpoint), the backend fires a GitHub `repository_dispatch`
+event. The `snapshot` workflow wakes up, calls `GET /admin/snapshot` on
+the live backend, and commits the JSON to `backend/seed_data/exercise_snapshot.json`
+on master. Rapid saves are debounced via the workflow's concurrency
+group (last save wins). If the committed content is identical to the
+previous snapshot (only `captured_at` changed), the workflow skips the
+commit to keep `git log` quiet.
+
+**One-time setup:**
+
+1. Create a **fine-grained GitHub PAT**. On https://github.com/settings/tokens?type=beta,
+   click **Generate new token**:
+   - Token name: `taskapp-library-dispatch`
+   - Resource owner: your user
+   - Repository access: *Only select repositories* → `toddaerickson/TaskApp`
+   - Repository permissions: **Contents: read and write**, **Actions: write**
+   - Save the token string.
+
+2. Pick a **shared snapshot token** — any random secret. Use:
+   ```bash
+   openssl rand -hex 32
+   ```
+
+3. Tell the Fly backend about both secrets:
+   ```bash
+   fly secrets set -a taskapp-workout \
+     GITHUB_DISPATCH_TOKEN='<the PAT from step 1>' \
+     SNAPSHOT_AUTH_TOKEN='<the shared token from step 2>'
+   ```
+
+4. Tell GitHub Actions about the shared token + the backend URL + your email:
+   - Go to https://github.com/toddaerickson/TaskApp/settings/secrets/actions
+   - Add three repository secrets:
+     - `SNAPSHOT_AUTH_TOKEN` = the same shared token from step 2
+     - `SNAPSHOT_BACKEND_URL` = `https://taskapp-workout.fly.dev`
+     - `SNAPSHOT_USER_EMAIL` = the email whose personal exercises should be included
+
+5. Trigger the workflow once manually to verify the wiring:
+   - https://github.com/toddaerickson/TaskApp/actions/workflows/snapshot.yml → **Run workflow**
+   - Should produce a commit `snapshot: auto-sync @ <timestamp>` on master, or a "No change / Only captured_at changed" log line if the DB matches the committed snapshot already.
+
+After that, every image save on prod triggers an auto-backup within ~30 seconds.
+
+**To turn it off temporarily**, either:
+- Remove the `GITHUB_DISPATCH_TOKEN` Fly secret (`fly secrets unset GITHUB_DISPATCH_TOKEN -a taskapp-workout`) — saves image but skips the dispatch. The backend no-ops cleanly when the token is missing.
+- Or disable the workflow from the Actions tab.
 
 ---
 
