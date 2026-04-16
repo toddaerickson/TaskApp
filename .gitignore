@@ -23,5 +23,8 @@ Thumbs.db
 *.apk
 *.db
 
+# Data dumps (TickTick exports etc.)
+*.csv
+
 # Claude runtime
 .claude/scheduled_tasks.lock

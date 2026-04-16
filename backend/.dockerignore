@@ -5,3 +5,9 @@ __pycache__/
 .env
 .pytest_cache/
 tests/
+.git/
+.github/
+.claude/
+*.md
+import_ticktick.py
+*.csv

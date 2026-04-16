@@ -24,7 +24,10 @@ if [ -n "$changed_backend" ]; then
   if [ -x "backend/venv/bin/pytest" ]; then
     (cd backend && venv/bin/pytest -q) || fail=1
   else
-    echo "  skipping: backend/venv/bin/pytest not found. Run \`cd backend && python -m venv venv && venv/bin/pip install -r requirements.txt\`."
+    echo "  ✗ backend/venv/bin/pytest not found — cannot run tests for staged .py changes."
+    echo "    Install: cd backend && python -m venv venv && venv/bin/pip install -r requirements.txt"
+    echo "    Bypass (if you really must): git commit --no-verify"
+    fail=1
   fi
 else
   echo "→ backend pytest skipped (no backend/*.py staged)"
@@ -35,7 +38,10 @@ if [ -n "$changed_mobile" ]; then
   if [ -d "mobile/node_modules" ]; then
     (cd mobile && npx --no-install jest --silent) || fail=1
   else
-    echo "  skipping: mobile/node_modules not found. Run \`cd mobile && npm install\`."
+    echo "  ✗ mobile/node_modules not found — cannot run tests for staged .ts(x) changes."
+    echo "    Install: cd mobile && npm install"
+    echo "    Bypass (if you really must): git commit --no-verify"
+    fail=1
   fi
 else
   echo "→ mobile jest skipped (no mobile/*.ts(x) staged)"
