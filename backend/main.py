@@ -18,6 +18,9 @@ from app.routes import (
 from app.config import DB_TYPE
 from app.database import init_db
 from app.rate_limit import limiter
+from app.request_id import (
+    RequestIDMiddleware, current_request_id, install_logging_filter,
+)
 
 # Uvicorn configures its own loggers, but our app modules (logger names
 # starting with `app.` or `__main__`) don't inherit its handlers. Set up
@@ -25,8 +28,9 @@ from app.rate_limit import limiter
 # instead of being silently dropped into a 500.
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s [rid=%(request_id)s]: %(message)s",
 )
+install_logging_filter()
 log = logging.getLogger("taskapp")
 
 @asynccontextmanager
@@ -38,6 +42,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TaskApp API", version="1.0.0", lifespan=lifespan)
+
+# Request-ID tagging: every request gets a short id (either the client's
+# X-Request-Id or a fresh uuid4[:12]). Log records and error responses
+# pick it up via contextvar so a mobile crash can be paired with a
+# server log line.
+app.add_middleware(RequestIDMiddleware)
 
 # Machine-readable error codes. Mobile `describeApiError` maps known codes
 # to specific UX messages; any status without an entry falls back to the
@@ -60,11 +70,12 @@ def _code_for_status(status: int) -> str:
 
 @app.exception_handler(StarletteHTTPException)
 async def _http_exc_handler(request: Request, exc: StarletteHTTPException):
-    """Uniform error shape: {"detail": str|list, "code": str}.
+    """Uniform error shape: {"detail": str|list, "code": str, "request_id": str}.
 
     Routes can opt into a specific code by raising
     `HTTPException(status_code, detail={"detail": "...", "code": "x"})`;
-    otherwise the code is derived from the status.
+    otherwise the code is derived from the status. The request_id is
+    the same short id echoed back via the X-Request-Id header.
     """
     detail = exc.detail
     code: str | None = None
@@ -75,7 +86,7 @@ async def _http_exc_handler(request: Request, exc: StarletteHTTPException):
         code = _code_for_status(exc.status_code)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": detail, "code": code},
+        content={"detail": detail, "code": code, "request_id": current_request_id()},
         headers=getattr(exc, "headers", None),
     )
 
@@ -87,7 +98,11 @@ async def _validation_exc_handler(request: Request, exc: RequestValidationError)
     # so the response body encodes cleanly.
     return JSONResponse(
         status_code=422,
-        content={"detail": jsonable_encoder(exc.errors()), "code": "validation_error"},
+        content={
+            "detail": jsonable_encoder(exc.errors()),
+            "code": "validation_error",
+            "request_id": current_request_id(),
+        },
     )
 
 
@@ -104,6 +119,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={
             "detail": f"Rate limit exceeded: {exc.detail}",
             "code": "rate_limited",
+            "request_id": current_request_id(),
         },
     )
 
@@ -119,7 +135,11 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
     log.exception("Unhandled exception in %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "code": "internal_error"},
+        content={
+            "detail": "Internal Server Error",
+            "code": "internal_error",
+            "request_id": current_request_id(),
+        },
     )
 
 # CORS: allow local dev origins + anything in CORS_ORIGINS env (comma-
