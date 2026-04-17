@@ -1,16 +1,46 @@
-/** Jest for pure-function mobile libs only. Covers lib/progress.ts etc.
- * We stay out of React Native land to avoid dragging in the Expo/RN test
- * setup, which is heavy and orthogonal to the logic we actually need to test.
+/** Two-project jest config.
+ *
+ * `node-libs` — pure-function tests (pin, format, progress). Fast, no RN
+ *   runtime. Stays exactly as it was before we added RN component tests.
+ *
+ * `rn-components` — React Native component tests that actually render
+ *   (PinGate, login/register forms). Uses jest-expo preset so imports
+ *   like `react-native` and `expo-*` resolve against the Expo SDK's
+ *   jest mocks instead of failing at import time.
+ *
+ * Keeping them separate avoids paying the RN bootstrap cost for the 45
+ * pure-function tests that never needed it.
  */
 module.exports = {
-  testEnvironment: 'node',
-  transform: {
-    '^.+\\.(t|j)sx?$': ['@swc/jest', {
-      jsc: { parser: { syntax: 'typescript', tsx: true }, target: 'es2022' },
-    }],
-  },
-  testMatch: ['<rootDir>/__tests__/**/*.test.ts'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/$1',
-  },
+  projects: [
+    {
+      displayName: 'node-libs',
+      testEnvironment: 'node',
+      transform: {
+        '^.+\\.(t|j)sx?$': ['@swc/jest', {
+          jsc: { parser: { syntax: 'typescript', tsx: true }, target: 'es2022' },
+        }],
+      },
+      testMatch: ['<rootDir>/__tests__/**/*.test.ts'],
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/$1',
+      },
+    },
+    {
+      displayName: 'rn-components',
+      preset: 'jest-expo',
+      testMatch: ['<rootDir>/__tests__/**/*.test.tsx'],
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/$1',
+      },
+      // jest-expo's default transformIgnorePatterns keeps our ESM RN deps
+      // (expo-router, @react-navigation, etc.) correctly transformed.
+      //
+      // CI runs on Node 20 where the jest-expo bootstrap is noticeably
+      // slower (~10x) than Node 22 — enough to trip the 5s default
+      // timeout on the first test in each suite. 15s gives headroom
+      // without masking a real hang.
+      testTimeout: 15000,
+    },
+  ],
 };
