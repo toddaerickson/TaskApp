@@ -24,6 +24,9 @@ if str(ROOT) not in sys.path:
 # so the guard is satisfied under the CI Postgres matrix. Deterministic
 # is fine here; tests only care that it's set, not that it's random.
 os.environ.setdefault("JWT_SECRET", "test-secret-" + "x" * 48)
+# main.py has the same kind of guard for CORS_ORIGINS in postgres mode —
+# satisfy it the same way so the import-time check doesn't break the suite.
+os.environ.setdefault("CORS_ORIGINS", "http://localhost:8081")
 
 # Same story for DATABASE_URL: if the caller (CI) already set it, honor
 # that. Otherwise fall back to a temp SQLite file that the _db_url fixture
