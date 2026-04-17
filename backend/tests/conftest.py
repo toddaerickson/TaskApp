@@ -78,6 +78,13 @@ def client(_db_url):
     from app.database import init_db
     init_db()
 
+    # Disable the process-wide slowapi limiter by default so the per-IP
+    # 10/min cap on /auth/login doesn't leak across tests. A single test
+    # (`test_login_rate_limited`) flips it back on to verify the cap works.
+    from app.rate_limit import limiter
+    limiter.reset()
+    limiter.enabled = False
+
     from fastapi.testclient import TestClient
     from main import app
     with TestClient(app) as c:

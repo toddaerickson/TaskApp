@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from app.routes import (
     auth_routes, folder_routes, tag_routes, task_routes,
     subfolder_routes, reminder_routes,
@@ -12,6 +15,7 @@ from app.routes import (
 )
 from app.config import DB_TYPE
 from app.database import init_db
+from app.rate_limit import limiter
 
 # Uvicorn configures its own loggers, but our app modules (logger names
 # starting with `app.` or `__main__`) don't inherit its handlers. Set up
@@ -32,6 +36,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TaskApp API", version="1.0.0", lifespan=lifespan)
+
+# slowapi rate limiter. Install the shared Limiter on app.state and register
+# its 429 handler so decorated routes return a clean JSON body instead of
+# a generic 500 when the limit is hit. SlowAPIMiddleware wires the limiter
+# into the request lifecycle.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 
 @app.exception_handler(Exception)

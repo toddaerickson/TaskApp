@@ -1,10 +1,11 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { AppState, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { AppState, View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
 import { isRecentlyUnlocked } from '@/lib/pin';
+import { onSessionExpired } from '@/lib/sessionExpiry';
 
 // Expo-router picks up a named `ErrorBoundary` export from a layout and
 // renders it in place of the route tree when any descendant throws.
@@ -48,7 +49,10 @@ const errStyles = StyleSheet.create({
 
 export default function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
+  const logout = useAuthStore((s) => s.logout);
+  const router = useRouter();
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
     loadToken();
@@ -56,6 +60,22 @@ export default function RootLayout() {
       setUnlocked(await isRecentlyUnlocked());
     })();
   }, []);
+
+  // When the axios 401 interceptor fires, clear auth state and surface a
+  // modal so the user knows why they were bounced instead of landing on
+  // login with no explanation. The token was already wiped in the
+  // interceptor, so we just reset the store.
+  useEffect(() => {
+    return onSessionExpired(() => {
+      logout().catch(() => {});
+      setSessionExpired(true);
+    });
+  }, [logout]);
+
+  const dismissExpiredModal = () => {
+    setSessionExpired(false);
+    try { router.replace('/(auth)/login'); } catch { /* router not ready yet */ }
+  };
 
   // Re-lock when the unlock window expires. Two triggers:
   //   1. App returns to foreground after >15 min in background.
@@ -76,16 +96,49 @@ export default function RootLayout() {
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
   return (
-    <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary }, headerTintColor: '#fff' }}>
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
-      <Stack.Screen name="task/create" options={{ title: 'New Task', presentation: 'modal' }} />
-      <Stack.Screen name="workout/[routineId]" options={{ title: 'Routine' }} />
-      <Stack.Screen name="workout/session/[id]" options={{ title: 'Workout', headerBackTitle: 'Cancel' }} />
-      <Stack.Screen name="workout/progress" options={{ title: 'Progress' }} />
-      <Stack.Screen name="workout/track" options={{ title: 'Symptom Tracker' }} />
-      <Stack.Screen name="workout/admin" options={{ title: 'Image Admin' }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary }, headerTintColor: '#fff' }}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
+        <Stack.Screen name="task/create" options={{ title: 'New Task', presentation: 'modal' }} />
+        <Stack.Screen name="workout/[routineId]" options={{ title: 'Routine' }} />
+        <Stack.Screen name="workout/session/[id]" options={{ title: 'Workout', headerBackTitle: 'Cancel' }} />
+        <Stack.Screen name="workout/progress" options={{ title: 'Progress' }} />
+        <Stack.Screen name="workout/track" options={{ title: 'Symptom Tracker' }} />
+        <Stack.Screen name="workout/admin" options={{ title: 'Image Admin' }} />
+      </Stack>
+      <Modal visible={sessionExpired} transparent animationType="fade" onRequestClose={dismissExpiredModal}>
+        <View style={sessionStyles.overlay}>
+          <View style={sessionStyles.card}>
+            <Text style={sessionStyles.title}>Session expired</Text>
+            <Text style={sessionStyles.body}>
+              For your security, you've been signed out. Sign in again to continue.
+            </Text>
+            <Pressable style={sessionStyles.btn} onPress={dismissExpiredModal} accessibilityRole="button">
+              <Text style={sessionStyles.btnText}>Sign in</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
+
+const sessionStyles = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  card: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 20,
+    width: '100%', maxWidth: 360,
+  },
+  title: { fontSize: 18, fontWeight: '700', color: '#222' },
+  body: { fontSize: 14, color: '#555', marginTop: 8, lineHeight: 20 },
+  btn: {
+    backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 12,
+    alignItems: 'center', marginTop: 18,
+  },
+  btnText: { color: '#fff', fontWeight: '700' },
+});
