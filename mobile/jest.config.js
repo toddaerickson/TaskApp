@@ -35,6 +35,12 @@ module.exports = {
       },
       // jest-expo's default transformIgnorePatterns keeps our ESM RN deps
       // (expo-router, @react-navigation, etc.) correctly transformed.
+      //
+      // CI runs on Node 20 where the jest-expo bootstrap is noticeably
+      // slower (~10x) than Node 22 — enough to trip the 5s default
+      // timeout on the first test in each suite. 15s gives headroom
+      // without masking a real hang.
+      testTimeout: 15000,
     },
   ],
 };
