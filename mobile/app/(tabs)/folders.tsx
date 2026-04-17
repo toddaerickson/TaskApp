@@ -144,15 +144,15 @@ export default function FoldersScreen() {
               onSubmitEditing={handleAdd}
             />
             <Pressable onPress={handleAdd}>
-              <Ionicons name="checkmark-circle" size={24} color="#27ae60" />
+              <Ionicons name="checkmark-circle" size={24} color={colors.success} />
             </Pressable>
             <Pressable onPress={() => setAdding(false)}>
-              <Ionicons name="close-circle" size={24} color="#e74c3c" />
+              <Ionicons name="close-circle" size={24} color={colors.danger} />
             </Pressable>
           </View>
         ) : (
           <Pressable style={styles.addButton} onPress={() => setAdding(true)}>
-            <Ionicons name="add-circle-outline" size={18} color="#1a73e8" />
+            <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
             <Text style={styles.addText}>Add Folder</Text>
           </Pressable>
         )}
@@ -165,7 +165,7 @@ export default function FoldersScreen() {
         <View style={styles.mainHeader}>
           {isNarrow && (
             <Pressable onPress={() => setShowTasksPane(false)} style={styles.backBtn}>
-              <Ionicons name="chevron-back" size={22} color="#1a73e8" />
+              <Ionicons name="chevron-back" size={22} color={colors.primary} />
             </Pressable>
           )}
           <Text style={styles.mainTitle} numberOfLines={1}>{selectedLabel}</Text>
@@ -176,7 +176,7 @@ export default function FoldersScreen() {
         </View>
 
         {isLoading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />
+          <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
         ) : (
           <FlatList
             data={tasks}

@@ -109,10 +109,11 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
 def delete_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?", (routine_id, user_id))
-        if not cur.fetchone():
+        # Atomically filter by both id and user_id so a concurrent delete
+        # surfaces as 404 via rowcount=0 rather than a false {"ok": true}.
+        cur.execute("DELETE FROM routines WHERE id = ? AND user_id = ?", (routine_id, user_id))
+        if cur.rowcount == 0:
             raise HTTPException(404, "Routine not found")
-        cur.execute("DELETE FROM routines WHERE id = ?", (routine_id,))
     return {"ok": True}
 
 

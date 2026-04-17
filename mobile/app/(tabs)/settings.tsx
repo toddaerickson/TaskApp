@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,7 +96,7 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.profileCard}>
-        <Ionicons name="person-circle" size={48} color="#1a73e8" />
+        <Ionicons name="person-circle" size={48} color={colors.primary} />
         <View style={{ marginLeft: 12 }}>
           <Text style={styles.name}>{user?.display_name || 'User'}</Text>
           <Text style={styles.email}>{user?.email}</Text>
@@ -105,15 +106,15 @@ export default function SettingsScreen() {
       <Text style={styles.sectionHeader}>Workout Data</Text>
 
       <TouchableOpacity style={styles.row} onPress={handleExport} disabled={exporting}>
-        <Ionicons name="download-outline" size={22} color="#1a73e8" />
+        <Ionicons name="download-outline" size={22} color={colors.primary} />
         <Text style={styles.rowText}>Export workouts as JSON</Text>
-        {exporting && <ActivityIndicator size="small" color="#1a73e8" />}
+        {exporting && <ActivityIndicator size="small" color={colors.primary} />}
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.row} onPress={handleImport} disabled={importing}>
-        <Ionicons name="cloud-upload-outline" size={22} color="#1a73e8" />
+        <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
         <Text style={styles.rowText}>Import from JSON backup</Text>
-        {importing && <ActivityIndicator size="small" color="#1a73e8" />}
+        {importing && <ActivityIndicator size="small" color={colors.primary} />}
       </TouchableOpacity>
 
       {lastResult && <Text style={styles.resultText}>{lastResult}</Text>}
@@ -121,7 +122,7 @@ export default function SettingsScreen() {
       <Text style={styles.sectionHeader}>Account</Text>
 
       <TouchableOpacity style={styles.row} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={22} color="#e74c3c" />
+        <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={[styles.rowText, { color: '#e74c3c' }]}>Logout</Text>
       </TouchableOpacity>
     </View>

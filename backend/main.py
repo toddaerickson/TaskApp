@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,7 +23,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("taskapp")
 
-app = FastAPI(title="TaskApp API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: initialize DB schema (idempotent — uses CREATE IF NOT EXISTS).
+    init_db()
+    yield
+    # No shutdown work currently.
+
+
+app = FastAPI(title="TaskApp API", version="1.0.0", lifespan=lifespan)
 
 
 @app.exception_handler(Exception)
@@ -78,11 +87,6 @@ app.include_router(routine_routes.router)
 app.include_router(session_routes.router)
 app.include_router(export_routes.router)
 app.include_router(admin_routes.router)
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
 
 
 @app.get("/health")

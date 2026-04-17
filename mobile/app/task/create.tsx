@@ -202,7 +202,7 @@ export default function CreateTaskScreen() {
       >
         <Ionicons
           name={advancedOpen ? 'chevron-down' : 'chevron-forward'}
-          size={16} color="#1a73e8"
+          size={16} color={colors.primary}
         />
         <Text style={styles.advancedToggleText}>
           {advancedOpen ? 'Hide' : 'More'} options

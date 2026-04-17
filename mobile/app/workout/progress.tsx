@@ -40,7 +40,7 @@ export default function ProgressScreen() {
   const selectedStat = stats.find((s) => s.exercise_id === selectedExId);
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#1a73e8" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
   }
 
   if (sessions.length === 0) {
@@ -167,7 +167,7 @@ function BarChart({ data, height }: { data: { label: string; count: number }[]; 
               <SvgText
                 key={`c${i}`}
                 x={x + barW / 2} y={y - 3}
-                fontSize={9} fill="#1a73e8" textAnchor="middle" fontWeight="700"
+                fontSize={9} fill={colors.primary} textAnchor="middle" fontWeight="700"
               >
                 {d.count}
               </SvgText>
@@ -217,9 +217,9 @@ function LineChart({ stat, height }: { stat: ExerciseStat; height: number }) {
       <Line x1={padL} x2={w - padR} y1={padT + chartH} y2={padT + chartH} stroke="#eee" />
       <SvgText x={4} y={padT + 4} fontSize={10} fill="#999">{maxV}{unit}</SvgText>
       <SvgText x={4} y={padT + chartH + 4} fontSize={10} fill="#999">{minV}{unit}</SvgText>
-      <Path d={pathD} stroke="#1a73e8" strokeWidth={2} fill="none" />
+      <Path d={pathD} stroke={colors.primary} strokeWidth={2} fill="none" />
       {pts.map((p, i) => (
-        <Circle key={i} cx={x(i)} cy={y(p.value)} r={3} fill="#1a73e8" />
+        <Circle key={i} cx={x(i)} cy={y(p.value)} r={3} fill={colors.primary} />
       ))}
       {/* X-axis: first + last date */}
       <SvgText x={padL} y={height - 8} fontSize={9} fill="#999">{pts[0].date.slice(5)}</SvgText>

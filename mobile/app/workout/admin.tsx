@@ -100,7 +100,7 @@ export default function AdminScreen() {
   };
 
   if (loading) {
-    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />;
+    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
   return (
@@ -407,7 +407,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
             </View>
 
             {searching ? (
-              <ActivityIndicator style={{ marginTop: 30 }} size="large" color="#1a73e8" />
+              <ActivityIndicator style={{ marginTop: 30 }} size="large" color={colors.primary} />
             ) : candidates.length === 0 ? (
               <Text style={styles.modalEmpty}>No results. Try a different query.</Text>
             ) : (

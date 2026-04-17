@@ -247,7 +247,7 @@ export default function TasksScreen() {
                   <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
                     {opt.label}
                   </Text>
-                  {groupBy === opt.key && <Ionicons name="checkmark" size={14} color="#1a73e8" />}
+                  {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
                 </Pressable>
               ))}
             </View>
@@ -292,7 +292,7 @@ export default function TasksScreen() {
 
       {/* Task rows */}
       {isLoading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />
+        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
       ) : sortedTasks.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="checkmark-done-circle-outline" size={48} color="#ccc" />
@@ -308,7 +308,7 @@ export default function TasksScreen() {
                   <Ionicons
                     name={groupBy === 'folder' ? 'folder' : groupBy === 'priority' ? 'flag' :
                           groupBy === 'starred' ? 'star' : groupBy === 'status' ? 'radio-button-on' : 'calendar'}
-                    size={14} color="#1a73e8" />
+                    size={14} color={colors.primary} />
                   <Text style={styles.groupHeaderText}>{group.label}</Text>
                   <Text style={styles.groupCount}>{group.tasks.length}</Text>
                 </View>
