@@ -344,6 +344,15 @@ class SessionResponse(BaseModel):
     sets: list[SessionSetResponse] = []
 
 
+class ExerciseBest(BaseModel):
+    """Per-exercise historical bests across a user's prior sessions. Used
+    to decide whether a newly-logged set is a personal record."""
+    exercise_id: int
+    max_weight: Optional[float] = None
+    max_reps: Optional[int] = None
+    max_duration_sec: Optional[int] = None
+
+
 class SymptomLogCreate(BaseModel):
     body_part: str
     severity: int

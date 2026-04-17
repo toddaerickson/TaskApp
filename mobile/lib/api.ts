@@ -452,6 +452,18 @@ export async function endSession(id: number, extras?: { rpe?: number; mood?: num
   return data;
 }
 
+export interface SessionExerciseBest {
+  exercise_id: number;
+  max_weight: number | null;
+  max_reps: number | null;
+  max_duration_sec: number | null;
+}
+
+export async function getSessionPRs(sessionId: number) {
+  const { data } = await api.get(`/sessions/${sessionId}/prs`);
+  return data as SessionExerciseBest[];
+}
+
 export async function logSet(sessionId: number, payload: {
   exercise_id: number;
   /** Omit to have the server auto-assign the next set_number atomically. */
