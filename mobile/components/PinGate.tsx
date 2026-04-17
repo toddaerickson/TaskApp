@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -151,7 +152,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       <Ionicons
         name={mode === 'set' ? 'key-outline' : 'lock-closed'}
         size={48}
-        color={mode === 'locked' ? '#e74c3c' : '#1a73e8'}
+        color={mode === 'locked' ? colors.danger : colors.primary}
       />
       <Text style={styles.title}>{title}</Text>
       {!!message && mode !== 'locked' && <Text style={styles.subtitle}>{message}</Text>}
@@ -250,11 +251,11 @@ const styles = StyleSheet.create({
 
   dots: { flexDirection: 'row', gap: 14, marginTop: 28, marginBottom: 12 },
   dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: '#bbb' },
-  dotFilled: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
-  dotWrong: { borderColor: '#e74c3c', backgroundColor: '#e74c3c' },
+  dotFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dotWrong: { borderColor: colors.danger, backgroundColor: colors.danger },
 
-  wrongText: { color: '#e74c3c', fontSize: 13, marginTop: 4, height: 20 },
-  lockedText: { color: '#e74c3c', fontSize: 14, marginTop: 20, textAlign: 'center', paddingHorizontal: 40 },
+  wrongText: { color: colors.danger, fontSize: 13, marginTop: 4, height: 20 },
+  lockedText: { color: colors.danger, fontSize: 14, marginTop: 20, textAlign: 'center', paddingHorizontal: 40 },
 
   pad: {
     flexDirection: 'row', flexWrap: 'wrap', width: 240,
@@ -273,11 +274,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
     backgroundColor: '#e8f0fe', marginTop: 12, cursor: 'pointer' as any,
   },
-  bioBtnText: { color: '#1a73e8', fontSize: 13, fontWeight: '600' },
+  bioBtnText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
 
   primaryBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#1a73e8', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8,
+    backgroundColor: colors.primary, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8,
     cursor: 'pointer' as any,
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },

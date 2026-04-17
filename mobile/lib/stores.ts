@@ -173,8 +173,8 @@ interface TaskState {
   filters: api.TaskFilters;
   load: () => Promise<void>;
   setFilters: (f: Partial<api.TaskFilters>) => void;
-  create: (task: any) => Promise<void>;
-  update: (id: number, updates: any) => Promise<void>;
+  create: (task: api.TaskCreatePayload) => Promise<void>;
+  update: (id: number, updates: api.TaskUpdatePayload) => Promise<void>;
   remove: (id: number) => Promise<void>;
   complete: (id: number) => Promise<void>;
   toggleStar: (id: number, starred: boolean) => Promise<void>;

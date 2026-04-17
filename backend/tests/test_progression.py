@@ -2,7 +2,6 @@
 
 Run from backend/: `venv/bin/pytest tests/ -v`
 """
-import pytest
 from app.progression import suggest, Suggestion
 
 

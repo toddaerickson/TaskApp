@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
@@ -371,7 +372,7 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
       style={[styles.exBlock, isActive && styles.exBlockActive, isDone && styles.exBlockDone]}
     >
       <View style={styles.exHead}>
-        <Text style={[styles.exHeadNum, isDone && { backgroundColor: '#27ae60' }]}>{idx + 1}</Text>
+        <Text style={[styles.exHeadNum, isDone && { backgroundColor: colors.success }]}>{idx + 1}</Text>
         <View style={{ flex: 1 }}>
           <Text style={styles.exHeadName}>{ex.name}</Text>
           <Text style={styles.exHeadTarget}>
@@ -417,15 +418,15 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
             <View
               style={[
                 styles.timerBox,
-                timerMode === 'rest' && { backgroundColor: '#e3f2fd', borderColor: '#1a73e8' },
+                timerMode === 'rest' && { backgroundColor: '#e3f2fd', borderColor: colors.primary },
               ]}
               accessibilityLiveRegion="polite"
               accessibilityLabel={`${timerMode === 'running' ? 'Hold' : 'Rest'} timer, ${remaining} seconds remaining`}
             >
-              <Text style={[styles.timerLabel, timerMode === 'rest' && { color: '#1a73e8' }]}>
+              <Text style={[styles.timerLabel, timerMode === 'rest' && { color: colors.primary }]}>
                 {timerMode === 'running' ? 'Hold' : 'Rest'}
               </Text>
-              <Text style={[styles.timerValue, timerMode === 'rest' && { color: '#1a73e8' }]}>
+              <Text style={[styles.timerValue, timerMode === 'rest' && { color: colors.primary }]}>
                 {formatTime(remaining)}
               </Text>
               <Pressable style={styles.timerStopBtn} onPress={stopTimer} accessibilityRole="button">
@@ -484,7 +485,7 @@ function LabeledInput({ label, value, onChange }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   progressBar: { height: 4, backgroundColor: '#e0e0e0' },
-  progressFill: { height: 4, backgroundColor: '#27ae60' },
+  progressFill: { height: 4, backgroundColor: colors.success },
   progressText: { fontSize: 11, color: '#888' },
   progressRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -495,7 +496,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     backgroundColor: '#fff5e6', cursor: 'pointer' as any,
   },
-  symptomBtnText: { color: '#e67e22', fontSize: 11, fontWeight: '600' },
+  symptomBtnText: { color: colors.warning, fontSize: 11, fontWeight: '600' },
 
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
@@ -518,7 +519,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#eee',
     cursor: 'pointer' as any,
   },
-  partChipActive: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  partChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   partChipText: { fontSize: 12, color: '#444' },
   partChipTextActive: { color: '#fff', fontWeight: '600' },
   sevRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
@@ -528,7 +529,7 @@ const styles = StyleSheet.create({
   },
   sevNum: { fontSize: 12, color: '#666' },
   modalSaveBtn: {
-    backgroundColor: '#e67e22', borderRadius: 8, padding: 12,
+    backgroundColor: colors.warning, borderRadius: 8, padding: 12,
     alignItems: 'center', marginTop: 16, cursor: 'pointer' as any,
   },
   modalSaveText: { color: '#fff', fontWeight: '700' },
@@ -538,12 +539,12 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: 'transparent',
     cursor: 'pointer' as any,
   },
-  exBlockActive: { borderColor: '#1a73e8' },
+  exBlockActive: { borderColor: colors.primary },
   exBlockDone: { opacity: 0.7 },
 
   exHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   exHeadNum: {
-    width: 30, height: 30, borderRadius: 15, backgroundColor: '#1a73e8',
+    width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary,
     color: '#fff', textAlign: 'center', lineHeight: 30, fontWeight: '700',
   },
   exHeadName: { fontSize: 15, fontWeight: '600', color: '#222' },
@@ -564,7 +565,7 @@ const styles = StyleSheet.create({
   },
   setRowDone: { backgroundColor: '#e8f5e9' },
   setNum: { fontSize: 13, fontWeight: '600', color: '#444' },
-  setDone: { fontSize: 13, color: '#27ae60', fontWeight: '600' },
+  setDone: { fontSize: 13, color: colors.success, fontWeight: '600' },
   setPending: { fontSize: 13, color: '#bbb' },
 
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
@@ -573,22 +574,22 @@ const styles = StyleSheet.create({
 
   logBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 8, padding: 10, marginTop: 10,
+    backgroundColor: colors.primary, borderRadius: 8, padding: 10, marginTop: 10,
     cursor: 'pointer' as any,
   },
   logBtnText: { color: '#fff', fontWeight: '600' },
   timerBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#e67e22', borderRadius: 8, padding: 10, marginTop: 10,
+    backgroundColor: colors.warning, borderRadius: 8, padding: 10, marginTop: 10,
     cursor: 'pointer' as any,
   },
   timerBox: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#fff5e6', borderColor: '#e67e22', borderWidth: 1,
+    backgroundColor: '#fff5e6', borderColor: colors.warning, borderWidth: 1,
     padding: 12, borderRadius: 8, marginTop: 12,
   },
-  timerLabel: { fontSize: 11, color: '#e67e22', fontWeight: '700', textTransform: 'uppercase' },
-  timerValue: { flex: 1, fontSize: 28, fontWeight: '800', color: '#e67e22',
+  timerLabel: { fontSize: 11, color: colors.warning, fontWeight: '700', textTransform: 'uppercase' },
+  timerValue: { flex: 1, fontSize: 28, fontWeight: '800', color: colors.warning,
     fontVariant: ['tabular-nums'] as any },
   timerStopBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#fff',
     borderWidth: 1, borderColor: '#ccc', cursor: 'pointer' as any },
@@ -602,7 +603,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#ddd', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
-  rpeBtnActive: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  rpeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   rpeText: { fontSize: 13, color: '#666' },
   rpeTextActive: { color: '#fff', fontWeight: '700' },
 
@@ -612,7 +613,7 @@ const styles = StyleSheet.create({
   },
   finishBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#27ae60', borderRadius: 10, padding: 14,
+    backgroundColor: colors.success, borderRadius: 10, padding: 14,
     cursor: 'pointer' as any,
   },
   finishBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },

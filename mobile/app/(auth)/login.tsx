@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -63,10 +64,10 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f0f4f8', justifyContent: 'center', padding: 20 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 24, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 3 },
-  title: { fontSize: 28, fontWeight: '700', color: '#1a73e8', textAlign: 'center' },
+  title: { fontSize: 28, fontWeight: '700', color: colors.primary, textAlign: 'center' },
   subtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12, color: '#333' },
-  button: { backgroundColor: '#1a73e8', borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 8 },
+  button: { backgroundColor: colors.primary, borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { color: '#1a73e8', textAlign: 'center', marginTop: 16, fontSize: 14 },
+  link: { color: colors.primary, textAlign: 'center', marginTop: 16, fontSize: 14 },
 });

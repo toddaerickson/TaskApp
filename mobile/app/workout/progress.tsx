@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, useWindowDimensions,
@@ -152,7 +153,7 @@ function BarChart({ data, height }: { data: { label: string; count: number }[]; 
             <Rect
               key={`b${i}`}
               x={x} y={y} width={barW} height={h}
-              fill={d.count > 0 ? '#1a73e8' : '#e8e8e8'}
+              fill={d.count > 0 ? colors.primary : '#e8e8e8'}
               rx={2}
             />
             <SvgText
@@ -240,7 +241,7 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 14, alignItems: 'center',
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },
-  statValue: { fontSize: 22, fontWeight: '700', color: '#1a73e8' },
+  statValue: { fontSize: 22, fontWeight: '700', color: colors.primary },
   statLabel: { fontSize: 11, color: '#666', marginTop: 4 },
 
   card: {
@@ -256,7 +257,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
     backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#eee',
   },
-  chipActive: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 12, color: '#444' },
   chipTextActive: { color: '#fff', fontWeight: '600' },
   chipCount: { backgroundColor: '#fff', borderRadius: 9, paddingHorizontal: 6, paddingVertical: 1 },

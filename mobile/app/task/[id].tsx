@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -10,9 +11,9 @@ import * as api from '@/lib/api';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
-  { value: 1, label: 'Medium', color: '#f0ad4e' },
-  { value: 2, label: 'High', color: '#e67e22' },
-  { value: 3, label: 'Top', color: '#e74c3c' },
+  { value: 1, label: 'Medium', color: colors.warningSoft },
+  { value: 2, label: 'High', color: colors.warning },
+  { value: 3, label: 'Top', color: colors.danger },
 ];
 
 const STATUSES = ['none', 'next_action', 'active', 'waiting', 'hold', 'postponed', 'someday', 'cancelled'];
@@ -143,7 +144,7 @@ export default function TaskDetailScreen() {
 
       <View style={styles.switchRow}>
         <Text style={styles.label}>Starred</Text>
-        <Switch value={starred} onValueChange={setStarred} trackColor={{ true: '#f39c12' }} />
+        <Switch value={starred} onValueChange={setStarred} trackColor={{ true: colors.accent }} />
       </View>
 
       <Text style={styles.label}>Due Date (YYYY-MM-DD)</Text>
@@ -186,13 +187,13 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f0f0f0' },
-  chipActive: { backgroundColor: '#1a73e8' },
-  tagActive: { backgroundColor: '#8e44ad' },
+  chipActive: { backgroundColor: colors.primary },
+  tagActive: { backgroundColor: colors.violet },
   chipText: { fontSize: 13, color: '#555' },
   chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
-  saveButton: { backgroundColor: '#27ae60', borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 24 },
+  saveButton: { backgroundColor: colors.success, borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 24 },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 16, padding: 12 },
-  deleteText: { color: '#e74c3c', fontSize: 15 },
+  deleteText: { color: colors.danger, fontSize: 15 },
 });

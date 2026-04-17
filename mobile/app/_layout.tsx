@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
@@ -35,7 +36,7 @@ export default function RootLayout() {
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
   return (
-    <Stack screenOptions={{ headerStyle: { backgroundColor: '#1a73e8' }, headerTintColor: '#fff' }}>
+    <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary }, headerTintColor: '#fff' }}>
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />

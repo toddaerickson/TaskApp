@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, Platform,
@@ -36,7 +37,9 @@ export default function TrackScreen() {
   const [saving, setSaving] = useState(false);
 
   const reload = () => {
-    api.listSymptoms({ limit: 200 }).then(setLogs).catch(() => {});
+    api.listSymptoms({ limit: 200 })
+      .then(setLogs)
+      .catch((e) => console.warn('[track] listSymptoms failed:', e));
   };
 
   useEffect(reload, []);
@@ -163,7 +166,7 @@ export default function TrackScreen() {
                   {items.length > 1 && (
                     <View style={[
                       styles.trendArrow,
-                      { backgroundColor: trend < 0 ? '#27ae60' : trend > 0 ? '#e74c3c' : '#999' },
+                      { backgroundColor: trend < 0 ? colors.success : trend > 0 ? colors.danger : '#999' },
                     ]}>
                       <Ionicons
                         name={trend < 0 ? 'arrow-down' : trend > 0 ? 'arrow-up' : 'remove'}
@@ -234,7 +237,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#eee',
     cursor: 'pointer' as any,
   },
-  partChipActive: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  partChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   partChipText: { fontSize: 12, color: '#444' },
   partChipTextActive: { color: '#fff', fontWeight: '600' },
 
@@ -252,7 +255,7 @@ const styles = StyleSheet.create({
 
   saveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 8, padding: 12, marginTop: 16,
+    backgroundColor: colors.primary, borderRadius: 8, padding: 12, marginTop: 16,
     cursor: 'pointer' as any,
   },
   saveBtnText: { color: '#fff', fontWeight: '700' },

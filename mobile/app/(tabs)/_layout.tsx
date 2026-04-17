@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
@@ -10,8 +11,8 @@ const ICON = 20;
 export default function TabLayout() {
   return (
     <Tabs screenOptions={{
-      tabBarActiveTintColor: '#1a73e8',
-      headerStyle: { backgroundColor: '#1a73e8' },
+      tabBarActiveTintColor: colors.primary,
+      headerStyle: { backgroundColor: colors.primary },
       headerTintColor: '#fff',
       // Mobile Safari covers the bottom of the viewport with its own chrome,
       // which was clipping the tab labels' descenders. Reserve enough vertical

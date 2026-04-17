@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, Image, ActivityIndicator, Platform, Modal,
@@ -60,7 +61,7 @@ export default function AdminScreen() {
     setLoading(true);
     api.getExercises()
       .then(setExercises)
-      .catch(() => {})
+      .catch((e) => console.warn('[admin] getExercises failed:', e))
       .finally(() => setLoading(false));
   };
   useEffect(reload, []);
@@ -129,7 +130,7 @@ export default function AdminScreen() {
               <Text style={styles.previewTitle}>Preview ({parsed.length} row{parsed.length === 1 ? '' : 's'})</Text>
               {parsed.map((r, i) => (
                 <View key={`${r.slug}-${i}`} style={styles.previewRow}>
-                  <Text style={[styles.previewSlug, r.error && { color: '#e74c3c' }]}>{r.slug}</Text>
+                  <Text style={[styles.previewSlug, r.error && { color: colors.danger }]}>{r.slug}</Text>
                   <Text style={styles.previewUrls} numberOfLines={2}>
                     {r.error ? `⚠ ${r.error}` : `${r.urls.length} url${r.urls.length === 1 ? '' : 's'}`}
                   </Text>
@@ -142,7 +143,7 @@ export default function AdminScreen() {
             <Pressable style={styles.checkRow} onPress={() => setReplace(!replace)}>
               <Ionicons
                 name={replace ? 'checkbox' : 'square-outline'}
-                size={18} color={replace ? '#e67e22' : '#999'}
+                size={18} color={replace ? colors.warning : '#999'}
               />
               <Text style={styles.checkLabel}>Replace existing (instead of append)</Text>
             </Pressable>
@@ -470,7 +471,7 @@ function openImageSearch(query: string) {
   } else {
     // Native: lazy-require Linking so web bundler doesn't complain.
     const { Linking } = require('react-native');
-    Linking.openURL(url).catch(() => {});
+    Linking.openURL(url).catch((e: unknown) => console.warn('[admin] openURL failed:', e));
   }
 }
 
@@ -504,11 +505,11 @@ const styles = StyleSheet.create({
   checkLabel: { fontSize: 12, color: '#666' },
   applyBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: colors.primary, borderRadius: 6, paddingHorizontal: 12, paddingVertical: 8,
     cursor: 'pointer' as any,
   },
   applyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  resultText: { marginTop: 10, fontSize: 13, color: '#27ae60' },
+  resultText: { marginTop: 10, fontSize: 13, color: colors.success },
 
   sectionTitle: {
     fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
@@ -540,12 +541,12 @@ const styles = StyleSheet.create({
     fontSize: 12, backgroundColor: '#fafafa',
   },
   addImgBtn: {
-    backgroundColor: '#27ae60', borderRadius: 6, width: 34, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.success, borderRadius: 6, width: 34, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
   searchBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#1a73e8',
+    paddingHorizontal: 10, borderRadius: 6, backgroundColor: colors.primary,
     cursor: 'pointer' as any,
   },
   searchBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
@@ -574,7 +575,7 @@ const styles = StyleSheet.create({
     fontSize: 13, backgroundColor: '#fafafa',
   },
   searchGoBtn: {
-    backgroundColor: '#1a73e8', borderRadius: 6,
+    backgroundColor: colors.primary, borderRadius: 6,
     paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
@@ -587,7 +588,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: 'transparent',
     cursor: 'pointer' as any,
   },
-  candidateCardSel: { borderColor: '#27ae60' },
+  candidateCardSel: { borderColor: colors.success },
   candidateImg: { width: '100%', height: 120, backgroundColor: '#f0f0f0' },
   candidateCheck: {
     position: 'absolute', top: 4, right: 4,
@@ -604,7 +605,7 @@ const styles = StyleSheet.create({
   selCount: { fontSize: 13, color: '#666' },
   saveSelBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#27ae60', borderRadius: 6,
+    backgroundColor: colors.success, borderRadius: 6,
     paddingHorizontal: 14, paddingVertical: 8,
     cursor: 'pointer' as any,
   },
@@ -620,7 +621,7 @@ const styles = StyleSheet.create({
   },
   saveEditBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 6, padding: 8, marginTop: 10,
+    backgroundColor: colors.primary, borderRadius: 6, padding: 8, marginTop: 10,
     cursor: 'pointer' as any,
   },
   saveEditText: { color: '#fff', fontSize: 12, fontWeight: '600' },
