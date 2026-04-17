@@ -40,9 +40,18 @@ export const useAuthStore = create<AuthState>((set) => ({
       try {
         const user = await api.getMe();
         set({ user, isLoading: false });
-      } catch {
-        await tokenStorage.deleteItemAsync('token');
-        set({ token: null, user: null, isLoading: false });
+      } catch (e: any) {
+        // Only clear the token when the server actually rejected it.
+        // Transient network / DNS / 5xx failures at cold-start should
+        // leave the user signed in so a retry works without re-typing
+        // their password.
+        const status: number | undefined = e?.response?.status;
+        if (status === 401 || status === 403) {
+          await tokenStorage.deleteItemAsync('token');
+          set({ token: null, user: null, isLoading: false });
+        } else {
+          set({ isLoading: false });
+        }
       }
     } else {
       set({ isLoading: false });

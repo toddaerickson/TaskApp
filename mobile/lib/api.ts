@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
+import { emitSessionExpired } from './sessionExpiry';
 
 // EXPO_PUBLIC_ env vars are inlined at build time by Metro. Override for
 // production by setting EXPO_PUBLIC_API_URL in the host's build env
@@ -47,6 +48,33 @@ api.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+// Global 401 handler. If the server rejects a request that carried an
+// Authorization header, the stored token is dead — clear it and let the
+// UI layer (subscribed via sessionExpiry) show a modal + route to /login.
+// 401s on /auth/login itself are expected (wrong password) — skip those
+// so we don't trigger the expired-session flow on a fresh login attempt.
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const status = error?.response?.status;
+    const url: string = error?.config?.url || '';
+    const hadAuth = Boolean(error?.config?.headers?.Authorization);
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+    if (status === 401 && hadAuth && !isAuthEndpoint) {
+      try {
+        if (Platform.OS === 'web') {
+          localStorage.removeItem('token');
+        } else {
+          const SecureStore = require('expo-secure-store');
+          await SecureStore.deleteItemAsync('token');
+        }
+      } catch { /* best-effort cleanup */ }
+      emitSessionExpired();
+    }
+    return Promise.reject(error);
+  },
+);
 
 // --- Auth ---
 export async function register(email: string, password: string, displayName?: string) {

@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from app.database import get_db, is_unique_violation
-from app.auth import hash_password, verify_password, create_token, get_current_user_id
+from app.auth import (
+    hash_password, verify_password, create_token, get_current_user_id,
+    needs_rehash,
+)
 from app.models import RegisterRequest, LoginRequest, TokenResponse, UserResponse
+from app.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -43,13 +47,22 @@ def register(req: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest):
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT id, password_hash FROM users WHERE email = ?", (req.email,))
         user = cur.fetchone()
-    if not user or not verify_password(req.password, user["password_hash"]):
-        raise HTTPException(401, "Invalid email or password")
+        if not user or not verify_password(req.password, user["password_hash"]):
+            raise HTTPException(401, "Invalid email or password")
+        # Opportunistic hash upgrade: legacy SHA-256 -> bcrypt on the next
+        # successful login. We already have the plaintext here, so rehash
+        # and UPDATE before the transaction closes.
+        if needs_rehash(user["password_hash"]):
+            cur.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (hash_password(req.password), user["id"]),
+            )
     return TokenResponse(access_token=create_token(user["id"]))
 
 
