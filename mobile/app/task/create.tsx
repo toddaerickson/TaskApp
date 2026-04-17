@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -11,9 +12,9 @@ import DateField from '@/components/DateField';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
-  { value: 1, label: 'Medium', color: '#f0ad4e' },
-  { value: 2, label: 'High', color: '#e67e22' },
-  { value: 3, label: 'Top', color: '#e74c3c' },
+  { value: 1, label: 'Medium', color: colors.warningSoft },
+  { value: 2, label: 'High', color: colors.warning },
+  { value: 3, label: 'Top', color: colors.danger },
 ];
 
 const STATUS_OPTIONS = [
@@ -162,7 +163,7 @@ export default function CreateTaskScreen() {
         <Switch
           value={starred}
           onValueChange={setStarred}
-          trackColor={{ true: '#f39c12' }}
+          trackColor={{ true: colors.accent }}
           accessibilityLabel="Starred"
         />
       </View>
@@ -277,7 +278,7 @@ const styles = StyleSheet.create({
   priChipText: { fontSize: 13, fontWeight: '600' },
 
   tagChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3e8ff' },
-  tagChipOn: { backgroundColor: '#8e44ad' },
+  tagChipOn: { backgroundColor: colors.violet },
   chipText: { fontSize: 13, color: '#555' },
   chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
 
@@ -291,11 +292,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12, marginTop: 20,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  advancedToggleText: { color: '#1a73e8', fontSize: 14, fontWeight: '600' },
+  advancedToggleText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
   advancedSummary: { color: '#888', fontSize: 12, flex: 1 },
 
   saveButton: {
-    flexDirection: 'row', backgroundColor: '#27ae60', borderRadius: 8, padding: 16,
+    flexDirection: 'row', backgroundColor: colors.success, borderRadius: 8, padding: 16,
     alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24,
   },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },

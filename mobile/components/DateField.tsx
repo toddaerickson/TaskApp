@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useState } from 'react';
 import {
   View, Text, Pressable, Platform, StyleSheet, Modal, TextInput,
@@ -123,5 +124,5 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#fff', padding: 12, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   doneBtn: { padding: 12, alignItems: 'center' },
-  doneText: { color: '#1a73e8', fontWeight: '700', fontSize: 16 },
+  doneText: { color: colors.primary, fontWeight: '700', fontSize: 16 },
 });

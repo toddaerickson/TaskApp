@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
@@ -11,7 +12,7 @@ const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
 };
 const PRIORITY_COLORS: Record<number, string> = {
-  0: '#999', 1: '#f0ad4e', 2: '#e67e22', 3: '#e74c3c',
+  0: '#999', 1: colors.warningSoft, 2: colors.warning, 3: colors.danger,
 };
 
 type SortKey = 'folder' | 'title' | 'priority' | 'status' | 'start_date' | 'due_date' | 'starred' | 'repeat_type';
@@ -323,7 +324,7 @@ export default function TasksScreen() {
                   <Pressable onPress={() => complete(task.id)} style={styles.cardCheck}>
                     <Ionicons
                       name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22} color={task.completed ? '#27ae60' : '#ccc'}
+                      size={22} color={task.completed ? colors.success : '#ccc'}
                     />
                   </Pressable>
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -348,7 +349,7 @@ export default function TasksScreen() {
                   <Pressable onPress={() => toggleStar(task.id, task.starred)} style={styles.cardStar}>
                     <Ionicons
                       name={task.starred ? 'star' : 'star-outline'}
-                      size={18} color={task.starred ? '#f39c12' : '#ddd'}
+                      size={18} color={task.starred ? colors.accent : '#ddd'}
                     />
                   </Pressable>
                 </Pressable>
@@ -362,7 +363,7 @@ export default function TasksScreen() {
                     <Pressable onPress={() => complete(task.id)}>
                       <Ionicons
                         name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={20} color={task.completed ? '#27ae60' : '#ccc'}
+                        size={20} color={task.completed ? colors.success : '#ccc'}
                       />
                     </Pressable>
                   </View>
@@ -405,7 +406,7 @@ export default function TasksScreen() {
                     <Pressable onPress={() => toggleStar(task.id, task.starred)}>
                       <Ionicons
                         name={task.starred ? 'star' : 'star-outline'}
-                        size={16} color={task.starred ? '#f39c12' : '#ddd'}
+                        size={16} color={task.starred ? colors.accent : '#ddd'}
                       />
                     </Pressable>
                   </View>
@@ -440,21 +441,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0', flexDirection: 'row', alignItems: 'center', gap: 4,
     cursor: 'pointer' as any,
   },
-  filterChipActive: { backgroundColor: '#1a73e8' },
+  filterChipActive: { backgroundColor: colors.primary },
   filterText: { fontSize: 12, color: '#666' },
   filterTextActive: { fontSize: 12, color: '#fff' },
   sortInfo: { flex: 1, marginLeft: 4 },
   sortInfoText: { fontSize: 10, color: '#888', fontStyle: 'italic' },
   newTaskBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#1a73e8', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
     cursor: 'pointer' as any,
   },
   newTaskBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 
   // Group By
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
-  groupByActive: { backgroundColor: '#6c5ce7' },
+  groupByActive: { backgroundColor: colors.group },
   dropdown: {
     position: 'absolute' as any, top: 34, left: 0, zIndex: 9999,
     backgroundColor: '#fff', borderRadius: 8, padding: 4,
@@ -468,7 +469,7 @@ const styles = StyleSheet.create({
   },
   dropdownItemActive: { backgroundColor: '#f0f4ff' },
   dropdownText: { fontSize: 13, color: '#333' },
-  dropdownTextActive: { fontSize: 13, color: '#1a73e8', fontWeight: '600' },
+  dropdownTextActive: { fontSize: 13, color: colors.primary, fontWeight: '600' },
 
   // Group headers
   groupHeader: {
@@ -476,9 +477,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#e8eef7',
     borderBottomWidth: 1, borderBottomColor: '#d0d8e8',
   },
-  groupHeaderText: { fontSize: 12, fontWeight: '700', color: '#1a73e8', textTransform: 'capitalize' },
+  groupHeaderText: { fontSize: 12, fontWeight: '700', color: colors.primary, textTransform: 'capitalize' },
   groupCount: {
-    fontSize: 11, color: '#1a73e8', fontWeight: '600',
+    fontSize: 11, color: colors.primary, fontWeight: '600',
     backgroundColor: '#d0ddf0', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1,
   },
 
@@ -493,7 +494,7 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 12, fontWeight: '600', color: '#555', textTransform: 'uppercase',
   },
-  headerTextActive: { color: '#1a73e8' },
+  headerTextActive: { color: colors.primary },
 
   // Table body
   tableBody: { flex: 1 },
@@ -510,8 +511,8 @@ const styles = StyleSheet.create({
   cellText: { fontSize: 13, color: '#444' },
   titleText: { fontWeight: '500' },
   completedText: { textDecorationLine: 'line-through', color: '#999' },
-  startDateText: { color: '#27ae60' },
-  dueDateText: { color: '#e67e22' },
+  startDateText: { color: colors.success },
+  dueDateText: { color: colors.warning },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 

@@ -46,6 +46,9 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt
 
+      - name: Lint (ruff — real bugs only, not style)
+        run: ruff check --select F .
+
       - name: Test
         run: pytest -q
 

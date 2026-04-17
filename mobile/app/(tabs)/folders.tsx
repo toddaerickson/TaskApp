@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, TextInput,
@@ -9,7 +10,7 @@ import { useFolderStore, useTaskStore, Task } from '@/lib/stores';
 import * as api from '@/lib/api';
 
 const PRIORITY_COLORS: Record<number, string> = {
-  0: '#999', 1: '#f0ad4e', 2: '#e67e22', 3: '#e74c3c',
+  0: '#999', 1: colors.warningSoft, 2: colors.warning, 3: colors.danger,
 };
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
@@ -23,13 +24,13 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
       <Pressable onPress={onComplete} style={styles.checkBox}>
         <Ionicons
           name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
-          size={22} color={task.completed ? '#27ae60' : '#ccc'}
+          size={22} color={task.completed ? colors.success : '#ccc'}
         />
       </Pressable>
       <Pressable onPress={onStar} style={{ marginRight: 8 }}>
         <Ionicons
           name={task.starred ? 'star' : 'star-outline'}
-          size={18} color={task.starred ? '#f39c12' : '#ccc'}
+          size={18} color={task.starred ? colors.accent : '#ccc'}
         />
       </Pressable>
       <View style={styles.taskContent}>
@@ -104,7 +105,7 @@ export default function FoldersScreen() {
           style={[styles.folderRow, selectedFolderId === null && styles.folderRowActive]}
           onPress={() => handleSelectFolder(null)}
         >
-          <Ionicons name="list" size={18} color={selectedFolderId === null ? '#fff' : '#1a73e8'} />
+          <Ionicons name="list" size={18} color={selectedFolderId === null ? '#fff' : colors.primary} />
           <Text style={[styles.folderName, selectedFolderId === null && styles.folderNameActive]}>All Tasks</Text>
         </Pressable>
 
@@ -118,7 +119,7 @@ export default function FoldersScreen() {
             >
               <Ionicons
                 name="folder-outline" size={18}
-                color={selectedFolderId === item.id ? '#fff' : '#1a73e8'}
+                color={selectedFolderId === item.id ? '#fff' : colors.primary}
               />
               <Text style={[styles.folderName, selectedFolderId === item.id && styles.folderNameActive]} numberOfLines={1}>
                 {item.name}
@@ -225,17 +226,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16,
     gap: 10, cursor: 'pointer' as any,
   },
-  folderRowActive: { backgroundColor: '#1a73e8' },
+  folderRowActive: { backgroundColor: colors.primary },
   folderName: { flex: 1, fontSize: 14, color: '#333' },
   folderNameActive: { color: '#fff', fontWeight: '600' },
   countBadge: { backgroundColor: '#e8f0fe', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 1 },
   countBadgeActive: { backgroundColor: 'rgba(255,255,255,0.25)' },
-  countText: { fontSize: 12, color: '#1a73e8', fontWeight: '600' },
+  countText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
   countTextActive: { color: '#fff' },
   addRow: { flexDirection: 'row', alignItems: 'center', padding: 10, gap: 6, borderTopWidth: 1, borderTopColor: '#eee' },
   addInput: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 13 },
   addButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 14, cursor: 'pointer' as any },
-  addText: { color: '#1a73e8', fontSize: 13 },
+  addText: { color: colors.primary, fontSize: 13 },
 
   // Right main panel
   main: { flex: 1, paddingTop: 4 },
@@ -247,7 +248,7 @@ const styles = StyleSheet.create({
   mainTitle: { fontSize: 20, fontWeight: '700', color: '#333' },
   newTaskBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8,
     cursor: 'pointer' as any,
   },
   newTaskText: { color: '#fff', fontSize: 14, fontWeight: '600' },
@@ -264,8 +265,8 @@ const styles = StyleSheet.create({
   taskTitle: { fontSize: 14, color: '#333' },
   completedText: { textDecorationLine: 'line-through', color: '#999' },
   taskMeta: { flexDirection: 'row', gap: 6, marginTop: 2, flexWrap: 'wrap' },
-  tagBadge: { fontSize: 11, color: '#8e44ad', backgroundColor: '#f3e8ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
-  dueDateText: { fontSize: 11, color: '#e67e22' },
+  tagBadge: { fontSize: 11, color: colors.violet, backgroundColor: '#f3e8ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
+  dueDateText: { fontSize: 11, color: colors.warning },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginLeft: 8 },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 

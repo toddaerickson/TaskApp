@@ -14,7 +14,7 @@ the endpoint returns 503 — fail closed.
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from app.database import get_db

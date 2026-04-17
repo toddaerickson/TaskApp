@@ -16,7 +16,6 @@ Usage:
     python seed_workouts.py --resync-images    # re-apply the hardcoded IMAGES dict
 """
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -638,7 +637,7 @@ def usage():
     print("  python seed_workouts.py                           # seed global exercises only")
     print("  python seed_workouts.py <email>                   # seed + create 'ankle' routine (default)")
     print("  python seed_workouts.py <email> <routine>         # seed + create specified routine")
-    print(f"  python seed_workouts.py <email> all               # seed + create ALL routines")
+    print("  python seed_workouts.py <email> all               # seed + create ALL routines")
     print(f"\nAvailable routines: {', '.join(ROUTINES)}")
 
 

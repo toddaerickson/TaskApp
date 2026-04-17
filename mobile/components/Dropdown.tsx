@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useState } from 'react';
 import {
   View, Text, Pressable, Modal, FlatList, StyleSheet, Platform,
@@ -109,5 +110,5 @@ const styles = StyleSheet.create({
   },
   rowSel: { backgroundColor: '#e8f0fe' },
   rowText: { fontSize: 15, color: '#333', flex: 1 },
-  rowTextSel: { color: '#1a73e8', fontWeight: '600' },
+  rowTextSel: { color: colors.primary, fontWeight: '600' },
 });

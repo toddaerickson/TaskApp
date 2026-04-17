@@ -128,6 +128,41 @@ export interface TaskFilters {
   per_page?: number;
 }
 
+/** POST /tasks body. Matches backend Pydantic TaskCreate. */
+export interface TaskCreatePayload {
+  title: string;
+  folder_id?: number | null;
+  subfolder_id?: number | null;
+  parent_id?: number | null;
+  note?: string | null;
+  priority?: number;
+  status?: string;
+  starred?: boolean;
+  /** YYYY-MM-DD */
+  start_date?: string | null;
+  /** YYYY-MM-DD */
+  due_date?: string | null;
+  /** HH:MM */
+  due_time?: string | null;
+  repeat_type?: string;
+  repeat_from?: string;
+  sort_order?: number;
+  tag_ids?: number[];
+}
+
+/** PUT /tasks/{id} body. Same shape as TaskCreatePayload but everything optional. */
+export type TaskUpdatePayload = Partial<TaskCreatePayload>;
+
+/** POST /tasks/batch extras (task_ids is supplied separately). */
+export interface TaskBatchUpdatePayload {
+  folder_id?: number | null;
+  subfolder_id?: number | null;
+  priority?: number;
+  status?: string;
+  starred?: boolean;
+  completed?: boolean;
+}
+
 export async function getTasks(filters: TaskFilters = {}) {
   const { data } = await api.get('/tasks', { params: filters });
   return data;
@@ -138,12 +173,12 @@ export async function getTask(id: number) {
   return data;
 }
 
-export async function createTask(task: any) {
+export async function createTask(task: TaskCreatePayload) {
   const { data } = await api.post('/tasks', task);
   return data;
 }
 
-export async function updateTask(id: number, updates: any) {
+export async function updateTask(id: number, updates: TaskUpdatePayload) {
   const { data } = await api.put(`/tasks/${id}`, updates);
   return data;
 }
@@ -162,7 +197,7 @@ export async function reorderTasks(taskIds: number[]) {
   return data;
 }
 
-export async function batchUpdate(taskIds: number[], updates: any) {
+export async function batchUpdate(taskIds: number[], updates: TaskBatchUpdatePayload) {
   const { data } = await api.post('/tasks/batch', { task_ids: taskIds, ...updates });
   return data;
 }
@@ -198,22 +233,73 @@ export async function getExercise(id: number) {
   return data;
 }
 
-export async function createExercise(payload: any) {
+export interface ExerciseCreatePayload {
+  name: string;
+  slug?: string | null;
+  category?: string;
+  primary_muscle?: string | null;
+  equipment?: string | null;
+  difficulty?: number;
+  is_bodyweight?: boolean;
+  measurement?: string;
+  instructions?: string | null;
+  cue?: string | null;
+  contraindications?: string | null;
+  min_age?: number | null;
+  max_age?: number | null;
+}
+export type ExerciseUpdatePayload = Partial<Omit<ExerciseCreatePayload, 'slug'>>;
+
+/** Individual exercise slot when creating or appending to a routine.
+ * All optional numeric fields accept `null` to clear server-side. */
+export interface RoutineExerciseCreatePayload {
+  exercise_id: number;
+  sort_order?: number;
+  target_sets?: number | null;
+  target_reps?: number | null;
+  target_weight?: number | null;
+  target_duration_sec?: number | null;
+  rest_sec?: number | null;
+  tempo?: string | null;
+  keystone?: boolean;
+  notes?: string | null;
+}
+export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>>;
+
+export interface RoutineCreatePayload {
+  name: string;
+  goal?: string;
+  notes?: string | null;
+  sort_order?: number;
+  reminder_time?: string | null;
+  reminder_days?: string | null;
+  exercises?: RoutineExerciseCreatePayload[];
+}
+export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>>;
+
+export interface SessionUpdatePayload {
+  ended_at?: string | null;
+  rpe?: number;
+  mood?: number;
+  notes?: string | null;
+}
+
+export async function createExercise(payload: ExerciseCreatePayload) {
   const { data } = await api.post('/exercises', payload);
   return data;
 }
 
-export async function updateExercise(id: number, updates: any) {
+export async function updateExercise(id: number, updates: ExerciseUpdatePayload) {
   const { data } = await api.put(`/exercises/${id}`, updates);
   return data;
 }
 
-export async function updateRoutine(id: number, updates: any) {
+export async function updateRoutine(id: number, updates: RoutineUpdatePayload) {
   const { data } = await api.put(`/routines/${id}`, updates);
   return data;
 }
 
-export async function updateRoutineExercise(routineExerciseId: number, updates: any) {
+export async function updateRoutineExercise(routineExerciseId: number, updates: RoutineExerciseUpdatePayload) {
   const { data } = await api.put(`/routines/exercises/${routineExerciseId}`, updates);
   return data;
 }
@@ -239,7 +325,7 @@ export async function exportWorkouts() {
   return data;
 }
 
-export async function importWorkouts(payload: any, mode: 'merge' | 'replace' = 'merge', dryRun = false) {
+export async function importWorkouts(payload: unknown, mode: 'merge' | 'replace' = 'merge', dryRun = false) {
   const { data } = await api.post('/import/workouts', { payload, mode, dry_run: dryRun });
   return data as {
     exercises_added: number; exercises_skipped: number;
@@ -294,7 +380,7 @@ export async function getRoutine(id: number) {
   return data;
 }
 
-export async function createRoutine(payload: any) {
+export async function createRoutine(payload: RoutineCreatePayload) {
   const { data } = await api.post('/routines', payload);
   return data;
 }
@@ -303,7 +389,7 @@ export async function deleteRoutine(id: number) {
   await api.delete(`/routines/${id}`);
 }
 
-export async function addExerciseToRoutine(routineId: number, payload: any) {
+export async function addExerciseToRoutine(routineId: number, payload: RoutineExerciseCreatePayload) {
   const { data } = await api.post(`/routines/${routineId}/exercises`, payload);
   return data;
 }
@@ -328,7 +414,7 @@ export async function listSessions(params?: { limit?: number; routine_id?: numbe
   return data;
 }
 
-export async function updateSession(id: number, updates: any) {
+export async function updateSession(id: number, updates: SessionUpdatePayload) {
   const { data } = await api.put(`/sessions/${id}`, updates);
   return data;
 }

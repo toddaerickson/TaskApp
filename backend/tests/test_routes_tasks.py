@@ -76,7 +76,7 @@ def test_complete_then_uncomplete_via_update(auth_client):
     c, tok, _ = auth_client
     t = c.post("/tasks", headers=_h(tok), json={"title": "Flip"}).json()
     c.post(f"/tasks/{t['id']}/complete", headers=_h(tok))
-    r = c.put(f"/tasks/{t['id']}", headers=_h(tok), json={"completed": False})
+    c.put(f"/tasks/{t['id']}", headers=_h(tok), json={"completed": False})
     # If /complete is a toggle this may 200 already; either way not-completed.
     fresh = c.get(f"/tasks/{t['id']}", headers=_h(tok)).json()
     # Accept either: PUT un-completed explicitly, or endpoint toggles.
@@ -98,7 +98,7 @@ def test_filter_by_folder(auth_client):
 
 def test_filter_by_completed(auth_client):
     c, tok, _ = auth_client
-    a = c.post("/tasks", headers=_h(tok), json={"title": "open"}).json()
+    c.post("/tasks", headers=_h(tok), json={"title": "open"})
     b = c.post("/tasks", headers=_h(tok), json={"title": "done"}).json()
     c.post(f"/tasks/{b['id']}/complete", headers=_h(tok))
 

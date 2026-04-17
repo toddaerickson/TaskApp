@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput,
@@ -18,7 +19,9 @@ export default function RoutineDetailScreen() {
   const reload = useCallback(() => {
     if (!routineId) return;
     const id = Number(routineId);
-    api.getRoutine(id).then(setRoutine).catch(() => {});
+    api.getRoutine(id)
+      .then(setRoutine)
+      .catch((e) => console.warn('[routine] getRoutine failed:', e));
     api.getRoutineSuggestions(id).then(setSuggestions).catch(() => setSuggestions([]));
   }, [routineId]);
   // Reload on focus so returning from a finished session picks up the new
@@ -98,7 +101,7 @@ export default function RoutineDetailScreen() {
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color="#e67e22" />
-                <Text style={{ fontSize: 12, color: '#e67e22' }}>
+                <Text style={{ fontSize: 12, color: colors.warning }}>
                   {routine.reminder_time} · {routine.reminder_days || 'daily'}
                 </Text>
               </View>
@@ -146,7 +149,7 @@ export default function RoutineDetailScreen() {
                 {editMode && (
                   <View style={styles.editControls}>
                     <Pressable onPress={() => moveExercise(idx, -1)} disabled={idx === 0} style={styles.ctrlBtn}>
-                      <Ionicons name="chevron-up" size={18} color={idx === 0 ? '#ccc' : '#1a73e8'} />
+                      <Ionicons name="chevron-up" size={18} color={idx === 0 ? '#ccc' : colors.primary} />
                     </Pressable>
                     <Pressable
                       onPress={() => moveExercise(idx, 1)}
@@ -155,7 +158,7 @@ export default function RoutineDetailScreen() {
                     >
                       <Ionicons
                         name="chevron-down" size={18}
-                        color={idx === routine.exercises.length - 1 ? '#ccc' : '#1a73e8'}
+                        color={idx === routine.exercises.length - 1 ? '#ccc' : colors.primary}
                       />
                     </Pressable>
                     <Pressable onPress={() => deleteRoutineExercise(re.id)} style={styles.ctrlBtn}>
@@ -348,9 +351,9 @@ function RoutineExerciseEdit({ re, onSaved }: { re: any; onSaved: () => void }) 
           <Pressable style={styles.keystoneToggle} onPress={() => setKeystone(!keystone)}>
             <Ionicons
               name={keystone ? 'star' : 'star-outline'}
-              size={18} color={keystone ? '#f39c12' : '#999'}
+              size={18} color={keystone ? colors.accent : '#999'}
             />
-            <Text style={{ fontSize: 12, color: keystone ? '#f39c12' : '#999' }}>
+            <Text style={{ fontSize: 12, color: keystone ? colors.accent : '#999' }}>
               {keystone ? 'yes' : 'no'}
             </Text>
           </Pressable>
@@ -421,14 +424,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
-  keystoneCard: { borderLeftWidth: 4, borderLeftColor: '#f39c12' },
+  keystoneCard: { borderLeftWidth: 4, borderLeftColor: colors.accent },
   exHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   exNum: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: '#1a73e8',
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary,
     color: '#fff', textAlign: 'center', lineHeight: 28, fontWeight: '700',
   },
   exName: { fontSize: 16, fontWeight: '600', color: '#222' },
-  exTarget: { fontSize: 12, color: '#1a73e8', marginTop: 2, fontWeight: '600' },
+  exTarget: { fontSize: 12, color: colors.primary, marginTop: 2, fontWeight: '600' },
   suggestBox: {
     flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
     backgroundColor: '#e8f5e9', paddingHorizontal: 8, paddingVertical: 4,
@@ -438,7 +441,7 @@ const styles = StyleSheet.create({
   suggestReason: { fontStyle: 'italic', color: '#2e7d32' },
   keystoneBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: '#f39c12', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    backgroundColor: colors.accent, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
   keystoneBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
@@ -459,7 +462,7 @@ const styles = StyleSheet.create({
   },
   startBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: '#27ae60', borderRadius: 10, padding: 14,
+    backgroundColor: colors.success, borderRadius: 10, padding: 14,
     cursor: 'pointer' as any,
   },
   startText: { color: '#fff', fontWeight: '700', fontSize: 16 },
@@ -479,7 +482,7 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#1a73e8', borderRadius: 6, padding: 8, marginTop: 10,
+    backgroundColor: colors.primary, borderRadius: 6, padding: 8, marginTop: 10,
     cursor: 'pointer' as any,
   },
   saveText: { color: '#fff', fontSize: 12, fontWeight: '600' },
@@ -493,7 +496,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
     cursor: 'pointer' as any,
   },
-  dayChipOn: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
+  dayChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   dayChipText: { fontSize: 12, color: '#555', textTransform: 'uppercase' },
   dayChipTextOn: { color: '#fff', fontWeight: '700' },
 });

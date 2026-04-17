@@ -1,3 +1,4 @@
+import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator,
@@ -10,8 +11,8 @@ import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
 
 const GOAL_COLORS: Record<string, string> = {
-  rehab: '#e67e22', strength: '#1a73e8', mobility: '#27ae60',
-  cardio: '#e74c3c', general: '#7f8c8d',
+  rehab: colors.warning, strength: colors.primary, mobility: colors.success,
+  cardio: colors.danger, general: '#7f8c8d',
 };
 
 export default function WorkoutsScreen() {
@@ -21,14 +22,17 @@ export default function WorkoutsScreen() {
 
   useEffect(() => {
     loadRoutines();
-    api.listSessions({ limit: 10 }).then(setRecent).catch(() => {});
+    api.listSessions({ limit: 10 })
+      .then(setRecent)
+      .catch((e) => console.warn('[workouts] listSessions failed:', e));
   }, []);
 
   // Re-sync local notifications whenever the routine list (and therefore
   // its reminder_time / reminder_days) changes. No-op on web.
   useEffect(() => {
     if (routines.length > 0) {
-      syncRoutineReminders(routines).catch(() => {});
+      syncRoutineReminders(routines)
+        .catch((e) => console.warn('[workouts] syncRoutineReminders failed:', e));
     }
   }, [routines]);
 
@@ -133,14 +137,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#fff5e6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
   },
-  streakText: { fontWeight: '700', color: '#e67e22' },
+  streakText: { fontWeight: '700', color: colors.warning },
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   trackBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
     backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
   },
-  trackBtnText: { color: '#1a73e8', fontSize: 13, fontWeight: '600' },
+  trackBtnText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
 
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
