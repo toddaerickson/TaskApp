@@ -316,6 +316,21 @@ CREATE TABLE IF NOT EXISTS symptom_logs (
     logged_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_folder_id ON tasks(folder_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_subfolder_id ON tasks(subfolder_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(user_id, completed);
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(user_id, priority);
+CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(user_id, due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_start_date ON tasks(user_id, start_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_starred ON tasks(user_id, starred);
+CREATE INDEX IF NOT EXISTS idx_tasks_sort_order ON tasks(user_id, folder_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id);
+CREATE INDEX IF NOT EXISTS idx_subfolders_folder_id ON subfolders(folder_id);
+CREATE INDEX IF NOT EXISTS idx_tags_user_id ON tags(user_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at, reminded);
 CREATE INDEX IF NOT EXISTS idx_exercises_user_id ON exercises(user_id);
 CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
 CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);

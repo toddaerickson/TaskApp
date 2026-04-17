@@ -74,10 +74,10 @@ cd mobile && npx expo start
 
 ## Tests
 
-183 tests across backend (pytest) and mobile (jest). Run:
+200 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 138 cases
-cd mobile && npm test            # 45 cases
+cd backend && venv/bin/pytest    # 155 cases
+cd mobile && npm test            # 45 cases (3 suites, pure-function libs only)
 ```
 
 ## CI / pre-commit
@@ -91,8 +91,9 @@ cd mobile && npm test            # 45 cases
 
 ## Known gaps worth flagging when relevant
 
-- No automated tests yet. Backend is tested manually via curl scripts in
-  this session; mobile via TypeScript + runtime checks only.
+- Mobile tests cover pure-function libs only (pin, format, progress).
+  No component / RN-rendering tests yet — the heavy Expo+RN test setup
+  isn't installed. PinGate and screen flows are still TS+runtime only.
 - `expo-local-authentication` doesn't work in Expo Go. Needs a dev build
   (`npx expo prebuild && npx expo run:ios`) or EAS build to test Face ID.
 - Route `GET /routines` and `GET /sessions` are no longer N+1, but still
