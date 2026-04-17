@@ -120,7 +120,10 @@ function computeStreak(sessions: WorkoutSession[]): number {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    // Wrap so the action chips drop to a second row on narrow screens
+    // instead of overflowing horizontally and clipping "Track".
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
+    alignItems: 'center', rowGap: 8,
     padding: 16, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#eee',
   },
@@ -131,7 +134,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff5e6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
   },
   streakText: { fontWeight: '700', color: '#e67e22' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   trackBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
