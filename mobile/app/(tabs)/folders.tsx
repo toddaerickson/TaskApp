@@ -2,12 +2,13 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, TextInput,
-  ActivityIndicator, Platform, useWindowDimensions,
+  Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFolderStore, useTaskStore, Task } from '@/lib/stores';
 import * as api from '@/lib/api';
+import { SkeletonList } from '@/components/Skeleton';
 
 const PRIORITY_COLORS: Record<number, string> = {
   0: '#999', 1: colors.warningSoft, 2: colors.warning, 3: colors.danger,
@@ -176,7 +177,7 @@ export default function FoldersScreen() {
         </View>
 
         {isLoading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
+          <SkeletonList count={6} variant="task" />
         ) : (
           <FlatList
             data={tasks}
@@ -191,8 +192,19 @@ export default function FoldersScreen() {
             )}
             ListEmptyComponent={
               <View style={styles.empty}>
-                <Ionicons name="document-outline" size={48} color="#ccc" />
-                <Text style={styles.emptyText}>No tasks in this folder</Text>
+                <Ionicons name="document-outline" size={64} color="#d0d7e2" />
+                <Text style={styles.emptyTitle}>No tasks here yet</Text>
+                <Text style={styles.emptyHint}>
+                  Add a task and assign it to this folder to see it listed.
+                </Text>
+                <Pressable
+                  style={styles.emptyCta}
+                  onPress={() => router.push('/task/create')}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="add" size={16} color="#fff" />
+                  <Text style={styles.emptyCtaText}>New task</Text>
+                </Pressable>
               </View>
             }
           />
@@ -270,6 +282,15 @@ const styles = StyleSheet.create({
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginLeft: 8 },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
-  empty: { alignItems: 'center', marginTop: 80 },
+  empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
   emptyText: { color: '#999', marginTop: 8 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
+  emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
+  emptyCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.primary, borderRadius: 8,
+    paddingHorizontal: 16, paddingVertical: 10, marginTop: 18,
+    cursor: 'pointer' as any,
+  },
+  emptyCtaText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 });

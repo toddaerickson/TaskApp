@@ -1,10 +1,50 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
-import { Stack } from 'expo-router';
+import { AppState, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
 import { isRecentlyUnlocked } from '@/lib/pin';
+
+// Expo-router picks up a named `ErrorBoundary` export from a layout and
+// renders it in place of the route tree when any descendant throws.
+// Without this, an uncaught error blanks the whole app.
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  const router = useRouter();
+  return (
+    <ScrollView contentContainerStyle={errStyles.container}>
+      <Text style={errStyles.title}>Something went wrong</Text>
+      <Text style={errStyles.msg}>{error.message || 'An unexpected error occurred.'}</Text>
+      <View style={errStyles.row}>
+        <Pressable style={errStyles.primaryBtn} onPress={retry} accessibilityRole="button">
+          <Text style={errStyles.primaryText}>Try again</Text>
+        </Pressable>
+        <Pressable
+          style={errStyles.secondaryBtn}
+          onPress={() => { try { router.replace('/(tabs)/tasks'); } catch { retry(); } }}
+          accessibilityRole="button"
+        >
+          <Text style={errStyles.secondaryText}>Go home</Text>
+        </Pressable>
+      </View>
+      {__DEV__ && error.stack ? (
+        <Text style={errStyles.stack}>{error.stack}</Text>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+const errStyles = StyleSheet.create({
+  container: { flexGrow: 1, padding: 24, backgroundColor: '#fff', justifyContent: 'center' },
+  title: { fontSize: 22, fontWeight: '700', color: '#222', marginBottom: 10 },
+  msg: { fontSize: 15, color: '#555', marginBottom: 20 },
+  row: { flexDirection: 'row', gap: 10 },
+  primaryBtn: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
+  primaryText: { color: '#fff', fontWeight: '700' },
+  secondaryBtn: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
+  secondaryText: { color: '#444', fontWeight: '600' },
+  stack: { marginTop: 24, fontSize: 11, color: '#888', fontFamily: 'monospace' as any },
+});
 
 export default function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);

@@ -10,6 +10,7 @@ import {
   biometricKind, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled,
   authenticateBiometric, BiometricKind,
 } from '@/lib/biometric';
+import { haptics } from '@/lib/haptics';
 
 type Mode = 'loading' | 'enter' | 'set' | 'confirm' | 'locked';
 
@@ -65,10 +66,12 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       if (mode === 'enter') {
         const ok = await verifyPin(entered);
         if (ok) {
+          haptics.success();
           if (bioKind !== 'none' && !bioEnabled) { setOfferEnableBio(true); return; }
           onUnlock();
           return;
         }
+        haptics.error();
         const attempts = await getFailedAttempts();
         setWrong(attempts);
         shakeIt();
@@ -81,9 +84,11 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       } else if (mode === 'confirm') {
         if (entered === firstPin) {
           await setPin(entered);
+          haptics.success();
           if (bioKind !== 'none') { setOfferEnableBio(true); return; }
           onUnlock();
         } else {
+          haptics.error();
           setFirstPin(null);
           setMode('set');
           setMessage("PINs didn't match. Try again.");
@@ -99,8 +104,16 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     shakeTimer.current = setTimeout(() => { setShake(false); setEntered(''); }, 500);
   };
 
-  const press = (n: string) => { if (entered.length < 4) setEntered((e) => e + n); };
-  const backspace = () => setEntered((e) => e.slice(0, -1));
+  const press = (n: string) => {
+    if (entered.length < 4) {
+      haptics.tap();
+      setEntered((e) => e + n);
+    }
+  };
+  const backspace = () => {
+    haptics.tap();
+    setEntered((e) => e.slice(0, -1));
+  };
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;

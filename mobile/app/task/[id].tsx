@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch, ActivityIndicator,
+  ScrollView, Alert, Switch, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,8 @@ export default function TaskDetailScreen() {
   const { update, remove, load: reloadTasks } = useTaskStore();
   const { folders, load: loadFolders } = useFolderStore();
   const { tags, load: loadTags } = useTagStore();
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 700;
 
   const [task, setTask] = useState<Task | null>(null);
   const [title, setTitle] = useState('');
@@ -108,12 +110,12 @@ export default function TaskDetailScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, isNarrow && styles.containerNarrow]}>
       <Text style={styles.label}>Task</Text>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} />
 
       <Text style={styles.label}>Folder</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
         <TouchableOpacity style={[styles.chip, folderId === null && styles.chipActive]} onPress={() => setFolderId(null)}>
           <Text style={folderId === null ? styles.chipTextActive : styles.chipText}>None</Text>
         </TouchableOpacity>
@@ -125,7 +127,7 @@ export default function TaskDetailScreen() {
       </ScrollView>
 
       <Text style={styles.label}>Priority</Text>
-      <View style={styles.chipRow}>
+      <View style={[styles.chipRow, styles.chipRowWrap]}>
         {PRIORITIES.map((p) => (
           <TouchableOpacity key={p.value} style={[styles.chip, priority === p.value && { backgroundColor: p.color }]} onPress={() => setPriority(p.value)}>
             <Text style={priority === p.value ? styles.chipTextActive : styles.chipText}>{p.value} {p.label}</Text>
@@ -134,7 +136,7 @@ export default function TaskDetailScreen() {
       </View>
 
       <Text style={styles.label}>Status</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
         {STATUSES.map((s) => (
           <TouchableOpacity key={s} style={[styles.chip, status === s && styles.chipActive]} onPress={() => setStatus(s)}>
             <Text style={status === s ? styles.chipTextActive : styles.chipText}>{s.replace('_', ' ')}</Text>
@@ -153,7 +155,7 @@ export default function TaskDetailScreen() {
       {tags.length > 0 && (
         <>
           <Text style={styles.label}>Tags</Text>
-          <View style={[styles.chipRow, { flexWrap: 'wrap' }]}>
+          <View style={[styles.chipRow, styles.chipRowWrap]}>
             {tags.map((t) => (
               <TouchableOpacity key={t.id} style={[styles.chip, selectedTagIds.includes(t.id) && styles.tagActive]} onPress={() => toggleTag(t.id)}>
                 <Text style={selectedTagIds.includes(t.id) ? styles.chipTextActive : styles.chipText}>{t.name}</Text>
@@ -182,10 +184,13 @@ export default function TaskDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', padding: 16 },
+  containerNarrow: { padding: 12 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   label: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 16, marginBottom: 6, textTransform: 'uppercase' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  chipRowContent: { gap: 8, paddingRight: 8 },
+  chipRowWrap: { flexWrap: 'wrap' },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f0f0f0' },
   chipActive: { backgroundColor: colors.primary },
   tagActive: { backgroundColor: colors.violet },
