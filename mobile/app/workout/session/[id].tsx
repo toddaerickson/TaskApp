@@ -12,6 +12,7 @@ import { beep } from '@/lib/timer';
 import { formatTime, severityColor as sevColor } from '@/lib/format';
 import { describeApiError } from '@/lib/apiErrors';
 import { haptics } from '@/lib/haptics';
+import { useRestTimer } from '@/lib/useRestTimer';
 
 function showError(title: string, message: string) {
   if (Platform.OS === 'web') {
@@ -39,6 +40,16 @@ export default function ActiveSessionScreen() {
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadNonce, setLoadNonce] = useState(0);
+
+  // Rest countdown lives at the session level so the user can tap
+  // other exercise blocks (peek cues / check images) without killing it.
+  // onComplete fires once the clock hits zero — feedback only, no
+  // state side-effects so a re-render from the stop() inside the hook
+  // doesn't fight with another setState here.
+  const rest = useRestTimer(() => {
+    beep(2);
+    haptics.success();
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -191,6 +202,53 @@ export default function ActiveSessionScreen() {
         </Pressable>
       </View>
 
+      {rest.active && (
+        <View
+          style={styles.restBanner}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={`Rest timer, ${rest.remaining} seconds remaining`}
+        >
+          <View style={styles.restTopRow}>
+            <Text style={styles.restLabel}>Rest</Text>
+            <Text style={styles.restValue}>{formatTime(rest.remaining)}</Text>
+          </View>
+          <View style={styles.restBar}>
+            <View
+              style={[
+                styles.restBarFill,
+                { width: `${rest.total > 0 ? Math.min(100, (rest.remaining / rest.total) * 100) : 0}%` },
+              ]}
+            />
+          </View>
+          <View style={styles.restBtnRow}>
+            <Pressable
+              style={styles.restBtn}
+              onPress={() => rest.adjust(-15)}
+              accessibilityRole="button"
+              accessibilityLabel="Subtract 15 seconds"
+            >
+              <Text style={styles.restBtnText}>−15s</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.restBtn, styles.restBtnStop]}
+              onPress={rest.stop}
+              accessibilityRole="button"
+              accessibilityLabel="Stop rest timer"
+            >
+              <Text style={[styles.restBtnText, { color: '#fff' }]}>Stop</Text>
+            </Pressable>
+            <Pressable
+              style={styles.restBtn}
+              onPress={() => rest.adjust(15)}
+              accessibilityRole="button"
+              accessibilityLabel="Add 15 seconds"
+            >
+              <Text style={styles.restBtnText}>+15s</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={{ paddingBottom: 200 }}>
         {routine.exercises.map((re, idx) => (
           <ExerciseBlock
@@ -203,6 +261,8 @@ export default function ActiveSessionScreen() {
             onActivate={() => setActiveIdx(idx)}
             onLog={(payload) => handleLogSet(re, payload)}
             onAdvance={() => setActiveIdx(Math.min(routine.exercises.length - 1, idx + 1))}
+            onRestRequest={rest.start}
+            restActive={rest.active}
           />
         ))}
 
@@ -311,7 +371,10 @@ const SYMPTOM_PARTS = [
   'left_calf', 'lower_back', 'right_knee',
 ];
 
-function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog, onAdvance }: {
+function ExerciseBlock({
+  re, idx, isActive, sets, suggestion, onActivate, onLog, onAdvance,
+  onRestRequest, restActive,
+}: {
   re: RoutineExercise;
   idx: number;
   isActive: boolean;
@@ -320,6 +383,8 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
   onActivate: () => void;
   onLog: (payload: Partial<SessionSet>) => Promise<void>;
   onAdvance: () => void;
+  onRestRequest: (seconds: number) => void;
+  restActive: boolean;
 }) {
   const ex = re.exercise!;
   const targetSets = re.target_sets ?? 1;
@@ -346,19 +411,21 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
 
   const isDuration = ex.measurement === 'duration';
 
-  // Timer state: 'idle' | 'running' | 'rest'
-  const [timerMode, setTimerMode] = useState<'idle' | 'running' | 'rest'>('idle');
-  const [remaining, setRemaining] = useState(0);
-  const tickRef = useRef<any>(null);
+  // Per-block timer is now for the *active hold* only (isometric exercises
+  // that count down a target duration). Rest between sets is managed by
+  // the session-level useRestTimer above.
+  const [holdRemaining, setHoldRemaining] = useState(0);
+  const [holdActive, setHoldActive] = useState(false);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Keep sets in a ref so the timer's onDone closure reads fresh values,
   // not the length captured when the timer started.
   const setsRef = useRef(sets);
   useEffect(() => { setsRef.current = sets; }, [sets]);
 
-  const stopTimer = () => {
+  const stopHold = () => {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
-    setTimerMode('idle');
-    setRemaining(0);
+    setHoldActive(false);
+    setHoldRemaining(0);
   };
 
   // Clear the interval when this block is deactivated OR unmounted. Prevents
@@ -367,25 +434,24 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
     if (!isActive && tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
-      setTimerMode('idle');
-      setRemaining(0);
+      setHoldActive(false);
+      setHoldRemaining(0);
     }
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, [isActive]);
 
-  const startTimer = (seconds: number, mode: 'running' | 'rest', onDone?: () => void) => {
+  const startHoldTimer = (seconds: number, onDone?: () => void) => {
     if (tickRef.current) clearInterval(tickRef.current);
-    setTimerMode(mode);
-    setRemaining(seconds);
+    setHoldActive(true);
+    setHoldRemaining(seconds);
     const endAt = Date.now() + seconds * 1000;
     tickRef.current = setInterval(() => {
       const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
-      setRemaining(left);
+      setHoldRemaining(left);
       if (left <= 0) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-        setTimerMode('idle');
-        beep(mode === 'running' ? 3 : 2);
+        if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+        setHoldActive(false);
+        beep(3);
         onDone?.();
       }
     }, 200);
@@ -402,18 +468,18 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
     if (setsRef.current.length >= targetSets) {
       onAdvance();
     } else if (re.rest_sec && re.rest_sec > 0) {
-      startTimer(re.rest_sec, 'rest');
+      onRestRequest(re.rest_sec);
     }
   };
 
   const startDurationTimer = () => {
     const secs = Number(duration) || re.target_duration_sec || 30;
-    startTimer(secs, 'running', async () => {
+    startHoldTimer(secs, async () => {
       await onLog({ duration_sec: secs });
       if (setsRef.current.length >= targetSets) {
         onAdvance();
       } else if (re.rest_sec && re.rest_sec > 0) {
-        startTimer(re.rest_sec, 'rest');
+        onRestRequest(re.rest_sec);
       }
     });
   };
@@ -466,22 +532,15 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
             })}
           </View>
 
-          {timerMode !== 'idle' && (
+          {holdActive && (
             <View
-              style={[
-                styles.timerBox,
-                timerMode === 'rest' && { backgroundColor: '#e3f2fd', borderColor: colors.primary },
-              ]}
+              style={styles.timerBox}
               accessibilityLiveRegion="polite"
-              accessibilityLabel={`${timerMode === 'running' ? 'Hold' : 'Rest'} timer, ${remaining} seconds remaining`}
+              accessibilityLabel={`Hold timer, ${holdRemaining} seconds remaining`}
             >
-              <Text style={[styles.timerLabel, timerMode === 'rest' && { color: colors.primary }]}>
-                {timerMode === 'running' ? 'Hold' : 'Rest'}
-              </Text>
-              <Text style={[styles.timerValue, timerMode === 'rest' && { color: colors.primary }]}>
-                {formatTime(remaining)}
-              </Text>
-              <Pressable style={styles.timerStopBtn} onPress={stopTimer} accessibilityRole="button">
+              <Text style={styles.timerLabel}>Hold</Text>
+              <Text style={styles.timerValue}>{formatTime(holdRemaining)}</Text>
+              <Pressable style={styles.timerStopBtn} onPress={stopHold} accessibilityRole="button">
                 <Text style={styles.timerStopText}>Stop</Text>
               </Pressable>
             </View>
@@ -498,7 +557,7 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
             )}
           </View>
 
-          {isDuration && timerMode === 'idle' && (
+          {isDuration && !holdActive && (
             <Pressable style={styles.timerBtn} onPress={startDurationTimer}>
               <Ionicons name="timer-outline" size={18} color="#fff" />
               <Text style={styles.logBtnText}>
@@ -507,7 +566,10 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
             </Pressable>
           )}
 
-          <Pressable style={styles.logBtn} onPress={handleQuickLog}>
+          <Pressable
+            style={[styles.logBtn, restActive && { opacity: 0.9 }]}
+            onPress={handleQuickLog}
+          >
             <Ionicons name="add-circle" size={18} color="#fff" />
             <Text style={styles.logBtnText}>Log set {sets.length + 1}</Text>
           </Pressable>
@@ -681,4 +743,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingVertical: 10, cursor: 'pointer' as any,
   },
   errorRetryText: { color: '#fff', fontWeight: '700' },
+
+  restBanner: {
+    margin: 10, marginBottom: 0,
+    backgroundColor: '#e3f2fd', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: colors.primary,
+  },
+  restTopRow: {
+    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+  },
+  restLabel: {
+    fontSize: 12, fontWeight: '700', color: colors.primary,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  restValue: {
+    fontSize: 32, fontWeight: '800', color: colors.primary,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  restBar: {
+    height: 4, backgroundColor: '#cfe0f7', borderRadius: 2,
+    marginTop: 8, overflow: 'hidden',
+  },
+  restBarFill: { height: 4, backgroundColor: colors.primary },
+  restBtnRow: {
+    flexDirection: 'row', gap: 8, marginTop: 10, justifyContent: 'space-between',
+  },
+  restBtn: {
+    flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: 'center',
+    backgroundColor: '#fff', borderWidth: 1, borderColor: colors.primary,
+    cursor: 'pointer' as any,
+  },
+  restBtnStop: { backgroundColor: colors.primary },
+  restBtnText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
 });
