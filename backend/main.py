@@ -2,11 +2,13 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.routes import (
     auth_routes, folder_routes, tag_routes, task_routes,
     subfolder_routes, reminder_routes,
@@ -37,12 +39,75 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TaskApp API", version="1.0.0", lifespan=lifespan)
 
+# Machine-readable error codes. Mobile `describeApiError` maps known codes
+# to specific UX messages; any status without an entry falls back to the
+# caller's string detail.
+_STATUS_TO_CODE: dict[int, str] = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+}
+
+
+def _code_for_status(status: int) -> str:
+    return _STATUS_TO_CODE.get(status, "error")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exc_handler(request: Request, exc: StarletteHTTPException):
+    """Uniform error shape: {"detail": str|list, "code": str}.
+
+    Routes can opt into a specific code by raising
+    `HTTPException(status_code, detail={"detail": "...", "code": "x"})`;
+    otherwise the code is derived from the status.
+    """
+    detail = exc.detail
+    code: str | None = None
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        detail = detail.get("detail", detail)
+    if not isinstance(code, str) or not code:
+        code = _code_for_status(exc.status_code)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail, "code": code},
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exc_handler(request: Request, exc: RequestValidationError):
+    # Pydantic v2 errors can embed unserializable objects (e.g. the
+    # original ValueError in `ctx`); run them through jsonable_encoder
+    # so the response body encodes cleanly.
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors()), "code": "validation_error"},
+    )
+
+
 # slowapi rate limiter. Install the shared Limiter on app.state and register
-# its 429 handler so decorated routes return a clean JSON body instead of
-# a generic 500 when the limit is hit. SlowAPIMiddleware wires the limiter
-# into the request lifecycle.
+# a custom 429 handler so the body carries our `code` field too. The
+# SlowAPIMiddleware wires the limiter into the request lifecycle.
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": f"Rate limit exceeded: {exc.detail}",
+            "code": "rate_limited",
+        },
+    )
+
+
 app.add_middleware(SlowAPIMiddleware)
 
 
@@ -50,9 +115,12 @@ app.add_middleware(SlowAPIMiddleware)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     """Last-resort catch-all so prod exceptions leave a traceback in the
     logs instead of a bare `500 Internal Server Error`. Route-level
-    HTTPExceptions are handled by FastAPI's default and don't reach here."""
+    HTTPExceptions are handled by `_http_exc_handler` above."""
     log.exception("Unhandled exception in %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "code": "internal_error"},
+    )
 
 # CORS: allow local dev origins + anything in CORS_ORIGINS env (comma-
 # separated). Set CORS_ORIGINS to your deployed frontend URL in prod, e.g.

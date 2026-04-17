@@ -1,4 +1,5 @@
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 import { Platform } from 'react-native';
 import { emitSessionExpired } from './sessionExpiry';
 
@@ -34,6 +35,21 @@ if (
 }
 
 const api = axios.create({ baseURL: BASE_URL });
+
+// Retry flaky GETs only. Writes (POST/PUT/DELETE/PATCH) are intentionally
+// NOT retried: a dropped connection after the server accepted a mutation
+// would double-post on retry. The default `isNetworkOrIdempotentRequestError`
+// already covers network errors + 5xx; we tighten it to GET only so we
+// don't retry idempotent writes either.
+axiosRetry(api, {
+  retries: 3,
+  retryDelay: axiosRetry.exponentialDelay,
+  retryCondition: (error) => {
+    const method = (error.config?.method ?? '').toLowerCase();
+    if (method !== 'get') return false;
+    return axiosRetry.isNetworkOrIdempotentRequestError(error);
+  },
+});
 
 api.interceptors.request.use(async (config) => {
   let token: string | null = null;
