@@ -13,6 +13,7 @@ import { formatTime, severityColor as sevColor } from '@/lib/format';
 import { describeApiError } from '@/lib/apiErrors';
 import { haptics } from '@/lib/haptics';
 import { useRestTimer } from '@/lib/useRestTimer';
+import { computePRs, toBestsMap } from '@/lib/pr';
 
 function showError(title: string, message: string) {
   if (Platform.OS === 'web') {
@@ -40,6 +41,7 @@ export default function ActiveSessionScreen() {
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadNonce, setLoadNonce] = useState(0);
+  const [priorBests, setPriorBests] = useState<Record<number, { weight: number; reps: number; duration: number }>>({});
 
   // Rest countdown lives at the session level so the user can tap
   // other exercise blocks (peek cues / check images) without killing it.
@@ -68,6 +70,12 @@ export default function ActiveSessionScreen() {
             .then((sg) => { if (!cancelled) setSuggestions(sg); })
             .catch(() => { if (!cancelled) setSuggestions([]); });
         }
+        // PRs are a nice-to-have — don't block the screen if the endpoint
+        // has a hiccup. Empty bests just means every new set looks like
+        // a PR, which is the right "no history yet" UX anyway.
+        api.getSessionPRs(Number(id))
+          .then((bests) => { if (!cancelled) setPriorBests(toBestsMap(bests)); })
+          .catch(() => { if (!cancelled) setPriorBests({}); });
       } catch (e) {
         if (!cancelled) setLoadError(describeApiError(e, 'Could not load session.'));
       }
@@ -185,6 +193,12 @@ export default function ActiveSessionScreen() {
   const doneSets = session.sets.length;
   const pct = totalSets > 0 ? Math.min(100, (doneSets / totalSets) * 100) : 0;
 
+  // Running-best PR detection. Sort by id so the walk is chronological
+  // regardless of how the API hydrates the set list.
+  const chronologicalSets = [...session.sets].sort((a, b) => a.id - b.id);
+  const prIds = computePRs(priorBests, chronologicalSets);
+  const prCount = prIds.size;
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: routine.name, headerBackTitle: 'Cancel' }} />
@@ -258,6 +272,7 @@ export default function ActiveSessionScreen() {
             isActive={idx === activeIdx}
             sets={session.sets.filter((s) => s.exercise_id === re.exercise_id)}
             suggestion={suggestions.find((sg) => sg.routine_exercise_id === re.id)}
+            prIds={prIds}
             onActivate={() => setActiveIdx(idx)}
             onLog={(payload) => handleLogSet(re, payload)}
             onAdvance={() => setActiveIdx(Math.min(routine.exercises.length - 1, idx + 1))}
@@ -265,6 +280,15 @@ export default function ActiveSessionScreen() {
             restActive={rest.active}
           />
         ))}
+
+        {prCount > 0 && (
+          <View style={styles.prSummary} accessibilityLabel={`${prCount} new personal records this workout`}>
+            <Ionicons name="trophy" size={18} color={colors.success} />
+            <Text style={styles.prSummaryText}>
+              {prCount} new PR{prCount === 1 ? '' : 's'} this workout
+            </Text>
+          </View>
+        )}
 
         <View style={styles.finishBox}>
           <Text style={styles.finishLabel}>How hard was that? (RPE 1-10)</Text>
@@ -372,7 +396,7 @@ const SYMPTOM_PARTS = [
 ];
 
 function ExerciseBlock({
-  re, idx, isActive, sets, suggestion, onActivate, onLog, onAdvance,
+  re, idx, isActive, sets, suggestion, prIds, onActivate, onLog, onAdvance,
   onRestRequest, restActive,
 }: {
   re: RoutineExercise;
@@ -380,6 +404,7 @@ function ExerciseBlock({
   isActive: boolean;
   sets: SessionSet[];
   suggestion?: api.RoutineSuggestion;
+  prIds: Set<number>;
   onActivate: () => void;
   onLog: (payload: Partial<SessionSet>) => Promise<void>;
   onAdvance: () => void;
@@ -516,14 +541,23 @@ function ExerciseBlock({
           <View style={styles.setList}>
             {Array.from({ length: targetSets }).map((_, i) => {
               const s = sets[i];
+              const isPR = !!(s && prIds.has(s.id));
               return (
-                <View key={i} style={[styles.setRow, s && styles.setRowDone]}>
+                <View key={i} style={[styles.setRow, s && styles.setRowDone, isPR && styles.setRowPR]}>
                   <Text style={styles.setNum}>Set {i + 1}</Text>
                   {s ? (
-                    <Text style={styles.setDone}>
-                      {s.reps ? `${s.reps} reps` : s.duration_sec ? `${s.duration_sec}s` : '—'}
-                      {s.weight ? ` @${s.weight}` : ''}
-                    </Text>
+                    <View style={styles.setRightCol}>
+                      {isPR && (
+                        <View style={styles.prBadge} accessibilityLabel="New personal record">
+                          <Ionicons name="trophy" size={11} color="#fff" />
+                          <Text style={styles.prBadgeText}>PR</Text>
+                        </View>
+                      )}
+                      <Text style={styles.setDone}>
+                        {s.reps ? `${s.reps} reps` : s.duration_sec ? `${s.duration_sec}s` : '—'}
+                        {s.weight ? ` @${s.weight}` : ''}
+                      </Text>
+                    </View>
                   ) : (
                     <Text style={styles.setPending}>pending</Text>
                   )}
@@ -775,4 +809,20 @@ const styles = StyleSheet.create({
   },
   restBtnStop: { backgroundColor: colors.primary },
   restBtnText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
+
+  setRowPR: { backgroundColor: '#fff7d6', borderWidth: 1, borderColor: '#f4c842' },
+  setRightCol: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  prBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#e67e22',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
+  },
+  prBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  prSummary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginHorizontal: 10, marginTop: 14, padding: 12,
+    backgroundColor: '#e8f5e9', borderRadius: 10,
+    borderWidth: 1, borderColor: colors.success,
+  },
+  prSummaryText: { color: colors.success, fontWeight: '700', fontSize: 14 },
 });
