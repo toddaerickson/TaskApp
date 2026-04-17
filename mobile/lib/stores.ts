@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Platform } from 'react-native';
 import * as api from './api';
+import { haptics } from './haptics';
 
 // Lazy-load to avoid pulling the module into web module-eval — consistent
 // with lib/api.ts, lib/pin.ts, lib/biometric.ts.
@@ -219,6 +220,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   complete: async (id) => {
     await api.completeTask(id);
+    haptics.success();
     get().load();
   },
 

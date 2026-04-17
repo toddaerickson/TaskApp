@@ -1,11 +1,12 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator,
+  View, Text, FlatList, Pressable, StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession } from '@/lib/stores';
+import { SkeletonList } from '@/components/Skeleton';
 import * as api from '@/lib/api';
 import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
@@ -66,7 +67,9 @@ export default function WorkoutsScreen() {
       </View>
 
       {isLoading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
+        <View style={{ padding: 12 }}>
+          <SkeletonList count={4} variant="card" />
+        </View>
       ) : (
         <FlatList
           data={routines}
@@ -94,11 +97,19 @@ export default function WorkoutsScreen() {
           }}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Ionicons name="barbell-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>No routines yet</Text>
+              <Ionicons name="barbell-outline" size={64} color="#d0d7e2" />
+              <Text style={styles.emptyTitle}>No routines yet</Text>
               <Text style={styles.emptyHint}>
-                Run `python seed_workouts.py your@email.com` to create the Ankle Mobility routine.
+                Ask the admin to seed routines, or log symptoms while you build one.
               </Text>
+              <Pressable
+                style={styles.emptyCta}
+                onPress={() => router.push('/workout/track')}
+                accessibilityRole="button"
+              >
+                <Ionicons name="pulse-outline" size={16} color="#fff" />
+                <Text style={styles.emptyCtaText}>Track symptoms</Text>
+              </Pressable>
             </View>
           }
         />
@@ -159,5 +170,13 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
   emptyText: { color: '#999', marginTop: 8, fontSize: 16 },
-  emptyHint: { color: '#bbb', marginTop: 8, fontSize: 12, textAlign: 'center' },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
+  emptyHint: { color: '#8a94a6', marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 280 },
+  emptyCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.primary, borderRadius: 8,
+    paddingHorizontal: 16, paddingVertical: 10, marginTop: 18,
+    cursor: 'pointer' as any,
+  },
+  emptyCtaText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 });

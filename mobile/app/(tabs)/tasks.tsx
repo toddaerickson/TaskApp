@@ -2,11 +2,12 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
-  ActivityIndicator, Platform, useWindowDimensions,
+  Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, Task } from '@/lib/stores';
+import { SkeletonList } from '@/components/Skeleton';
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
@@ -292,11 +293,22 @@ export default function TasksScreen() {
 
       {/* Task rows */}
       {isLoading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
+        <SkeletonList count={6} variant="task" />
       ) : sortedTasks.length === 0 ? (
         <View style={styles.empty}>
-          <Ionicons name="checkmark-done-circle-outline" size={48} color="#ccc" />
-          <Text style={styles.emptyText}>No tasks</Text>
+          <Ionicons name="checkmark-done-circle-outline" size={64} color="#d0d7e2" />
+          <Text style={styles.emptyTitle}>Nothing on your plate</Text>
+          <Text style={styles.emptyHint}>
+            Capture the next thing on your mind — you can organize it later.
+          </Text>
+          <Pressable
+            style={styles.emptyCta}
+            onPress={() => router.push('/task/create')}
+            accessibilityRole="button"
+          >
+            <Ionicons name="add" size={16} color="#fff" />
+            <Text style={styles.emptyCtaText}>Add your first task</Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView style={styles.tableBody}>
@@ -516,8 +528,17 @@ const styles = StyleSheet.create({
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
-  empty: { alignItems: 'center', marginTop: 80 },
+  empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
   emptyText: { color: '#999', marginTop: 8 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
+  emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
+  emptyCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.primary, borderRadius: 8,
+    paddingHorizontal: 16, paddingVertical: 10, marginTop: 18,
+    cursor: 'pointer' as any,
+  },
+  emptyCtaText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 
   // Mobile card row (replaces the desktop table on <700px viewports)
   cardRow: {

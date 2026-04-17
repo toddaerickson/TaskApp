@@ -10,6 +10,16 @@ import { Routine, RoutineExercise, WorkoutSession, SessionSet } from '@/lib/stor
 import * as api from '@/lib/api';
 import { beep } from '@/lib/timer';
 import { formatTime, severityColor as sevColor } from '@/lib/format';
+import { describeApiError } from '@/lib/apiErrors';
+import { haptics } from '@/lib/haptics';
+
+function showError(title: string, message: string) {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}: ${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 
 export default function ActiveSessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,26 +37,41 @@ export default function ActiveSessionScreen() {
   const [symptomSaving, setSymptomSaving] = useState(false);
   const [symptomCount, setSymptomCount] = useState(0);
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadNonce, setLoadNonce] = useState(0);
 
   useEffect(() => {
     if (!id) return;
-    api.getSession(Number(id)).then(async (s) => {
-      setSession(s);
-      if (s.routine_id) {
-        const r = await api.getRoutine(s.routine_id);
-        setRoutine(r);
-        // Fetch suggestions once up-front; inputs pre-fill from them on mount.
-        api.getRoutineSuggestions(s.routine_id)
-          .then(setSuggestions)
-          .catch(() => setSuggestions([]));
+    let cancelled = false;
+    setLoadError(null);
+    (async () => {
+      try {
+        const s = await api.getSession(Number(id));
+        if (cancelled) return;
+        setSession(s);
+        if (s.routine_id) {
+          const r = await api.getRoutine(s.routine_id);
+          if (cancelled) return;
+          setRoutine(r);
+          api.getRoutineSuggestions(s.routine_id)
+            .then((sg) => { if (!cancelled) setSuggestions(sg); })
+            .catch(() => { if (!cancelled) setSuggestions([]); });
+        }
+      } catch (e) {
+        if (!cancelled) setLoadError(describeApiError(e, 'Could not load session.'));
       }
-    });
-  }, [id]);
+    })();
+    return () => { cancelled = true; };
+  }, [id, loadNonce]);
 
   const reload = async () => {
     if (!id) return;
-    const s = await api.getSession(Number(id));
-    setSession(s);
+    try {
+      const s = await api.getSession(Number(id));
+      setSession(s);
+    } catch (e) {
+      showError('Sync failed', describeApiError(e, 'Could not refresh session.'));
+    }
   };
 
   const logInFlight = useRef(false);
@@ -64,7 +89,11 @@ export default function ActiveSessionScreen() {
         weight: payload.weight,
         rpe: payload.rpe,
       });
+      haptics.bump();
       await reload();
+    } catch (e) {
+      haptics.error();
+      showError('Set not saved', describeApiError(e, 'Could not log that set.'));
     } finally {
       logInFlight.current = false;
     }
@@ -75,7 +104,11 @@ export default function ActiveSessionScreen() {
     setFinishing(true);
     try {
       await api.endSession(session.id, { rpe: rpe ?? undefined });
+      haptics.success();
       router.replace('/(tabs)/workouts');
+    } catch (e) {
+      haptics.error();
+      showError('Could not finish', describeApiError(e, 'Session did not close. Try again.'));
     } finally {
       setFinishing(false);
     }
@@ -98,6 +131,8 @@ export default function ActiveSessionScreen() {
       setSymptomCustom('');
       setSymptomSeverity(3);
       setSymptomOpen(false);
+    } catch (e) {
+      showError('Symptom not saved', describeApiError(e, 'Could not log symptom.'));
     } finally {
       setSymptomSaving(false);
     }
@@ -113,6 +148,23 @@ export default function ActiveSessionScreen() {
       ]);
     }
   };
+
+  if (loadError) {
+    return (
+      <View style={styles.errorBox}>
+        <Ionicons name="alert-circle-outline" size={36} color={colors.danger} />
+        <Text style={styles.errorTitle}>Could not load session</Text>
+        <Text style={styles.errorMsg}>{loadError}</Text>
+        <Pressable
+          style={styles.errorRetryBtn}
+          onPress={() => { setLoadError(null); setLoadNonce((n) => n + 1); }}
+          accessibilityRole="button"
+        >
+          <Text style={styles.errorRetryText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!session || !routine) {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
@@ -617,4 +669,16 @@ const styles = StyleSheet.create({
     cursor: 'pointer' as any,
   },
   finishBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+
+  errorBox: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    padding: 24, gap: 10, backgroundColor: '#f5f6fa',
+  },
+  errorTitle: { fontSize: 17, fontWeight: '700', color: '#333' },
+  errorMsg: { fontSize: 14, color: '#666', textAlign: 'center', maxWidth: 320 },
+  errorRetryBtn: {
+    marginTop: 8, backgroundColor: colors.primary, borderRadius: 8,
+    paddingHorizontal: 20, paddingVertical: 10, cursor: 'pointer' as any,
+  },
+  errorRetryText: { color: '#fff', fontWeight: '700' },
 });
