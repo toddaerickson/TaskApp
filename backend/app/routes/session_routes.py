@@ -99,6 +99,10 @@ def get_session_prs(session_id: int, user_id: int = Depends(get_current_user_id)
             return []
 
         placeholders = ",".join("?" for _ in ex_ids)
+        # `completed` is BOOLEAN on Postgres and stored 1/0 on SQLite — pass
+        # a Python True through the param machinery so psycopg2 adapts it
+        # to a real boolean and sqlite writes 1. Avoids the cross-DB pitfall
+        # of comparing boolean to an integer literal.
         cur.execute(f"""
             SELECT s.exercise_id,
                    MAX(s.weight) AS max_weight,
@@ -109,9 +113,9 @@ def get_session_prs(session_id: int, user_id: int = Depends(get_current_user_id)
             WHERE ws.user_id = ?
               AND s.exercise_id IN ({placeholders})
               AND s.session_id != ?
-              AND COALESCE(s.completed, 1) = 1
+              AND s.completed = ?
             GROUP BY s.exercise_id
-        """, tuple([user_id, *ex_ids, session_id]))
+        """, tuple([user_id, *ex_ids, session_id, True]))
         bests = {r["exercise_id"]: dict(r) for r in cur.fetchall()}
 
     # Ensure every exercise of interest shows up, even if there's no prior
