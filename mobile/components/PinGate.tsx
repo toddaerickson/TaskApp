@@ -103,7 +103,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const backspace = () => setEntered((e) => e.slice(0, -1));
 
   if (mode === 'loading') {
-    return <View style={styles.container}><ActivityIndicator size="large" color="#1a73e8" /></View>;
+    return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;
   }
 
   if (offerEnableBio) {
@@ -111,7 +111,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       <View style={styles.container}>
         <Ionicons
           name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
-          size={56} color="#1a73e8"
+          size={56} color={colors.primary}
         />
         <Text style={styles.title}>Enable {bioLabel(bioKind)}?</Text>
         <Text style={styles.subtitle}>
@@ -183,7 +183,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         <Pressable style={styles.bioBtn} onPress={tryBiometric}>
           <Ionicons
             name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
-            size={16} color="#1a73e8"
+            size={16} color={colors.primary}
           />
           <Text style={styles.bioBtnText}>Use {bioLabel(bioKind)}</Text>
         </Pressable>

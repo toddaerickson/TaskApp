@@ -64,7 +64,7 @@ export default function Dropdown<T = any>({
                     accessibilityState={{ selected }}
                   >
                     <Text style={[styles.rowText, selected && styles.rowTextSel]}>{item.label}</Text>
-                    {selected && <Ionicons name="checkmark" size={18} color="#1a73e8" />}
+                    {selected && <Ionicons name="checkmark" size={18} color={colors.primary} />}
                   </Pressable>
                 );
               }}

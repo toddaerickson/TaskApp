@@ -111,7 +111,7 @@ export const useFolderStore = create<FolderState>((set) => ({
 }));
 
 // --- Tag Store ---
-interface Tag {
+export interface Tag {
   id: number;
   name: string;
 }

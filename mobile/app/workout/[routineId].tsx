@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Routine } from '@/lib/stores';
+import { Routine, RoutineExercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 
 export default function RoutineDetailScreen() {
@@ -63,7 +63,7 @@ export default function RoutineDetailScreen() {
   };
 
   if (!routine) {
-    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />;
+    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
   const totalMins = Math.round(
@@ -100,7 +100,7 @@ export default function RoutineDetailScreen() {
             </Text>
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Ionicons name="alarm-outline" size={13} color="#e67e22" />
+                <Ionicons name="alarm-outline" size={13} color={colors.warning} />
                 <Text style={{ fontSize: 12, color: colors.warning }}>
                   {routine.reminder_time} · {routine.reminder_days || 'daily'}
                 </Text>
@@ -136,7 +136,7 @@ export default function RoutineDetailScreen() {
                         style={styles.suggestBox}
                         accessibilityLabel={`Suggestion: ${formatSuggest(sg)}. ${sg.reason}`}
                       >
-                        <Ionicons name="sparkles-outline" size={11} color="#27ae60" />
+                        <Ionicons name="sparkles-outline" size={11} color={colors.success} />
                         <Text style={styles.suggestText}>
                           Next: <Text style={{ fontWeight: '700' }}>{formatSuggest(sg)}</Text>
                           {' · '}
@@ -162,7 +162,7 @@ export default function RoutineDetailScreen() {
                       />
                     </Pressable>
                     <Pressable onPress={() => deleteRoutineExercise(re.id)} style={styles.ctrlBtn}>
-                      <Ionicons name="trash-outline" size={18} color="#e74c3c" />
+                      <Ionicons name="trash-outline" size={18} color={colors.danger} />
                     </Pressable>
                   </View>
                 )}
@@ -188,7 +188,7 @@ export default function RoutineDetailScreen() {
               ) : null}
               {ex.cue ? (
                 <View style={styles.cueBox}>
-                  <Ionicons name="bulb-outline" size={14} color="#e67e22" />
+                  <Ionicons name="bulb-outline" size={14} color={colors.warning} />
                   <Text style={styles.cueText}>{ex.cue}</Text>
                 </View>
               ) : null}
@@ -310,7 +310,7 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   );
 }
 
-function RoutineExerciseEdit({ re, onSaved }: { re: any; onSaved: () => void }) {
+function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: () => void }) {
   const [sets, setSets] = useState(String(re.target_sets ?? ''));
   const [reps, setReps] = useState(String(re.target_reps ?? ''));
   const [dur, setDur] = useState(String(re.target_duration_sec ?? ''));
@@ -402,7 +402,7 @@ function formatSuggest(sg: api.RoutineSuggestion): string {
   return parts.join(' ') || '—';
 }
 
-function formatTarget(re: any): string {
+function formatTarget(re: RoutineExercise): string {
   const parts: string[] = [];
   if (re.target_sets) parts.push(`${re.target_sets}×`);
   if (re.target_reps) parts[parts.length - 1] += `${re.target_reps}`;

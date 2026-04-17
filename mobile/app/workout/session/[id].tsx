@@ -115,7 +115,7 @@ export default function ActiveSessionScreen() {
   };
 
   if (!session || !routine) {
-    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />;
+    return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
   const totalSets = routine.exercises.reduce((sum, re) => sum + (re.target_sets ?? 1), 0);
@@ -132,7 +132,7 @@ export default function ActiveSessionScreen() {
       <View style={styles.progressRow}>
         <Text style={styles.progressText}>{doneSets} / {totalSets} sets</Text>
         <Pressable style={styles.symptomBtn} onPress={() => setSymptomOpen(true)}>
-          <Ionicons name="pulse-outline" size={14} color="#e67e22" />
+          <Ionicons name="pulse-outline" size={14} color={colors.warning} />
           <Text style={styles.symptomBtnText}>
             Log symptom{symptomCount > 0 ? ` (${symptomCount})` : ''}
           </Text>
@@ -380,7 +380,7 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
             {re.target_weight ? ` @${re.target_weight}` : ''}
           </Text>
         </View>
-        {isDone && <Ionicons name="checkmark-circle" size={24} color="#27ae60" />}
+        {isDone && <Ionicons name="checkmark-circle" size={24} color={colors.success} />}
       </View>
 
       {isActive && (
@@ -390,7 +390,7 @@ function ExerciseBlock({ re, idx, isActive, sets, suggestion, onActivate, onLog,
           )}
           {ex.cue ? (
             <View style={styles.cueBox}>
-              <Ionicons name="bulb-outline" size={14} color="#e67e22" />
+              <Ionicons name="bulb-outline" size={14} color={colors.warning} />
               <Text style={styles.cueText}>{ex.cue}</Text>
             </View>
           ) : null}

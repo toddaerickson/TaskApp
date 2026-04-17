@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTaskStore, useFolderStore, useTagStore, Task } from '@/lib/stores';
+import { useTaskStore, useFolderStore, useTagStore, Task, Tag } from '@/lib/stores';
 import * as api from '@/lib/api';
 
 const PRIORITIES = [
@@ -54,7 +54,7 @@ export default function TaskDetailScreen() {
       setStatus(t.status);
       setStarred(t.starred);
       setDueDate(t.due_date || '');
-      setSelectedTagIds(t.tags?.map((tg: any) => tg.id) || []);
+      setSelectedTagIds(t.tags?.map((tg: Tag) => tg.id) || []);
     } catch {
       Alert.alert('Error', 'Task not found');
       router.back();
@@ -104,7 +104,7 @@ export default function TaskDetailScreen() {
   };
 
   if (loading) {
-    return <View style={styles.loading}><ActivityIndicator size="large" color="#1a73e8" /></View>;
+    return <View style={styles.loading}><ActivityIndicator size="large" color={colors.primary} /></View>;
   }
 
   return (
@@ -171,7 +171,7 @@ export default function TaskDetailScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-        <Ionicons name="trash-outline" size={18} color="#e74c3c" />
+        <Ionicons name="trash-outline" size={18} color={colors.danger} />
         <Text style={styles.deleteText}>Delete Task</Text>
       </TouchableOpacity>
 

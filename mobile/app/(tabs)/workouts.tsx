@@ -47,26 +47,26 @@ export default function WorkoutsScreen() {
         </View>
         <View style={styles.headerActions}>
           <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/progress')}>
-            <Ionicons name="stats-chart-outline" size={16} color="#1a73e8" />
+            <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
             <Text style={styles.trackBtnText}>Progress</Text>
           </Pressable>
           <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/admin')}>
-            <Ionicons name="images-outline" size={16} color="#1a73e8" />
+            <Ionicons name="images-outline" size={16} color={colors.primary} />
             <Text style={styles.trackBtnText}>Admin</Text>
           </Pressable>
           <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/track')}>
-            <Ionicons name="pulse-outline" size={16} color="#1a73e8" />
+            <Ionicons name="pulse-outline" size={16} color={colors.primary} />
             <Text style={styles.trackBtnText}>Track</Text>
           </Pressable>
           <View style={styles.streakBox}>
-            <Ionicons name="flame" size={18} color="#e67e22" />
+            <Ionicons name="flame" size={18} color={colors.warning} />
             <Text style={styles.streakText}>{streak} day{streak === 1 ? '' : 's'}</Text>
           </View>
         </View>
       </View>
 
       {isLoading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#1a73e8" />
+        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />
       ) : (
         <FlatList
           data={routines}
