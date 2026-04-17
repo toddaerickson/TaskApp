@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -125,6 +125,10 @@ function getGroupSortKey(task: Task, groupBy: GroupKey): string | number {
 export default function TasksScreen() {
   const { tasks, isLoading, load, complete, toggleStar, filters, setFilters } = useTaskStore();
   const router = useRouter();
+  // Below 700px the 8-column desktop table becomes unreadable; render
+  // a stacked card list instead.
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 700;
 
   const [sorts, setSorts] = useState<SortLevel[]>(() =>
     loadPref(STORAGE_KEY_SORTS, [{ key: 'folder' as SortKey, dir: 'asc' as SortDir }])
@@ -249,19 +253,22 @@ export default function TasksScreen() {
           )}
         </View>
 
-        <View style={styles.sortInfo}>
-          <Text style={styles.sortInfoText}>
-            Sort: {sorts.map((s, i) => `${i + 1}. ${COLUMNS.find(c => c.key === s.key)?.label}${s.dir === 'desc' ? ' \u25BC' : ''}`).join(' > ')}
-          </Text>
-        </View>
+        {!isNarrow && (
+          <View style={styles.sortInfo}>
+            <Text style={styles.sortInfoText} numberOfLines={1}>
+              Sort: {sorts.map((s, i) => `${i + 1}. ${COLUMNS.find(c => c.key === s.key)?.label}${s.dir === 'desc' ? ' \u25BC' : ''}`).join(' > ')}
+            </Text>
+          </View>
+        )}
 
         <Pressable style={styles.newTaskBtn} onPress={() => router.push('/task/create')}>
           <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.newTaskBtnText}>New Task</Text>
+          <Text style={styles.newTaskBtnText}>{isNarrow ? 'New' : 'New Task'}</Text>
         </Pressable>
       </View>
 
-      {/* Column headers */}
+      {/* Column headers — desktop table only */}
+      {!isNarrow && (
       <View style={styles.headerRow}>
         <View style={{ width: 36 }} />
         {COLUMNS.map((col) => {
@@ -280,6 +287,7 @@ export default function TasksScreen() {
           );
         })}
       </View>
+      )}
 
       {/* Task rows */}
       {isLoading ? (
@@ -306,7 +314,45 @@ export default function TasksScreen() {
               )}
 
               {/* Task rows in group */}
-              {group.tasks.map((task) => (
+              {group.tasks.map((task) => isNarrow ? (
+                <Pressable
+                  key={task.id}
+                  style={({ pressed }) => [styles.cardRow, pressed && { backgroundColor: '#f0f4ff' }]}
+                  onPress={() => router.push(`/task/${task.id}`)}
+                >
+                  <Pressable onPress={() => complete(task.id)} style={styles.cardCheck}>
+                    <Ionicons
+                      name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22} color={task.completed ? '#27ae60' : '#ccc'}
+                    />
+                  </Pressable>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.cardTitle, task.completed && styles.completedText]} numberOfLines={2}>
+                      {task.subtasks && task.subtasks.length > 0 ? `${task.title} [${task.subtasks.length}]` : task.title}
+                    </Text>
+                    <View style={styles.cardMetaRow}>
+                      <View style={[styles.priorityBadge, { backgroundColor: PRIORITY_COLORS[task.priority] }]}>
+                        <Text style={styles.priorityText}>{PRIORITY_LABELS[task.priority]}</Text>
+                      </View>
+                      {task.folder_name && (
+                        <Text style={styles.cardMetaText} numberOfLines={1}>{task.folder_name}</Text>
+                      )}
+                      {task.due_date && (
+                        <Text style={[styles.cardMetaText, styles.dueDateText]}>Due {formatDate(task.due_date)}</Text>
+                      )}
+                      {task.status !== 'none' && (
+                        <Text style={styles.cardMetaText} numberOfLines={1}>{task.status.replace(/_/g, ' ')}</Text>
+                      )}
+                    </View>
+                  </View>
+                  <Pressable onPress={() => toggleStar(task.id, task.starred)} style={styles.cardStar}>
+                    <Ionicons
+                      name={task.starred ? 'star' : 'star-outline'}
+                      size={18} color={task.starred ? '#f39c12' : '#ddd'}
+                    />
+                  </Pressable>
+                </Pressable>
+              ) : (
                 <Pressable
                   key={task.id}
                   style={({ pressed }) => [styles.dataRow, pressed && { backgroundColor: '#f0f4ff' }]}
@@ -382,9 +428,10 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
 
-  // Filter bar
+  // Filter bar — wraps on narrow screens so chips don't squeeze the
+  // sort label into a one-letter-per-line vertical column.
   filterBar: {
-    flexDirection: 'row', padding: 8, gap: 8, backgroundColor: '#fff',
+    flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center',
     zIndex: 100, overflow: 'visible' as any,
   },
@@ -470,4 +517,19 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: 'center', marginTop: 80 },
   emptyText: { color: '#999', marginTop: 8 },
+
+  // Mobile card row (replaces the desktop table on <700px viewports)
+  cardRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+    cursor: 'pointer' as any,
+  },
+  cardCheck: { padding: 2 },
+  cardStar: { padding: 4 },
+  cardTitle: { fontSize: 15, fontWeight: '500', color: '#222' },
+  cardMetaRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap',
+  },
+  cardMetaText: { fontSize: 12, color: '#777' },
 });

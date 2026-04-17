@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, TextInput,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,6 +56,11 @@ export default function FoldersScreen() {
   const { tasks, isLoading, load: loadTasks, complete, toggleStar, setFilters } = useTaskStore();
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+  // Below 700px (phones in portrait, narrow Safari) the master-detail layout
+  // overflows. Render one pane at a time and toggle via tap / back button.
+  const { width } = useWindowDimensions();
+  const isNarrow = width < 700;
+  const [showTasksPane, setShowTasksPane] = useState(false);
 
   useEffect(() => { loadFolders(); }, []);
 
@@ -78,16 +83,21 @@ export default function FoldersScreen() {
 
   const handleSelectFolder = (id: number | null) => {
     selectFolder(id);
+    if (isNarrow) setShowTasksPane(true);
   };
 
   const selectedLabel = selectedFolderId === null
     ? 'All Tasks'
     : folders.find((f) => f.id === selectedFolderId)?.name || 'Tasks';
 
+  const showSidebar = !isNarrow || !showTasksPane;
+  const showMain = !isNarrow || showTasksPane;
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isNarrow && styles.containerNarrow]}>
       {/* Left panel: folder list */}
-      <View style={styles.sidebar}>
+      {showSidebar && (
+      <View style={[styles.sidebar, isNarrow && styles.sidebarNarrow]}>
         <Text style={styles.sidebarTitle}>Folders</Text>
 
         <Pressable
@@ -146,14 +156,21 @@ export default function FoldersScreen() {
           </Pressable>
         )}
       </View>
+      )}
 
       {/* Right panel: tasks */}
-      <View style={styles.main}>
+      {showMain && (
+      <View style={[styles.main, isNarrow && styles.mainNarrow]}>
         <View style={styles.mainHeader}>
-          <Text style={styles.mainTitle}>{selectedLabel}</Text>
+          {isNarrow && (
+            <Pressable onPress={() => setShowTasksPane(false)} style={styles.backBtn}>
+              <Ionicons name="chevron-back" size={22} color="#1a73e8" />
+            </Pressable>
+          )}
+          <Text style={styles.mainTitle} numberOfLines={1}>{selectedLabel}</Text>
           <Pressable style={styles.newTaskBtn} onPress={() => router.push('/task/create')}>
             <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.newTaskText}>New Task</Text>
+            <Text style={styles.newTaskText}>New</Text>
           </Pressable>
         </View>
 
@@ -180,12 +197,14 @@ export default function FoldersScreen() {
           />
         )}
       </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#f5f6fa' },
+  containerNarrow: { flexDirection: 'column' },
 
   // Left sidebar
   sidebar: {
@@ -195,6 +214,9 @@ const styles = StyleSheet.create({
     borderRightColor: '#e0e0e0',
     paddingTop: 12,
   },
+  sidebarNarrow: { width: '100%', flex: 1, borderRightWidth: 0 },
+  mainNarrow: { width: '100%' },
+  backBtn: { padding: 4, marginRight: 4, cursor: 'pointer' as any },
   sidebarTitle: {
     fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
     letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8,

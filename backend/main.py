@@ -9,6 +9,7 @@ from app.routes import (
     exercise_routes, routine_routes, session_routes,
     export_routes, admin_routes,
 )
+from app.config import DB_TYPE
 from app.database import init_db
 
 # Uvicorn configures its own loggers, but our app modules (logger names
@@ -42,9 +43,16 @@ _origins = [
     "http://localhost:3000",
     *_extra,
 ]
-# For quick setup, if CORS_ORIGINS is not set, fall back to allow-all. Swap
-# to the locked list once your frontend URL is stable.
+# In dev (SQLite), if CORS_ORIGINS is unset, fall back to allow-all so a
+# fresh clone "just works". In prod (Postgres), refuse to start without an
+# explicit allowlist — `*` would let any site call the API on behalf of
+# logged-in users.
 if not _extra:
+    if DB_TYPE == "postgresql":
+        raise RuntimeError(
+            "CORS_ORIGINS must be set in production. "
+            "Example: `fly secrets set CORS_ORIGINS=https://taskapp.vercel.app`."
+        )
     _origins = ["*"]
 
 app.add_middleware(

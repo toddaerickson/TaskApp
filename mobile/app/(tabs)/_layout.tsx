@@ -13,12 +13,25 @@ export default function TabLayout() {
       tabBarActiveTintColor: '#1a73e8',
       headerStyle: { backgroundColor: '#1a73e8' },
       headerTintColor: '#fff',
-      tabBarStyle: {
-        height: Platform.OS === 'web' ? 56 : undefined,
-        paddingBottom: Platform.OS === 'web' ? 6 : undefined,
-        paddingTop: Platform.OS === 'web' ? 4 : undefined,
+      // Mobile Safari covers the bottom of the viewport with its own chrome,
+      // which was clipping the tab labels' descenders. Reserve enough vertical
+      // room for icon (20) + label (12) + padding, and use env(safe-area-...)
+      // on web so the bar lifts above the iOS browser bar.
+      tabBarStyle: Platform.OS === 'web' ? ({
+        height: 64,
+        paddingTop: 6,
+        // RN-web passes the raw CSS string through; on iOS Safari this lifts
+        // the bar above the browser chrome. TS types reject the string, so
+        // cast through `any` rather than disabling rules everywhere.
+        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+      } as any) : undefined,
+      tabBarLabelStyle: {
+        fontSize: 11,
+        // Default RN-web line-height is too tight; descenders ("g", "y") get
+        // clipped on Safari. Bumping line-height fixes it.
+        lineHeight: 14,
+        marginTop: 2,
       },
-      tabBarLabelStyle: { fontSize: 11 },
       tabBarIconStyle: { marginBottom: 0 },
     }}>
       <Tabs.Screen

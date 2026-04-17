@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
@@ -14,6 +15,21 @@ export default function RootLayout() {
       setUnlocked(await isRecentlyUnlocked());
     })();
   }, []);
+
+  // Re-lock when the unlock window expires. Two triggers:
+  //   1. App returns to foreground after >15 min in background.
+  //   2. App stays open past the 15-min mark (polled every 30s).
+  useEffect(() => {
+    if (!unlocked) return;
+    const recheck = async () => {
+      if (!(await isRecentlyUnlocked())) setUnlocked(false);
+    };
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') recheck();
+    });
+    const id = setInterval(recheck, 30_000);
+    return () => { sub.remove(); clearInterval(id); };
+  }, [unlocked]);
 
   if (unlocked === null) return null;
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
