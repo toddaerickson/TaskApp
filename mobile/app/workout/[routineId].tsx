@@ -6,6 +6,7 @@ import {
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise } from '@/lib/stores';
+import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
 
 /** Two-choice conflict prompt. Resolves with the user's decision rather
  *  than blocking state. Web uses confirm() because there's no native
@@ -260,26 +261,11 @@ export default function RoutineDetailScreen() {
   );
 }
 
-const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-
-function parseDays(csv: string | null | undefined): Set<string> {
-  if (!csv) return new Set();
-  const norm = csv.toLowerCase().trim();
-  if (norm === 'daily') return new Set(DAYS);
-  return new Set(norm.split(',').map((s) => s.trim()).filter((s) => (DAYS as readonly string[]).includes(s)));
-}
-
-function daysCsv(set: Set<string>): string | null {
-  if (set.size === 0) return null;
-  if (set.size === 7) return 'daily';
-  return DAYS.filter((d) => set.has(d)).join(',');
-}
-
 function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: () => void }) {
   const [name, setName] = useState(routine.name);
   const [notes, setNotes] = useState(routine.notes || '');
   const [time, setTime] = useState(routine.reminder_time || '');
-  const [days, setDays] = useState<Set<string>>(parseDays(routine.reminder_days));
+  const [days, setDays] = useState<Set<DayCode>>(parseDays(routine.reminder_days));
   const [busy, setBusy] = useState(false);
 
   const dirty = name !== routine.name
@@ -287,7 +273,7 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
     || time !== (routine.reminder_time || '')
     || daysCsv(days) !== (routine.reminder_days || null);
 
-  const toggleDay = (d: string) => {
+  const toggleDay = (d: DayCode) => {
     const next = new Set(days);
     if (next.has(d)) next.delete(d); else next.add(d);
     setDays(next);
