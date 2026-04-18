@@ -5,10 +5,6 @@ pure `_before_send` scrubber and the init-gate behavior. The scrubber is
 what prevents passwords / tokens / Authorization headers from leaving
 the process if a handler throws, so it's worth direct coverage.
 """
-import os
-
-import pytest
-
 from app import sentry_setup
 
 
