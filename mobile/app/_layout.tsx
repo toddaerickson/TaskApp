@@ -6,12 +6,19 @@ import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
 import { isRecentlyUnlocked } from '@/lib/pin';
 import { onSessionExpired } from '@/lib/sessionExpiry';
+import { reportError } from '@/lib/errorReporter';
 
 // Expo-router picks up a named `ErrorBoundary` export from a layout and
 // renders it in place of the route tree when any descendant throws.
 // Without this, an uncaught error blanks the whole app.
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   const router = useRouter();
+  // Forward the uncaught render error to our telemetry shim. Covers the
+  // gap between the axios interceptor (network/5xx only) and runtime
+  // errors in component trees.
+  useEffect(() => {
+    reportError(error, { route: 'ErrorBoundary' });
+  }, [error]);
   return (
     <ScrollView contentContainerStyle={errStyles.container}>
       <Text style={errStyles.title}>Something went wrong</Text>

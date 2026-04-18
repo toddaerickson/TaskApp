@@ -10,3 +10,6 @@ ddgs>=9.13
 pytest>=9.0
 httpx>=0.28
 ruff>=0.6
+# Error telemetry. Wired in app/sentry_setup.py; only initializes when
+# SENTRY_DSN is set in the environment, so dev runs don't phone home.
+sentry-sdk[fastapi]>=2.0
