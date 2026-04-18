@@ -14,6 +14,8 @@ import { describeApiError } from '@/lib/apiErrors';
 import { haptics } from '@/lib/haptics';
 import { useRestTimer } from '@/lib/useRestTimer';
 import { computePRs, toBestsMap } from '@/lib/pr';
+import { drainQueue, enqueueSet, pendingCount } from '@/lib/offlineQueue';
+import { kv } from '@/lib/kvStorage';
 
 function showError(title: string, message: string) {
   if (Platform.OS === 'web') {
@@ -42,6 +44,10 @@ export default function ActiveSessionScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadNonce, setLoadNonce] = useState(0);
   const [priorBests, setPriorBests] = useState<Record<number, { weight: number; reps: number; duration: number }>>({});
+  // Offline queue: when a set log fails with a network error (no response)
+  // we stash the payload locally and retry on the next successful call.
+  const [pendingSync, setPendingSync] = useState(0);
+  const [draining, setDraining] = useState(false);
 
   // Rest countdown lives at the session level so the user can tap
   // other exercise blocks (peek cues / check images) without killing it.
@@ -95,24 +101,60 @@ export default function ActiveSessionScreen() {
 
   const logInFlight = useRef(false);
 
+  // Load pending-sync count on mount so a session resumed after a
+  // crash / reload still shows the queue.
+  useEffect(() => {
+    if (!session?.id) return;
+    pendingCount(kv, session.id).then(setPendingSync).catch(() => {});
+  }, [session?.id]);
+
+  const drain = async () => {
+    if (!session || draining) return;
+    setDraining(true);
+    try {
+      const result = await drainQueue(kv, async (q) => {
+        if (q.session_id !== session.id) return; // belongs to a different session
+        await api.logSet(session.id, q.payload);
+      });
+      if (result.sent > 0) {
+        await reload();
+      }
+      setPendingSync(await pendingCount(kv, session.id));
+    } finally {
+      setDraining(false);
+    }
+  };
+
   const handleLogSet = async (re: RoutineExercise, payload: Partial<SessionSet>) => {
     if (!session || logInFlight.current) return;
     logInFlight.current = true;
+    const body = {
+      exercise_id: re.exercise_id,
+      reps: payload.reps,
+      duration_sec: payload.duration_sec,
+      weight: payload.weight,
+      rpe: payload.rpe,
+    };
     try {
       // Server assigns set_number atomically; don't send one from the client
       // to avoid stale-closure races on double-tap.
-      await api.logSet(session.id, {
-        exercise_id: re.exercise_id,
-        reps: payload.reps,
-        duration_sec: payload.duration_sec,
-        weight: payload.weight,
-        rpe: payload.rpe,
-      });
+      await api.logSet(session.id, body);
       haptics.bump();
       await reload();
+      // We're back online — flush anything that queued while offline.
+      if (pendingSync > 0) drain();
     } catch (e) {
-      haptics.error();
-      showError('Set not saved', describeApiError(e, 'Could not log that set.'));
+      const hasResponse = Boolean((e as { response?: unknown })?.response);
+      if (!hasResponse) {
+        // Network error: stash the set so it's not lost. The user gets
+        // a subtle "N pending sync" chip instead of a failure alert.
+        await enqueueSet(kv, session.id, body);
+        setPendingSync(await pendingCount(kv, session.id));
+        haptics.warning();
+      } else {
+        haptics.error();
+        showError('Set not saved', describeApiError(e, 'Could not log that set.'));
+      }
     } finally {
       logInFlight.current = false;
     }
@@ -211,12 +253,31 @@ export default function ActiveSessionScreen() {
       </View>
       <View style={styles.progressRow}>
         <Text style={styles.progressText}>{doneSets} / {totalSets} sets</Text>
-        <Pressable style={styles.symptomBtn} onPress={() => setSymptomOpen(true)}>
-          <Ionicons name="pulse-outline" size={14} color={colors.warning} />
-          <Text style={styles.symptomBtnText}>
-            Log symptom{symptomCount > 0 ? ` (${symptomCount})` : ''}
-          </Text>
-        </Pressable>
+        <View style={styles.progressRowRight}>
+          {pendingSync > 0 && (
+            <Pressable
+              style={styles.pendingChip}
+              onPress={drain}
+              disabled={draining}
+              accessibilityRole="button"
+              accessibilityLabel={`${pendingSync} set${pendingSync === 1 ? '' : 's'} pending sync. Tap to retry.`}
+            >
+              <Ionicons
+                name={draining ? 'sync' : 'cloud-offline-outline'}
+                size={12} color={colors.danger}
+              />
+              <Text style={styles.pendingChipText}>
+                {draining ? 'Syncing…' : `${pendingSync} pending`}
+              </Text>
+            </Pressable>
+          )}
+          <Pressable style={styles.symptomBtn} onPress={() => setSymptomOpen(true)}>
+            <Ionicons name="pulse-outline" size={14} color={colors.warning} />
+            <Text style={styles.symptomBtnText}>
+              Log symptom{symptomCount > 0 ? ` (${symptomCount})` : ''}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {rest.active && (
@@ -642,12 +703,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 6,
   },
+  progressRowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   symptomBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     backgroundColor: '#fff5e6', cursor: 'pointer' as any,
   },
   symptomBtnText: { color: colors.warning, fontSize: 11, fontWeight: '600' },
+  pendingChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    backgroundColor: '#fdecea', borderWidth: 1, borderColor: colors.danger,
+    cursor: 'pointer' as any,
+  },
+  pendingChipText: { color: colors.danger, fontSize: 11, fontWeight: '700' },
 
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',

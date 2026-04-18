@@ -316,6 +316,18 @@ CREATE TABLE IF NOT EXISTS symptom_logs (
     logged_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS admin_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    request_id TEXT,
+    status_code INTEGER,
+    duration_ms INTEGER,
+    client_ip TEXT,
+    user_agent TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_folder_id ON tasks(folder_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_subfolder_id ON tasks(subfolder_id);
@@ -338,6 +350,7 @@ CREATE INDEX IF NOT EXISTS idx_routine_ex_routine ON routine_exercises(routine_i
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON workout_sessions(user_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_session_sets_session ON session_sets(session_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user ON symptom_logs(user_id, logged_at);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
 CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_global_slug ON exercises(slug) WHERE user_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_user_slug ON exercises(user_id, slug) WHERE user_id IS NOT NULL;
