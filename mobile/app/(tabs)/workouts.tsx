@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#eee',
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#333' },
-  headerSub: { fontSize: 12, color: '#999', marginTop: 2 },
+  headerSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   streakBox: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#fff5e6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
@@ -295,11 +295,11 @@ const styles = StyleSheet.create({
   },
   goalDot: { width: 8, height: 40, borderRadius: 4 },
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#222' },
-  cardMeta: { fontSize: 12, color: '#888', marginTop: 2 },
+  cardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8, fontSize: 16 },
+  emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 16 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 300 },
   emptyCta: {

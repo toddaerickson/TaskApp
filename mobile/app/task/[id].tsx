@@ -167,7 +167,7 @@ export default function TaskDetailScreen() {
       )}
 
       <Text style={styles.label}>Note</Text>
-      <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={note} onChangeText={setNote} multiline placeholderTextColor="#999" />
+      <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={note} onChangeText={setNote} multiline placeholderTextColor={colors.textMuted} />
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Changes'}</Text>

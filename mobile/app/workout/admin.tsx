@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#222' },
-  hint: { fontSize: 12, color: '#888', marginTop: 4, marginBottom: 10 },
+  hint: { fontSize: 12, color: colors.textMuted, marginTop: 4, marginBottom: 10 },
   pasteBox: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
     fontSize: 13, minHeight: 120, textAlignVertical: 'top',
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
   resultText: { marginTop: 10, fontSize: 13, color: colors.success },
 
   sectionTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    fontSize: 13, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingVertical: 8,
   },
 
@@ -753,7 +753,7 @@ const styles = StyleSheet.create({
   emptyResults: {
     alignItems: 'center', paddingVertical: 30, gap: 8,
   },
-  emptyResultsText: { color: '#999', fontSize: 13 },
+  emptyResultsText: { color: colors.textMuted, fontSize: 13 },
 
 
   exRow: {
@@ -762,7 +762,7 @@ const styles = StyleSheet.create({
   },
   exHeader: { flexDirection: 'row', alignItems: 'center' },
   exName: { fontSize: 14, fontWeight: '600', color: '#222' },
-  exSlug: { fontSize: 11, color: '#999', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  exSlug: { fontSize: 11, color: colors.textMuted, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
   exCount: {
     fontSize: 11, color: '#666', backgroundColor: '#eee',
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
@@ -819,7 +819,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
-  modalEmpty: { textAlign: 'center', color: '#999', padding: 30 },
+  modalEmpty: { textAlign: 'center', color: colors.textMuted, padding: 30 },
   candidateGrid: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
   },
@@ -854,7 +854,7 @@ const styles = StyleSheet.create({
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   fieldInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     fontSize: 13, backgroundColor: '#fafafa',
