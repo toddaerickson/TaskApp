@@ -79,8 +79,9 @@ def test_bulk_images_unknown_slug_reports_not_found(auth_client):
 
 @pytest.fixture
 def mock_search_providers(monkeypatch):
-    """Replace DDG + Pixabay search with in-memory fakes so we never hit
-    the network in tests."""
+    """Replace every image provider with in-memory fakes so we never hit
+    the network in tests. Also clears the TTL + negative caches so tests
+    don't contaminate each other."""
     from app.routes import exercise_routes
 
     def fake_ddg(query, n):
@@ -105,10 +106,22 @@ def mock_search_providers(monkeypatch):
             for i in range(min(n, 2))
         ]
 
+    def fake_wm(query, n):
+        return [
+            exercise_routes.ImageCandidate(
+                url=f"https://wm/{query.replace(' ', '_')}/{i}.jpg",
+                thumb=f"https://wm-thumb/{i}.jpg",
+                source="commons.wikimedia.org",
+                width=400, height=400,
+            )
+            for i in range(min(n, 2))
+        ]
+
     monkeypatch.setattr(exercise_routes, "_search_ddg", fake_ddg)
     monkeypatch.setattr(exercise_routes, "_search_pixabay", fake_pix)
-    # Also clear the in-process TTL cache between tests.
+    monkeypatch.setattr(exercise_routes, "_search_wikimedia", fake_wm)
     exercise_routes._SEARCH_CACHE.clear()
+    exercise_routes._NEG_CACHE.clear()
 
 
 def test_search_images_returns_interleaved_results(auth_client, seeded_globals, mock_search_providers):
@@ -116,11 +129,52 @@ def test_search_images_returns_interleaved_results(auth_client, seeded_globals, 
     r = c.get(f"/exercises/{seeded_globals['wall']}/search-images?n=5", headers=_h(tok))
     assert r.status_code == 200
     results = r.json()
-    # Pixabay contributed 2, DDG 3 → 5 unique, interleaved pixabay-first.
+    # Three providers round-robin (pixabay→ddg→wikimedia), capped at 5.
+    # Counts per provider don't match their raw returns because of the cap
+    # and round-robin: [pix0, ddg0, wm0, pix1, ddg1].
     assert len(results) == 5
     sources = [r["source"] for r in results]
     assert sources.count("pixabay.com") == 2
-    assert sources.count("ddg") == 3
+    assert sources.count("ddg") == 2
+    assert sources.count("commons.wikimedia.org") == 1
+
+
+def test_search_images_skips_failing_provider_next_call(auth_client, seeded_globals, monkeypatch):
+    """If a provider raises once, the negative cache skips it for ~60s."""
+    from app.routes import exercise_routes
+    calls = {"pix": 0, "ddg": 0, "wm": 0}
+
+    def counting_pix(q, n):
+        calls["pix"] += 1
+        raise RuntimeError("pixabay is down")
+
+    def counting_ddg(q, n):
+        calls["ddg"] += 1
+        return [exercise_routes.ImageCandidate(url="https://ddg/ok.jpg", source="ddg")]
+
+    def counting_wm(q, n):
+        calls["wm"] += 1
+        return [exercise_routes.ImageCandidate(url="https://wm/ok.jpg", source="commons.wikimedia.org")]
+
+    monkeypatch.setattr(exercise_routes, "_search_pixabay", counting_pix)
+    monkeypatch.setattr(exercise_routes, "_search_ddg", counting_ddg)
+    monkeypatch.setattr(exercise_routes, "_search_wikimedia", counting_wm)
+    exercise_routes._SEARCH_CACHE.clear()
+    exercise_routes._NEG_CACHE.clear()
+
+    c, tok, _ = auth_client
+    # First call fans out to all three; pixabay raises and gets marked.
+    c.get(f"/exercises/{seeded_globals['wall']}/search-images?q=quad%20stretch&n=4", headers=_h(tok))
+    # Second call with a DIFFERENT query so the positive cache doesn't serve —
+    # negative cache is keyed per (provider, query, n), so pixabay gets
+    # called again for a different query. That's the intended behavior.
+    c.get(f"/exercises/{seeded_globals['wall']}/search-images?q=other&n=4", headers=_h(tok))
+    # Same query as the first — negative cache kicks in; pix NOT called.
+    c.get(f"/exercises/{seeded_globals['wall']}/search-images?q=quad%20stretch&n=4", headers=_h(tok))
+
+    assert calls["pix"] == 2, f"expected pixabay called twice (once per distinct query), got {calls['pix']}"
+    assert calls["ddg"] == 2  # same positive-cache story: two distinct queries
+    assert calls["wm"] == 2
 
 
 def test_search_images_uses_override_query(auth_client, seeded_globals, mock_search_providers):

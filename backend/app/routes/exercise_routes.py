@@ -211,6 +211,57 @@ _SEARCH_CACHE: dict[tuple[str, int], tuple[float, list[ImageCandidate]]] = {}
 _SEARCH_TTL_SEC = 300  # 5 min — long enough to help the "reopen modal" flow
 _SEARCH_BUDGET_SEC = 8.0
 
+# Per-provider negative cache. When a provider fails (network, 5xx, missing
+# key), we remember for a short window so repeated "Find" clicks don't
+# hammer the failing API. Key: (provider_name, query_lower, n).
+_NEG_CACHE: dict[tuple[str, str, int], float] = {}
+_NEG_TTL_SEC = 60
+
+
+def _neg_key(provider: str, query: str, n: int) -> tuple[str, str, int]:
+    return (provider, query.lower(), n)
+
+
+def _neg_skip(provider: str, query: str, n: int) -> bool:
+    k = _neg_key(provider, query, n)
+    ts = _NEG_CACHE.get(k)
+    if ts is None:
+        return False
+    if time.time() - ts > _NEG_TTL_SEC:
+        _NEG_CACHE.pop(k, None)
+        return False
+    return True
+
+
+def _neg_mark(provider: str, query: str, n: int) -> None:
+    _NEG_CACHE[_neg_key(provider, query, n)] = time.time()
+
+
+def _run_provider(
+    provider: str,
+    fn: "callable",
+    query: str,
+    n: int,
+) -> list[ImageCandidate]:
+    """Wrap a provider call with the negative cache. Returns [] when the
+    provider is in cooldown, when it raises, or when it returns nothing —
+    in the latter two cases marks it failed so the next call skips."""
+    if _neg_skip(provider, query, n):
+        log.debug("Skipping %s for %r — recent failure", provider, query)
+        return []
+    try:
+        out = fn(query, n)
+    except Exception as e:
+        log.warning("%s search raised for %r: %s", provider, query, e)
+        _neg_mark(provider, query, n)
+        return []
+    if not out:
+        # Empty result isn't necessarily a failure (could be a real zero-
+        # hit query), but repeating on the same query doesn't help either.
+        # Short TTL means we'll try again soon if the source recovers.
+        _neg_mark(provider, query, n)
+    return out
+
 
 def _search_pixabay(query: str, n: int) -> list[ImageCandidate]:
     key = os.environ.get("PIXABAY_KEY")
@@ -265,18 +316,64 @@ def _search_ddg(query: str, n: int) -> list[ImageCandidate]:
     return out
 
 
-def _merge_candidates(pix: list[ImageCandidate], ddg: list[ImageCandidate], n: int) -> list[ImageCandidate]:
+def _search_wikimedia(query: str, n: int) -> list[ImageCandidate]:
+    """Commons Images search — no API key, no rate limit, public-domain or
+    free-license images. A good third fallback when Pixabay/DDG miss."""
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": query,
+        "gsrnamespace": 6,  # File: namespace
+        "gsrlimit": max(3, min(n * 2, 20)),  # over-fetch; many hits lack URLs
+        "prop": "imageinfo",
+        "iiprop": "url|size",
+        "iiurlwidth": 300,
+        "format": "json",
+    }
+    url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
+    # Commons requires a User-Agent; default urllib string gets blocked.
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "TaskApp/1.0 (+contact: self-hosted)"},
+    )
+    with urllib.request.urlopen(req, timeout=6) as r:
+        data = _json.loads(r.read().decode())
+    pages = (data.get("query") or {}).get("pages") or {}
+    out: list[ImageCandidate] = []
+    for page in pages.values():
+        ii = (page.get("imageinfo") or [{}])[0]
+        u = ii.get("url")
+        if not u:
+            continue
+        out.append(ImageCandidate(
+            url=u,
+            thumb=ii.get("thumburl"),
+            source="commons.wikimedia.org",
+            width=_coerce_int(ii.get("width")),
+            height=_coerce_int(ii.get("height")),
+        ))
+        if len(out) >= n:
+            break
+    return out
+
+
+def _merge_candidates(groups: list[list[ImageCandidate]], n: int) -> list[ImageCandidate]:
+    """Round-robin interleave across provider groups, de-duplicated by url,
+    capped at n. Keeps one provider from dominating the picker even if it
+    returns many more hits than the others."""
     merged: list[ImageCandidate] = []
     seen: set[str] = set()
-    for pair in zip(pix, ddg):
-        for c in pair:
+    max_len = max((len(g) for g in groups), default=0)
+    for i in range(max_len):
+        for g in groups:
+            if i >= len(g):
+                continue
+            c = g[i]
             if c.url and c.url not in seen:
                 seen.add(c.url)
                 merged.append(c)
-    for c in pix[len(ddg):] + ddg[len(pix):]:
-        if c.url and c.url not in seen:
-            seen.add(c.url)
-            merged.append(c)
+                if len(merged) >= n:
+                    return merged
     return merged[:n]
 
 
@@ -287,14 +384,17 @@ async def search_images(
     n: int = Query(6, ge=1, le=15),
     user_id: int = Depends(get_current_user_id),
 ):
-    """Return candidate image URLs from free sources (DuckDuckGo + optional
-    Pixabay). Caller picks one and POSTs to /exercises/{id}/images. Pixabay
-    is used when PIXABAY_KEY env is set; otherwise DDG only.
+    """Return candidate image URLs from free sources (Pixabay, DuckDuckGo,
+    Wikimedia Commons). Caller picks one and POSTs to /exercises/{id}/images.
+    Pixabay is only called when PIXABAY_KEY env is set; Wikimedia has no key.
 
-    - Providers run concurrently in a thread pool (both do blocking I/O).
+    - Providers run concurrently in a thread pool (all do blocking I/O).
+    - A provider that failed (raised or returned nothing) in the last 60s
+      is skipped — repeated Find clicks don't hammer a down API.
     - Total time is capped at 8s; if a provider misses the deadline its
       results are dropped and whatever arrived is returned.
-    - Results are cached in-process for 5 minutes keyed on (query, n).
+    - Successful merged results are cached in-process for 5 minutes keyed
+      on (query, n).
     """
     with get_db() as conn:
         cur = conn.cursor()
@@ -314,18 +414,23 @@ async def search_images(
     if cached and now - cached[0] < _SEARCH_TTL_SEC:
         return cached[1]
 
+    provider_fns = [
+        ("pixabay", _search_pixabay),
+        ("ddg", _search_ddg),
+        ("wikimedia", _search_wikimedia),
+    ]
     tasks = [
-        asyncio.to_thread(_search_pixabay, query, n),
-        asyncio.to_thread(_search_ddg, query, n),
+        asyncio.to_thread(_run_provider, name, fn, query, n)
+        for (name, fn) in provider_fns
     ]
     try:
-        pix, ddg = await asyncio.wait_for(asyncio.gather(*tasks), timeout=_SEARCH_BUDGET_SEC)
+        groups = await asyncio.wait_for(asyncio.gather(*tasks), timeout=_SEARCH_BUDGET_SEC)
     except asyncio.TimeoutError:
         log.warning("Image search exceeded %.1fs budget for %r", _SEARCH_BUDGET_SEC, query)
         # Whatever finished by cancellation is gone; return empty rather than hang.
-        pix, ddg = [], []
+        groups = [[] for _ in provider_fns]
 
-    merged = _merge_candidates(pix, ddg, n)
+    merged = _merge_candidates(groups, n)
     _SEARCH_CACHE[key] = (now, merged)
     # Bound the cache so a long-running server doesn't leak memory.
     if len(_SEARCH_CACHE) > 200:
