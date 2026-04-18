@@ -3,6 +3,7 @@ import axiosRetry from 'axios-retry';
 import { Platform } from 'react-native';
 import { emitSessionExpired } from './sessionExpiry';
 import { newRequestId } from './requestId';
+import { reportError } from './errorReporter';
 
 // EXPO_PUBLIC_ env vars are inlined at build time by Metro. Override for
 // production by setting EXPO_PUBLIC_API_URL in the host's build env
@@ -94,6 +95,22 @@ api.interceptors.response.use(
         }
       } catch { /* best-effort cleanup */ }
       emitSessionExpired();
+    }
+    // Telemetry: only 5xx and network errors are worth forwarding. 4xx
+    // tends to be user-input driven (409 conflicts, 422 validation) and
+    // would create noise. requestId is echoed by the server via the
+    // X-Request-Id header on the response; pair it with the Sentry event.
+    const isServerOrNetwork = !status || status >= 500;
+    if (isServerOrNetwork && !isAuthEndpoint) {
+      const rid =
+        (error?.response?.headers?.['x-request-id'] as string | undefined) ||
+        (error?.config?.headers?.['X-Request-Id'] as string | undefined);
+      reportError(error, {
+        requestId: rid,
+        status,
+        route: url,
+        tags: { method: (error?.config?.method || 'get').toUpperCase() },
+      });
     }
     return Promise.reject(error);
   },

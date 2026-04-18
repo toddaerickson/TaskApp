@@ -22,6 +22,12 @@ from app.admin_audit import AdminAuditMiddleware
 from app.request_id import (
     RequestIDMiddleware, current_request_id, install_logging_filter,
 )
+from app.sentry_setup import init_sentry
+
+# Sentry init must run BEFORE FastAPI is created so the integrations can
+# patch Starlette/FastAPI internals on import. No-op when SENTRY_DSN is
+# not set — dev/CI/tests stay quiet.
+init_sentry()
 
 # Uvicorn configures its own loggers, but our app modules (logger names
 # starting with `app.` or `__main__`) don't inherit its handlers. Set up
