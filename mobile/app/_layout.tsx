@@ -7,6 +7,12 @@ import PinGate from '@/components/PinGate';
 import { isRecentlyUnlocked } from '@/lib/pin';
 import { onSessionExpired } from '@/lib/sessionExpiry';
 import { reportError } from '@/lib/errorReporter';
+import { initSentry, sentryWrap } from '@/lib/sentry';
+
+// Fire Sentry init at module load so it's live before any component
+// mounts — an error during the first render would otherwise escape. No-op
+// when EXPO_PUBLIC_SENTRY_DSN is unset, so dev Expo Go runs stay quiet.
+initSentry();
 
 // Expo-router picks up a named `ErrorBoundary` export from a layout and
 // renders it in place of the route tree when any descendant throws.
@@ -54,7 +60,7 @@ const errStyles = StyleSheet.create({
   stack: { marginTop: 24, fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' as any },
 });
 
-export default function RootLayout() {
+function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
@@ -149,3 +155,7 @@ const sessionStyles = StyleSheet.create({
   },
   btnText: { color: '#fff', fontWeight: '700' },
 });
+
+// Wrap so Sentry can pick up navigation breadcrumbs + auto-instrument the
+// component tree. Pass-through when Sentry isn't initialized.
+export default sentryWrap(RootLayout);
