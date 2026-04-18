@@ -12,7 +12,9 @@ import {
 } from '@/lib/biometric';
 import { haptics } from '@/lib/haptics';
 
-type Mode = 'loading' | 'enter' | 'set' | 'confirm' | 'locked';
+// 'intro' only fires on first run when biometrics are available — it
+// reframes the PIN setup as a fallback so the user isn't surprised later.
+type Mode = 'loading' | 'intro' | 'enter' | 'set' | 'confirm' | 'locked';
 
 export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const [mode, setMode] = useState<Mode>('loading');
@@ -24,16 +26,32 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const [bioKind, setBioKind] = useState<BiometricKind>('none');
   const [bioEnabled, setBioEnabled] = useState(false);
   const [offerEnableBio, setOfferEnableBio] = useState(false);
+  // Set by the intro "Continue with Face ID" button. After the user
+  // finishes the required PIN setup we auto-enable biometric without
+  // showing the post-setup offer again.
+  const [autoEnableBio, setAutoEnableBio] = useState(false);
   const shakeTimer = useRef<any>(null);
   const bioAutoTried = useRef(false);
 
   useEffect(() => {
     (async () => {
-      setBioKind(await biometricKind());
+      const bk = await biometricKind();
+      setBioKind(bk);
       setBioEnabled(await isBiometricEnabled());
       if (await isLockedOut()) { setMode('locked'); return; }
       const has = await isPinSet();
-      if (!has) { setMode('set'); setMessage('Set a 4-digit PIN to lock the app.'); return; }
+      if (!has) {
+        // First run: if biometrics are available, lead with the intro so
+        // the user knows Face ID / Touch ID will be the primary unlock
+        // and the PIN is a backup. Otherwise jump straight to PIN setup.
+        if (bk !== 'none') {
+          setMode('intro');
+        } else {
+          setMode('set');
+          setMessage('Set a 4-digit PIN to lock the app.');
+        }
+        return;
+      }
       setWrong(await getFailedAttempts());
       setMode('enter');
     })();
@@ -85,6 +103,15 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         if (entered === firstPin) {
           await setPin(entered);
           haptics.success();
+          // If the user picked "Continue with Face ID" at the intro, we
+          // already confirmed their intent — skip the second prompt and
+          // flip the flag directly.
+          if (autoEnableBio) {
+            await setBiometricEnabled(true);
+            setBioEnabled(true);
+            onUnlock();
+            return;
+          }
           if (bioKind !== 'none') { setOfferEnableBio(true); return; }
           onUnlock();
         } else {
@@ -117,6 +144,55 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  }
+
+  if (mode === 'intro') {
+    const bLabel = bioLabel(bioKind);
+    return (
+      <View style={styles.container}>
+        <Ionicons
+          name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
+          size={56} color={colors.primary}
+        />
+        <Text style={styles.title}>Lock TaskApp with {bLabel}</Text>
+        <Text style={styles.subtitle}>
+          {bLabel} will be the primary unlock. You'll also set a 4-digit PIN as a backup for when {bLabel} isn't available.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 28 }}>
+          <Pressable
+            style={styles.ghostBtn}
+            onPress={() => {
+              setAutoEnableBio(false);
+              setMode('set');
+              setMessage('Set a 4-digit PIN to lock the app.');
+            }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.ghostBtnText}>PIN only</Text>
+          </Pressable>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={async () => {
+              // Verify the user actually has biometrics enrolled — system
+              // reports `face` availability even when no face is scanned.
+              // If the user cancels here we fall back to plain PIN setup.
+              const ok = await authenticateBiometric(`Use ${bLabel} to unlock TaskApp`);
+              setAutoEnableBio(ok);
+              setMode('set');
+              setMessage(
+                ok
+                  ? `Now set a 4-digit PIN as a backup for ${bLabel}.`
+                  : 'Set a 4-digit PIN to lock the app.',
+              );
+            }}
+            accessibilityRole="button"
+          >
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.primaryBtnText}>Continue with {bLabel}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   }
 
   if (offerEnableBio) {

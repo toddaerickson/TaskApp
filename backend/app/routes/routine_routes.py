@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import get_db
 from app.auth import get_current_user_id
 from pydantic import BaseModel
@@ -39,13 +39,29 @@ def _hydrate_routine(cur, row: dict) -> dict:
 
 
 @router.get("", response_model=list[RoutineResponse])
-def list_routines(user_id: int = Depends(get_current_user_id)):
+def list_routines(
+    limit: int = Query(50, ge=1, le=200),
+    cursor: int | None = Query(
+        None,
+        description="Routine id from the previous page's last item. Returns "
+                    "routines with id > cursor (sort_order, id ASC).",
+    ),
+    user_id: int = Depends(get_current_user_id),
+):
+    """List a user's routines. Paginated: `limit` caps page size (default 50,
+    max 200), `cursor` is the id of the last routine on the prior page so
+    the client can request id > cursor for the next page. Ordering is
+    `(sort_order ASC, id ASC)` so pagination is deterministic."""
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM routines WHERE user_id = ? ORDER BY sort_order ASC, id ASC",
-            (user_id,),
-        )
+        sql = "SELECT * FROM routines WHERE user_id = ?"
+        params: list = [user_id]
+        if cursor is not None:
+            sql += " AND id > ?"
+            params.append(cursor)
+        sql += " ORDER BY sort_order ASC, id ASC LIMIT ?"
+        params.append(limit)
+        cur.execute(sql, tuple(params))
         return hydrate_routines_full(cur, cur.fetchall())
 
 

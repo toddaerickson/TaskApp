@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore } from '@/lib/stores';
 import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
+import * as api from '@/lib/api';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -57,8 +58,27 @@ export default function CreateTaskScreen() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [addingTag, setAddingTag] = useState(false);
 
   useEffect(() => { loadFolders(); loadTags(); }, []);
+
+  const handleCreateTag = async () => {
+    const name = newTag.trim();
+    if (!name || addingTag) return;
+    setAddingTag(true);
+    try {
+      const created = await api.createTag(name);
+      await loadTags();
+      setNewTag('');
+      // Auto-select the tag the user just created — almost always what they want.
+      if (created?.id) setSelectedTagIds((prev) => [...prev, created.id]);
+    } catch (e: any) {
+      Alert.alert('Tag not created', e?.response?.data?.detail || 'Try again.');
+    } finally {
+      setAddingTag(false);
+    }
+  };
 
   const folderOptions = [
     { value: null as number | null, label: 'None' },
@@ -168,30 +188,51 @@ export default function CreateTaskScreen() {
         />
       </View>
 
-      {/* Tags (visible only if any tags exist — usually none on first run) */}
+      {/* Tags — always visible so a first-run user can create their first tag
+          without leaving this screen. Previously this section only rendered
+          when tags.length > 0, which hid the affordance entirely. */}
+      <Text style={styles.label}>Tags</Text>
       {tags.length > 0 && (
-        <>
-          <Text style={styles.label}>Tags</Text>
-          <View style={[styles.chipRow, { flexWrap: 'wrap' }]}>
-            {tags.map((t) => {
-              const on = selectedTagIds.includes(t.id);
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.tagChip, on && styles.tagChipOn]}
-                  onPress={() => toggleTag(t.id)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                >
-                  <Text style={on ? styles.chipTextActive : styles.chipText}>
-                    {t.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </>
+        <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 6 }]}>
+          {tags.map((t) => {
+            const on = selectedTagIds.includes(t.id);
+            return (
+              <TouchableOpacity
+                key={t.id}
+                style={[styles.tagChip, on && styles.tagChipOn]}
+                onPress={() => toggleTag(t.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+              >
+                <Text style={on ? styles.chipTextActive : styles.chipText}>
+                  {t.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       )}
+      <View style={styles.newTagRow}>
+        <TextInput
+          value={newTag}
+          onChangeText={setNewTag}
+          placeholder={tags.length === 0 ? 'Create your first tag…' : '+ New tag'}
+          placeholderTextColor="#999"
+          style={styles.newTagInput}
+          autoCapitalize="none"
+          onSubmitEditing={handleCreateTag}
+          returnKeyType="done"
+        />
+        <Pressable
+          style={[styles.newTagBtn, (!newTag.trim() || addingTag) && { opacity: 0.5 }]}
+          onPress={handleCreateTag}
+          disabled={!newTag.trim() || addingTag}
+          accessibilityRole="button"
+          accessibilityLabel="Add tag"
+        >
+          <Ionicons name="add" size={18} color="#fff" />
+        </Pressable>
+      </View>
 
       {/* Advanced collapse — status + dates + repeat + note live here */}
       <Pressable
@@ -281,6 +322,16 @@ const styles = StyleSheet.create({
   tagChipOn: { backgroundColor: colors.violet },
   chipText: { fontSize: 13, color: '#555' },
   chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
+
+  newTagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  newTagInput: {
+    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10,
+    fontSize: 14, color: '#333', backgroundColor: '#fafafa',
+  },
+  newTagBtn: {
+    width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.violet, cursor: 'pointer' as any,
+  },
 
   switchRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

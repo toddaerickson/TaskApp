@@ -80,7 +80,15 @@ export default function RoutineDetailScreen() {
         options={{
           title: routine.name,
           headerRight: () => (
-            <Pressable onPress={() => setEditMode(!editMode)} style={{ marginRight: 12 }}>
+            <Pressable
+              onPress={() => setEditMode(!editMode)}
+              // Explicit 44×44 target; the earlier 22px icon sat in a
+              // ~30px box which is below WCAG minimum.
+              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel={editMode ? 'Exit edit mode' : 'Edit routine'}
+              hitSlop={8}
+            >
               <Ionicons
                 name={editMode ? 'checkmark' : 'create-outline'}
                 size={22} color="#fff"
@@ -467,9 +475,12 @@ const styles = StyleSheet.create({
   },
   startText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 
-  editControls: { flexDirection: 'row', gap: 2 },
+  editControls: { flexDirection: 'row', gap: 4 },
+  // 44×44 tap targets to meet the WCAG 2.2 minimum — the old 18px icon
+  // inside padding:6 was ~30px, below the minimum.
   ctrlBtn: {
-    padding: 6, borderRadius: 6, cursor: 'pointer' as any,
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 6, cursor: 'pointer' as any,
   },
   editPanel: {
     marginTop: 10, paddingTop: 10,

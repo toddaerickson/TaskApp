@@ -38,9 +38,19 @@ def start_session(req: SessionCreate, user_id: int = Depends(get_current_user_id
 @router.get("/sessions", response_model=list[SessionResponse])
 def list_sessions(
     limit: int = Query(50, ge=1, le=200),
+    cursor: int | None = Query(
+        None,
+        description="Session id from the previous page's last item. Returns "
+                    "sessions with id < cursor (newest-first).",
+    ),
     routine_id: int | None = None,
     user_id: int = Depends(get_current_user_id),
 ):
+    """List a user's sessions, newest first. Paginated: `limit` caps page
+    size (default 50, max 200), `cursor` is the id of the last session on
+    the prior page — the server returns id < cursor on the next call.
+    Uses id for the cursor (monotonic with `started_at`) so pagination is
+    stable even if two sessions start in the same second."""
     with get_db() as conn:
         cur = conn.cursor()
         sql = "SELECT * FROM workout_sessions WHERE user_id = ?"
@@ -48,7 +58,10 @@ def list_sessions(
         if routine_id is not None:
             sql += " AND routine_id = ?"
             params.append(routine_id)
-        sql += " ORDER BY started_at DESC LIMIT ?"
+        if cursor is not None:
+            sql += " AND id < ?"
+            params.append(cursor)
+        sql += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         cur.execute(sql, tuple(params))
         return hydrate_sessions_full(cur, cur.fetchall())

@@ -201,7 +201,10 @@ export default function ActiveSessionScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: routine.name, headerBackTitle: 'Cancel' }} />
+      {/* The header back action doesn't discard the session — the server
+          keeps it open until Finish. "Cancel" implied deletion; "Back"
+          matches what actually happens. */}
+      <Stack.Screen options={{ title: routine.name, headerBackTitle: 'Back' }} />
 
       <View style={styles.progressBar}>
         <View style={[styles.progressFill, { width: `${pct}%` }]} />
