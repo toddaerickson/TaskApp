@@ -96,7 +96,8 @@ cd mobile && npm test            # 45 cases (3 suites, pure-function libs only)
   isn't installed. PinGate and screen flows are still TS+runtime only.
 - `expo-local-authentication` doesn't work in Expo Go. Needs a dev build
   (`npx expo prebuild && npx expo run:ios`) or EAS build to test Face ID.
-- Route `GET /routines` and `GET /sessions` are no longer N+1, but still
-  have no pagination. Fine at current scale.
+- Route `GET /routines` and `GET /sessions` are no longer N+1 and have
+  cursor-based pagination (`limit` + `cursor`). Mobile `getRoutines()`
+  pages transparently; `listSessions()` accepts an optional `cursor`.
 - 3 exercises still need images: `clamshell_banded`, `seated_soleus_stretch`,
   `banded_fire_hydrant`. Use the admin screen's "Find" button.
