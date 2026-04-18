@@ -1,16 +1,19 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput,
+  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput, ScrollView, Platform, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useWorkoutStore, WorkoutSession } from '@/lib/stores';
+import { useWorkoutStore, WorkoutSession, Exercise } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
+import {
+  WORKOUT_TEMPLATES, WorkoutTemplate, estimateMinutes,
+} from '@/lib/workoutTemplates';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: colors.warning, strength: colors.primary, mobility: colors.success,
@@ -39,6 +42,10 @@ export default function WorkoutsScreen() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Per-template "creating…" flag so taps during the round-trip disable
+  // that card without blanking the whole strip. Keyed on template.id.
+  const [instantiating, setInstantiating] = useState<string | null>(null);
+
   useEffect(() => {
     loadRoutines();
     api.listSessions({ limit: 10 })
@@ -62,6 +69,67 @@ export default function WorkoutsScreen() {
     setNewGoal('general');
     setCreateError(null);
     setCreateOpen(true);
+  };
+
+  // Instantiate a pre-built template. Resolves each slug to an exercise
+  // id via the user's library, then POSTs a single routine-create with
+  // the exercises inline. If the library is empty (unseeded user) we
+  // abort with a friendly message instead of creating an empty routine.
+  const startFromTemplate = async (template: WorkoutTemplate) => {
+    if (instantiating) return;
+    setInstantiating(template.id);
+    try {
+      const exercises: Exercise[] = await api.getExercises();
+      const bySlug = new Map<string, Exercise>();
+      for (const ex of exercises) {
+        if (ex.slug) bySlug.set(ex.slug, ex);
+      }
+      const resolved = template.exercises
+        .map((te, idx) => {
+          const ex = bySlug.get(te.slug);
+          if (!ex) return null;
+          return {
+            exercise_id: ex.id,
+            sort_order: idx,
+            target_sets: te.target_sets ?? null,
+            target_reps: te.target_reps ?? null,
+            target_duration_sec: te.target_duration_sec ?? null,
+            rest_sec: te.rest_sec ?? null,
+            keystone: Boolean(te.keystone),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      if (resolved.length === 0) {
+        const msg = 'Your exercise library is empty. Run `seed_workouts.py` on the backend to load the starter set, then try again.';
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('No exercises yet', msg);
+        return;
+      }
+
+      const missing = template.exercises.length - resolved.length;
+      if (missing > 0) {
+        // Non-fatal: some users may have deleted a seeded exercise. Still
+        // create the routine with what we could resolve so the user is
+        // unblocked; log the drop so it's visible in dev.
+        console.warn('[workouts] template %s missing %d of %d exercises',
+          template.id, missing, template.exercises.length);
+      }
+
+      const routine = await api.createRoutine({
+        name: template.name,
+        goal: template.goal,
+        exercises: resolved,
+      });
+      await loadRoutines();
+      router.push(`/workout/${routine.id}`);
+    } catch (e) {
+      const msg = describeApiError(e, 'Could not create routine from template.');
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Template failed', msg);
+    } finally {
+      setInstantiating(null);
+    }
   };
 
   const submitCreate = async () => {
@@ -130,6 +198,49 @@ export default function WorkoutsScreen() {
             <Ionicons name="pulse-outline" size={18} color={colors.primary} />
           </Pressable>
         </View>
+      </View>
+
+      {/* Quick-start template strip. Solves the blank-page problem: tap
+          a card to create a pre-built routine in one round-trip and land
+          on its detail screen ready to edit or run. Horizontal scroll so
+          a 4th/5th card can fit without breaking the page rhythm. */}
+      <View style={styles.templateSection}>
+        <Text style={styles.sectionLabel}>Quick start</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.templateRow}
+        >
+          {WORKOUT_TEMPLATES.map((t) => {
+            const mins = estimateMinutes(t);
+            const busy = instantiating === t.id;
+            return (
+              <Pressable
+                key={t.id}
+                style={[
+                  styles.templateCard,
+                  { borderLeftColor: GOAL_COLORS[t.goal] || '#999' },
+                  busy && { opacity: 0.5 },
+                ]}
+                onPress={() => startFromTemplate(t)}
+                disabled={Boolean(instantiating)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start ${t.name}, ${t.exercises.length} exercises, about ${mins} minute${mins === 1 ? '' : 's'}`}
+                accessibilityState={{ busy, disabled: Boolean(instantiating) && !busy }}
+              >
+                <Ionicons
+                  name={t.icon as any}
+                  size={22}
+                  color={GOAL_COLORS[t.goal] || '#666'}
+                />
+                <Text style={styles.templateName} numberOfLines={2}>{t.name}</Text>
+                <Text style={styles.templateMeta}>
+                  {t.exercises.length} ex · {mins} min
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {isLoading ? (
@@ -300,6 +411,25 @@ const styles = StyleSheet.create({
     padding: 6, borderRadius: 8,
     backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
   },
+
+  templateSection: { paddingTop: 10, paddingBottom: 4, backgroundColor: '#fff' },
+  sectionLabel: {
+    fontSize: 11, color: colors.textMuted, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8,
+    paddingHorizontal: 16, marginBottom: 6,
+  },
+  templateRow: { paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
+  templateCard: {
+    // 160×96 minimum — comfortably above the 44×44 tap-target floor.
+    width: 160, minHeight: 96,
+    backgroundColor: '#f5f6fa', borderRadius: 10,
+    borderLeftWidth: 3,
+    padding: 12,
+    justifyContent: 'space-between',
+    cursor: 'pointer' as any,
+  },
+  templateName: { fontSize: 13, fontWeight: '700', color: '#222', marginTop: 8 },
+  templateMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
 
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
