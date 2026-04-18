@@ -95,6 +95,7 @@ export default function TrackScreen() {
           </View>
           <TextInput
             placeholder="…or type custom (e.g. left_achilles)"
+            accessibilityLabel="Custom body part"
             value={customPart}
             onChangeText={setCustomPart}
             style={styles.input}
@@ -121,6 +122,7 @@ export default function TrackScreen() {
           <Text style={styles.label}>Notes</Text>
           <TextInput
             placeholder="What did it feel like? When?"
+            accessibilityLabel="Symptom notes"
             value={notes}
             onChangeText={setNotes}
             multiline

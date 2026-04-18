@@ -133,6 +133,7 @@ export default function CreateTaskScreen() {
       <TextInput
         style={styles.input}
         placeholder="What needs to be done?"
+        accessibilityLabel="Task title"
         value={title}
         onChangeText={setTitle}
         autoFocus
@@ -217,6 +218,7 @@ export default function CreateTaskScreen() {
           value={newTag}
           onChangeText={setNewTag}
           placeholder={tags.length === 0 ? 'Create your first tag…' : '+ New tag'}
+          accessibilityLabel="New tag name"
           placeholderTextColor={colors.textMuted}
           style={styles.newTagInput}
           autoCapitalize="none"
@@ -283,6 +285,7 @@ export default function CreateTaskScreen() {
           <TextInput
             style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
             placeholder="Additional details..."
+            accessibilityLabel="Task note"
             value={note}
             onChangeText={setNote}
             multiline

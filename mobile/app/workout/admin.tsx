@@ -174,6 +174,7 @@ export default function AdminScreen() {
           <TextInput
             style={styles.pasteBox}
             placeholder={SAMPLE}
+            accessibilityLabel="Bulk image URLs paste area"
             placeholderTextColor="#bbb"
             value={paste}
             onChangeText={setPaste}
@@ -493,15 +494,15 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
       {expanded && (
         <View style={styles.editPanel}>
           <Text style={styles.fieldLabel}>Name</Text>
-          <TextInput value={name} onChangeText={setName} style={styles.fieldInput} />
+          <TextInput value={name} onChangeText={setName} style={styles.fieldInput} accessibilityLabel="Exercise name" />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Primary muscle</Text>
-              <TextInput value={primaryMuscle} onChangeText={setPrimaryMuscle} style={styles.fieldInput} />
+              <TextInput value={primaryMuscle} onChangeText={setPrimaryMuscle} style={styles.fieldInput} accessibilityLabel="Primary muscle" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Equipment</Text>
-              <TextInput value={equipment} onChangeText={setEquipment} style={styles.fieldInput} />
+              <TextInput value={equipment} onChangeText={setEquipment} style={styles.fieldInput} accessibilityLabel="Equipment" />
             </View>
           </View>
           <Text style={styles.fieldLabel}>Instructions</Text>
@@ -510,6 +511,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
             onChangeText={setInstructions}
             multiline
             style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
+            accessibilityLabel="Instructions"
           />
           <Text style={styles.fieldLabel}>Cue</Text>
           <TextInput
@@ -517,6 +519,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
             onChangeText={setCue}
             multiline
             style={[styles.fieldInput, { minHeight: 40, textAlignVertical: 'top' }]}
+            accessibilityLabel="Cue"
           />
           <Pressable
             style={[styles.saveEditBtn, (!dirty || busy) && { opacity: 0.5 }]}
@@ -551,6 +554,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
         <TextInput
           style={styles.addImgInput}
           placeholder="Paste image URL…"
+          accessibilityLabel={`New image URL for ${exercise.name}`}
           value={url}
           onChangeText={setUrl}
           autoCapitalize="none"
@@ -561,6 +565,8 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
           style={[styles.addImgBtn, (!url.trim() || busy) && { opacity: 0.5 }]}
           onPress={handleAdd}
           disabled={!url.trim() || busy}
+          accessibilityRole="button"
+          accessibilityLabel="Add image URL"
         >
           <Ionicons name="add" size={18} color="#fff" />
         </Pressable>
@@ -598,6 +604,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
                 onChangeText={setSearchQ}
                 style={styles.searchInput}
                 placeholder="Search query"
+                accessibilityLabel="Image search query"
                 autoCapitalize="none"
                 onSubmitEditing={() => runSearch(searchQ)}
               />
@@ -605,6 +612,8 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
                 style={styles.searchGoBtn}
                 onPress={() => runSearch(searchQ)}
                 disabled={searching}
+                accessibilityRole="button"
+                accessibilityLabel="Run image search"
               >
                 <Ionicons name="search" size={16} color="#fff" />
               </Pressable>
