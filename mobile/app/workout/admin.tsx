@@ -56,6 +56,11 @@ export default function AdminScreen() {
   const [replace, setReplace] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  // Per-slug status for the apply loop — previously a single batch call
+  // gave zero progress signal on a 50-row paste. We now iterate one slug
+  // at a time and update the preview in place.
+  type RowStatus = 'idle' | 'uploading' | 'ok' | 'not_found' | 'error';
+  const [statuses, setStatuses] = useState<Record<string, { state: RowStatus; added?: number; replaced?: number }>>({});
   // Filter state. Query matches name OR slug, case-insensitive.
   // `categoryFilter === null` means "All". `needsImage` shows only
   // exercises with zero images — most useful for finishing the library.
@@ -105,22 +110,48 @@ export default function AdminScreen() {
     if (applyable.length === 0) return;
     setApplying(true);
     setResult(null);
+    // Seed statuses so the preview rows flip to "uploading" the moment
+    // the button is tapped — otherwise the first slug looks idle until
+    // its round-trip finishes.
+    setStatuses(
+      Object.fromEntries(applyable.map((r) => [r.slug, { state: 'uploading' as RowStatus }])),
+    );
+
+    let addedTotal = 0;
+    let replacedTotal = 0;
+    const notFound: string[] = [];
+    const errored: string[] = [];
     try {
-      const res = await api.bulkExerciseImages(
-        applyable.map((r) => ({ slug: r.slug, urls: r.urls, replace }))
-      );
-      const addedTotal = res.reduce((s, r) => s + r.added, 0);
-      const replacedTotal = res.reduce((s, r) => s + r.replaced, 0);
-      const notFound = res.filter((r) => r.status === 'not_found').map((r) => r.slug);
-      setResult(
-        `Added ${addedTotal} image${addedTotal === 1 ? '' : 's'}`
-        + (replacedTotal ? ` (replaced ${replacedTotal})` : '')
-        + (notFound.length ? `. Not found: ${notFound.join(', ')}` : '.')
-      );
-      setPaste('');
+      for (const r of applyable) {
+        try {
+          const [res] = await api.bulkExerciseImages([{ slug: r.slug, urls: r.urls, replace }]);
+          addedTotal += res.added;
+          replacedTotal += res.replaced;
+          const state: RowStatus = res.status === 'not_found' ? 'not_found' : 'ok';
+          if (state === 'not_found') notFound.push(r.slug);
+          setStatuses((prev) => ({
+            ...prev,
+            [r.slug]: { state, added: res.added, replaced: res.replaced },
+          }));
+        } catch (e) {
+          errored.push(r.slug);
+          setStatuses((prev) => ({ ...prev, [r.slug]: { state: 'error' } }));
+        }
+      }
+
+      const bits = [`Added ${addedTotal} image${addedTotal === 1 ? '' : 's'}`];
+      if (replacedTotal) bits.push(`replaced ${replacedTotal}`);
+      if (notFound.length) bits.push(`not found: ${notFound.join(', ')}`);
+      if (errored.length) bits.push(`errored: ${errored.join(', ')}`);
+      setResult(bits.join('. ') + '.');
+
+      // Only clear the paste box when every row succeeded — otherwise
+      // the user loses context on what to fix.
+      if (notFound.length === 0 && errored.length === 0) {
+        setPaste('');
+        setStatuses({});
+      }
       reload();
-    } catch (e: any) {
-      setResult(`Error: ${e?.response?.data?.detail || e?.message || 'unknown'}`);
     } finally {
       setApplying(false);
     }
@@ -155,14 +186,23 @@ export default function AdminScreen() {
           {parsed.length > 0 && (
             <View style={styles.previewBox}>
               <Text style={styles.previewTitle}>Preview ({parsed.length} row{parsed.length === 1 ? '' : 's'})</Text>
-              {parsed.map((r, i) => (
-                <View key={`${r.slug}-${i}`} style={styles.previewRow}>
-                  <Text style={[styles.previewSlug, r.error && { color: colors.danger }]}>{r.slug}</Text>
-                  <Text style={styles.previewUrls} numberOfLines={2}>
-                    {r.error ? `⚠ ${r.error}` : `${r.urls.length} url${r.urls.length === 1 ? '' : 's'}`}
-                  </Text>
-                </View>
-              ))}
+              {parsed.map((r, i) => {
+                const st = statuses[r.slug];
+                return (
+                  <View key={`${r.slug}-${i}`} style={styles.previewRow}>
+                    <Text style={[styles.previewSlug, r.error && { color: colors.danger }]}>{r.slug}</Text>
+                    <View style={styles.previewRight}>
+                      {st ? (
+                        <StatusPill status={st.state} added={st.added} replaced={st.replaced} />
+                      ) : (
+                        <Text style={styles.previewUrls} numberOfLines={2}>
+                          {r.error ? `⚠ ${r.error}` : `${r.urls.length} url${r.urls.length === 1 ? '' : 's'}`}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           )}
 
@@ -184,7 +224,16 @@ export default function AdminScreen() {
             >
               <Ionicons name="cloud-upload" size={16} color="#fff" />
               <Text style={styles.applyBtnText}>
-                {applying ? 'Applying…' : `Apply ${applyable.length}`}
+                {applying
+                  // Count rows that have landed (ok / not_found / error); the
+                  // remaining are still "uploading" or queued to kick off.
+                  ? (() => {
+                      const done = Object.values(statuses).filter(
+                        (s) => s.state !== 'uploading' && s.state !== 'idle',
+                      ).length;
+                      return `Applying ${done}/${applyable.length}…`;
+                    })()
+                  : `Apply ${applyable.length}`}
               </Text>
             </Pressable>
           </View>
@@ -263,6 +312,47 @@ export default function AdminScreen() {
       </ScrollView>
     </View>
   );
+}
+
+function StatusPill({ status, added, replaced }: {
+  status: 'idle' | 'uploading' | 'ok' | 'not_found' | 'error';
+  added?: number;
+  replaced?: number;
+}) {
+  if (status === 'uploading') {
+    return (
+      <View style={[styles.statusPill, styles.statusPillUploading]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={[styles.statusPillText, { color: colors.primary }]}>uploading…</Text>
+      </View>
+    );
+  }
+  if (status === 'ok') {
+    const summary = replaced ? `+${added} / -${replaced}` : `+${added}`;
+    return (
+      <View style={[styles.statusPill, styles.statusPillOk]}>
+        <Ionicons name="checkmark-circle" size={12} color={colors.success} />
+        <Text style={[styles.statusPillText, { color: colors.success }]}>{summary}</Text>
+      </View>
+    );
+  }
+  if (status === 'not_found') {
+    return (
+      <View style={[styles.statusPill, styles.statusPillWarn]}>
+        <Ionicons name="help-circle-outline" size={12} color={colors.warning} />
+        <Text style={[styles.statusPillText, { color: colors.warning }]}>not found</Text>
+      </View>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <View style={[styles.statusPill, styles.statusPillErr]}>
+        <Ionicons name="close-circle" size={12} color={colors.danger} />
+        <Text style={[styles.statusPillText, { color: colors.danger }]}>error</Text>
+      </View>
+    );
+  }
+  return null;
 }
 
 function FilterChip({ label, active, onPress, tone }: {
@@ -608,9 +698,20 @@ const styles = StyleSheet.create({
     marginTop: 10, backgroundColor: '#f5f6fa', borderRadius: 6, padding: 10,
   },
   previewTitle: { fontSize: 12, color: '#666', fontWeight: '700', marginBottom: 6 },
-  previewRow: { flexDirection: 'row', paddingVertical: 3 },
+  previewRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3 },
   previewSlug: { flex: 1, fontSize: 12, color: '#222', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
-  previewUrls: { flex: 1, fontSize: 12, color: '#666', textAlign: 'right' },
+  previewRight: { flex: 1, alignItems: 'flex-end' },
+  previewUrls: { fontSize: 12, color: '#666', textAlign: 'right' },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    borderWidth: 1,
+  },
+  statusPillText: { fontSize: 11, fontWeight: '700' },
+  statusPillUploading: { backgroundColor: '#e8f0fe', borderColor: '#cfe0f7' },
+  statusPillOk: { backgroundColor: '#e8f5e9', borderColor: '#b7e2bd' },
+  statusPillWarn: { backgroundColor: '#fff5e6', borderColor: '#f5d0a2' },
+  statusPillErr: { backgroundColor: '#fdecea', borderColor: '#f5b7b1' },
 
   applyRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12,
