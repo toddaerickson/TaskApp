@@ -315,7 +315,10 @@ export interface RoutineExerciseCreatePayload {
   keystone?: boolean;
   notes?: string | null;
 }
-export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>>;
+export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>> & {
+  /** Same optimistic-concurrency story as RoutineUpdatePayload. */
+  expected_updated_at?: string;
+};
 
 export interface RoutineCreatePayload {
   name: string;
@@ -326,7 +329,12 @@ export interface RoutineCreatePayload {
   reminder_days?: string | null;
   exercises?: RoutineExerciseCreatePayload[];
 }
-export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>>;
+export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {
+  /** Optimistic concurrency: ISO timestamp of the routine when the client
+   *  last read it. Server returns 409 if the row has moved past it. Omit
+   *  to opt out (silent last-write-wins). */
+  expected_updated_at?: string;
+};
 
 export interface SessionUpdatePayload {
   ended_at?: string | null;

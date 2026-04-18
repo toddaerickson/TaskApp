@@ -1,11 +1,36 @@
 import { colors } from "@/lib/colors";
 import { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput,
+  View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise } from '@/lib/stores';
+
+/** Two-choice conflict prompt. Resolves with the user's decision rather
+ *  than blocking state. Web uses confirm() because there's no native
+ *  modal affordance we share; iOS/Android get a proper destructive
+ *  Alert.alert with distinct labels. */
+function askConflict(label: string): Promise<'overwrite' | 'reload'> {
+  return new Promise((resolve) => {
+    const msg = `The ${label} changed since you loaded it. Overwrite your changes would replace the newer version. Reload discards yours.`;
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      const overwrite = window.confirm(`${msg}\n\nOK = Overwrite anyway. Cancel = Discard & reload.`);
+      resolve(overwrite ? 'overwrite' : 'reload');
+    } else {
+      Alert.alert(`This ${label} changed`, msg, [
+        { text: 'Discard & reload', style: 'cancel', onPress: () => resolve('reload') },
+        { text: 'Overwrite anyway', style: 'destructive', onPress: () => resolve('overwrite') },
+      ]);
+    }
+  });
+}
+
+function isConflict(err: unknown): err is { response: { status: 409 } } {
+  const e = err as { response?: { status?: number } };
+  return e?.response?.status === 409;
+}
 import * as api from '@/lib/api';
 
 export default function RoutineDetailScreen() {
@@ -268,15 +293,31 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
     setDays(next);
   };
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     setBusy(true);
     try {
-      await api.updateRoutine(routine.id, {
+      const body: api.RoutineUpdatePayload = {
         name, notes,
         reminder_time: time.trim() || null,
         reminder_days: time.trim() ? daysCsv(days) : null,
-      });
+      };
+      // Pass the token we read with the routine. Omit when `overwrite`
+      // is true so the server drops the check — this is the "overwrite
+      // anyway" branch of the conflict modal.
+      if (!overwrite && routine.updated_at) body.expected_updated_at = routine.updated_at;
+      await api.updateRoutine(routine.id, body);
       onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('routine');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
     } finally { setBusy(false); }
   };
 
@@ -325,7 +366,7 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
       )}
       <Pressable
         style={[styles.saveBtn, (!dirty || busy) && { opacity: 0.5 }]}
-        onPress={save}
+        onPress={() => save()}
         disabled={!dirty || busy}
       >
         <Ionicons name="save-outline" size={14} color="#fff" />
@@ -345,10 +386,10 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
   const [keystone, setKeystone] = useState(!!re.keystone);
   const [busy, setBusy] = useState(false);
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     setBusy(true);
     try {
-      await api.updateRoutineExercise(re.id, {
+      const body: api.RoutineExerciseUpdatePayload = {
         target_sets: sets ? Number(sets) : null,
         target_reps: reps ? Number(reps) : null,
         target_duration_sec: dur ? Number(dur) : null,
@@ -356,8 +397,21 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
         tempo: tempo || null,
         notes: notes || null,
         keystone,
-      });
+      };
+      if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
+      await api.updateRoutineExercise(re.id, body);
       onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('exercise');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
     } finally { setBusy(false); }
   };
 
@@ -394,7 +448,7 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
       />
       <Pressable
         style={[styles.saveBtn, busy && { opacity: 0.5 }]}
-        onPress={save}
+        onPress={() => save()}
         disabled={busy}
       >
         <Ionicons name="save-outline" size={14} color="#fff" />

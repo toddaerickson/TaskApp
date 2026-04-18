@@ -262,7 +262,8 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,
     reminder_days TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS routine_exercises (
@@ -277,7 +278,8 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     rest_sec INTEGER DEFAULT 60,
     tempo TEXT,
     keystone BOOLEAN DEFAULT 0,
-    notes TEXT
+    notes TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS workout_sessions (
@@ -381,6 +383,14 @@ def init_db():
         _ensure_columns(cur, "routines", [
             ("reminder_time", "TEXT"),
             ("reminder_days", "TEXT"),
+            # Phase 7.4: optimistic-concurrency token. Existing rows get
+            # a NULL which the route treats as "unversioned" — clients
+            # that didn't pass expected_updated_at still succeed. New
+            # writes populate it from now() in the UPDATE statements.
+            ("updated_at", "TEXT"),
+        ])
+        _ensure_columns(cur, "routine_exercises", [
+            ("updated_at", "TEXT"),
         ])
 
 

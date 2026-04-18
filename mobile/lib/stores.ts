@@ -253,12 +253,16 @@ export interface RoutineExercise {
   target_sets?: number; target_reps?: number; target_weight?: number;
   target_duration_sec?: number; rest_sec?: number; tempo?: string;
   keystone: boolean; notes?: string; exercise?: Exercise;
+  /** Optimistic concurrency token — send back in expected_updated_at on save. */
+  updated_at?: string | null;
 }
 export interface Routine {
   id: number; user_id: number; name: string; goal: string;
   notes?: string; sort_order: number; created_at: string;
   reminder_time?: string | null;   // "HH:MM"
   reminder_days?: string | null;   // "mon,tue,..." or "daily"
+  /** Optimistic concurrency token — send back in expected_updated_at on save. */
+  updated_at?: string | null;
   exercises: RoutineExercise[];
 }
 export interface SessionSet {

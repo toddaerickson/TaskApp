@@ -77,17 +77,27 @@ async def _http_exc_handler(request: Request, exc: StarletteHTTPException):
     `HTTPException(status_code, detail={"detail": "...", "code": "x"})`;
     otherwise the code is derived from the status. The request_id is
     the same short id echoed back via the X-Request-Id header.
+
+    Any additional keys on a dict-detail (e.g. `current` for a 409
+    reconcile payload) are carried through at the top level so the
+    client can recover in a single round-trip.
     """
     detail = exc.detail
     code: str | None = None
+    extras: dict = {}
     if isinstance(detail, dict):
         code = detail.get("code")
+        # Preserve extras — anything beyond `code` + `detail` — so a
+        # route can piggyback reconcile data on a 4xx.
+        extras = {k: v for k, v in detail.items() if k not in ("code", "detail")}
         detail = detail.get("detail", detail)
     if not isinstance(code, str) or not code:
         code = _code_for_status(exc.status_code)
+    body = {"detail": detail, "code": code, "request_id": current_request_id()}
+    body.update(extras)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": detail, "code": code, "request_id": current_request_id()},
+        content=body,
         headers=getattr(exc, "headers", None),
     )
 
