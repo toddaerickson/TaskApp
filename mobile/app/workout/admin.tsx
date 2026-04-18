@@ -56,6 +56,12 @@ export default function AdminScreen() {
   const [replace, setReplace] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  // Filter state. Query matches name OR slug, case-insensitive.
+  // `categoryFilter === null` means "All". `needsImage` shows only
+  // exercises with zero images — most useful for finishing the library.
+  const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [needsImage, setNeedsImage] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -73,6 +79,27 @@ export default function AdminScreen() {
   const parsed = useMemo(() => parsePaste(paste, knownSlugs), [paste, knownSlugs]);
 
   const applyable = parsed.filter((r) => !r.error && r.urls.length > 0);
+
+  // Unique categories across the current library, alphabetized. Recomputed
+  // whenever the list reloads so new categories show up without a refresh.
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of exercises) if (e.category) s.add(e.category);
+    return [...s].sort();
+  }, [exercises]);
+
+  const filteredExercises = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return exercises.filter((e) => {
+      if (categoryFilter && e.category !== categoryFilter) return false;
+      if (needsImage && e.images.length > 0) return false;
+      if (q) {
+        const hay = `${e.name} ${e.slug || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [exercises, query, categoryFilter, needsImage]);
 
   const handleApply = async () => {
     if (applyable.length === 0) return;
@@ -165,13 +192,100 @@ export default function AdminScreen() {
           {result && <Text style={styles.resultText}>{result}</Text>}
         </View>
 
-        {/* Table */}
-        <Text style={styles.sectionTitle}>Exercises ({exercises.length})</Text>
-        {exercises.map((ex) => (
-          <ExerciseRow key={ex.id} exercise={ex} onChange={reload} />
-        ))}
+        {/* Filter bar */}
+        <View style={styles.filterBar}>
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={14} color="#999" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInputMain}
+              placeholder="Search by name or slug…"
+              placeholderTextColor="#aaa"
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              accessibilityLabel="Search exercises"
+            />
+            {query.length > 0 && (
+              <Pressable
+                onPress={() => setQuery('')}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+                hitSlop={8}
+              >
+                <Ionicons name="close-circle" size={16} color="#aaa" />
+              </Pressable>
+            )}
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.catChipRow}
+          >
+            <FilterChip
+              label="All"
+              active={categoryFilter === null}
+              onPress={() => setCategoryFilter(null)}
+            />
+            {categories.map((c) => (
+              <FilterChip
+                key={c}
+                label={c}
+                active={categoryFilter === c}
+                onPress={() => setCategoryFilter(categoryFilter === c ? null : c)}
+              />
+            ))}
+            <FilterChip
+              label="Needs image"
+              active={needsImage}
+              onPress={() => setNeedsImage(!needsImage)}
+              tone="warn"
+            />
+          </ScrollView>
+        </View>
+
+        <Text style={styles.sectionTitle}>
+          Exercises ({filteredExercises.length}
+          {filteredExercises.length !== exercises.length ? ` of ${exercises.length}` : ''})
+        </Text>
+        {filteredExercises.length === 0 ? (
+          <View style={styles.emptyResults}>
+            <Ionicons name="search-outline" size={32} color="#ccc" />
+            <Text style={styles.emptyResultsText}>No exercises match these filters.</Text>
+          </View>
+        ) : (
+          filteredExercises.map((ex) => (
+            <ExerciseRow key={ex.id} exercise={ex} onChange={reload} />
+          ))
+        )}
       </ScrollView>
     </View>
+  );
+}
+
+function FilterChip({ label, active, onPress, tone }: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  tone?: 'warn';
+}) {
+  const activeBg = tone === 'warn' ? colors.warning : colors.primary;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.catChip,
+        active && { backgroundColor: activeBg, borderColor: activeBg },
+      ]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+    >
+      <Text style={[styles.catChipText, active && styles.catChipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -515,6 +629,31 @@ const styles = StyleSheet.create({
     fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
     letterSpacing: 1, paddingVertical: 8,
   },
+
+  filterBar: { marginBottom: 4 },
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#e3e7ee',
+  },
+  searchIcon: { width: 14 },
+  searchInputMain: {
+    flex: 1, fontSize: 14, color: '#222',
+    paddingVertical: Platform.OS === 'web' ? 0 : 2,
+  },
+  catChipRow: { gap: 6, paddingTop: 10, paddingBottom: 2, paddingRight: 12 },
+  catChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e3e7ee',
+    cursor: 'pointer' as any,
+  },
+  catChipText: { fontSize: 12, color: '#555', fontWeight: '600' },
+  catChipTextActive: { color: '#fff' },
+  emptyResults: {
+    alignItems: 'center', paddingVertical: 30, gap: 8,
+  },
+  emptyResultsText: { color: '#999', fontSize: 13 },
+
 
   exRow: {
     backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8,
