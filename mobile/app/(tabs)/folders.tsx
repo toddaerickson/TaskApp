@@ -124,8 +124,7 @@ export default function FoldersScreen() {
       {/* Left panel: folder list */}
       {showSidebar && (
       <View style={[styles.sidebar, isNarrow && styles.sidebarNarrow]}>
-        <Text style={styles.sidebarTitle}>Folders</Text>
-
+        {/* No "Folders" title — the tab bar already labels this screen. */}
         <Pressable
           style={[styles.folderRow, selectedFolderId === null && styles.folderRowActive]}
           onPress={() => handleSelectFolder(null)}
@@ -265,10 +264,6 @@ const styles = StyleSheet.create({
   sidebarNarrow: { width: '100%', flex: 1, borderRightWidth: 0 },
   mainNarrow: { width: '100%' },
   backBtn: { padding: 4, marginRight: 4, cursor: 'pointer' as any },
-  sidebarTitle: {
-    fontSize: 13, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
-    letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8,
-  },
   folderRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16,
     gap: 10, cursor: 'pointer' as any,
