@@ -430,8 +430,22 @@ export async function searchExerciseImages(exerciseId: number, q?: string, n = 6
 
 // --- Workouts: Routines ---
 export async function getRoutines() {
-  const { data } = await api.get('/routines');
-  return data;
+  // Backend caps each page at `limit` (default 50, max 200) with cursor-based
+  // pagination on `(sort_order, id)`. Loop until a short page comes back so
+  // callers never silently lose rows past the first page — this codebase has
+  // no "load more" UI yet and almost every screen treats the list as total.
+  const PAGE = 200;
+  const all: any[] = [];
+  let cursor: number | undefined;
+  for (let i = 0; i < 20; i++) {
+    const { data } = await api.get('/routines', {
+      params: cursor === undefined ? { limit: PAGE } : { limit: PAGE, cursor },
+    });
+    all.push(...data);
+    if (data.length < PAGE) break;
+    cursor = data[data.length - 1].id;
+  }
+  return all;
 }
 
 export async function getRoutine(id: number) {
@@ -468,7 +482,7 @@ export async function getSession(id: number) {
   return data;
 }
 
-export async function listSessions(params?: { limit?: number; routine_id?: number }) {
+export async function listSessions(params?: { limit?: number; cursor?: number; routine_id?: number }) {
   const { data } = await api.get('/sessions', { params });
   return data;
 }
