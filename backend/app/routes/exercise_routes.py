@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -25,6 +26,24 @@ router = APIRouter(prefix="/exercises", tags=["exercises"])
 def _hydrate_one(cur, row: dict) -> dict:
     hydrate_exercises_with_images(cur, [row])
     return row
+
+
+def _image_hash(url: str) -> str:
+    """Stable fingerprint for dedup. Content-level hashing would require
+    downloading each URL which is heavy; URL-string hashing catches the
+    dominant duplicate case (same image added twice — bulk-paste repeats,
+    admin Find-click-save round trips, sweep runs) without the network
+    cost. Normalize before hashing so trivial whitespace/casing variants
+    in the scheme collapse to the same key."""
+    parts = urllib.parse.urlsplit(url.strip())
+    normalized = urllib.parse.urlunsplit((
+        parts.scheme.lower(),
+        parts.netloc.lower(),
+        parts.path,
+        parts.query,
+        "",  # drop URL fragment — doesn't affect the resource
+    ))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 @router.get("", response_model=list[ExerciseResponse])
@@ -123,6 +142,11 @@ def add_image(
     background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
 ):
+    """Attach an image URL to an exercise. Idempotent: if the same URL is
+    already attached (by content_hash) the existing row is returned, no
+    duplicate stored. Keeps the library clean when an admin pastes the
+    same URL twice or Find → Save lands on an image already seen."""
+    h = _image_hash(req.url)
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
@@ -131,9 +155,22 @@ def add_image(
             raise HTTPException(404, "Exercise not found")
         if row["user_id"] is not None and row["user_id"] != user_id:
             raise HTTPException(403, "Cannot add image to another user's exercise")
+        # Dedup: same (exercise, content_hash) means the same image. Return
+        # the existing row instead of inserting. 200 with the stored data
+        # is idempotent — callers can't tell the difference from a fresh
+        # insert, which is the point.
         cur.execute(
-            "INSERT INTO exercise_images (exercise_id, url, caption, sort_order) VALUES (?, ?, ?, ?)",
-            (exercise_id, req.url, req.caption, req.sort_order or 0),
+            "SELECT id, url, caption, sort_order FROM exercise_images "
+            "WHERE exercise_id = ? AND content_hash = ?",
+            (exercise_id, h),
+        )
+        existing = cur.fetchone()
+        if existing:
+            return existing
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (exercise_id, req.url, req.caption, req.sort_order or 0, h),
         )
         img_id = cur.lastrowid
         cur.execute("SELECT id, url, caption, sort_order FROM exercise_images WHERE id = ?", (img_id,))
@@ -173,14 +210,27 @@ def bulk_images(
                 (ex_id,),
             )
             start = cur.fetchone()["m"] + 1
+            # Dedup within the batch AND against existing rows for this
+            # exercise. Same hash twice = same image; don't double-insert.
+            cur.execute(
+                "SELECT content_hash FROM exercise_images "
+                "WHERE exercise_id = ? AND content_hash IS NOT NULL",
+                (ex_id,),
+            )
+            seen_hashes = {r["content_hash"] for r in cur.fetchall()}
             added = 0
             for i, url in enumerate(entry.urls):
                 url = url.strip()
                 if not url:
                     continue
+                h = _image_hash(url)
+                if h in seen_hashes:
+                    continue
+                seen_hashes.add(h)
                 cur.execute(
-                    "INSERT INTO exercise_images (exercise_id, url, sort_order) VALUES (?, ?, ?)",
-                    (ex_id, url, start + i),
+                    "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+                    "VALUES (?, ?, ?, ?)",
+                    (ex_id, url, start + i, h),
                 )
                 added += 1
             results.append(BulkImageResult(slug=entry.slug, status="ok",

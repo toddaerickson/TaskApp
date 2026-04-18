@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     caption TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    content_hash TEXT
 );
 
 -- Routines: a saved workout template (e.g. "Ankle Mobility AM")
@@ -213,6 +214,12 @@ CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at, remin
 CREATE INDEX IF NOT EXISTS idx_exercises_user_id ON exercises(user_id);
 CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
 CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
+-- Dedup guard: one image per (exercise, content_hash). Partial index so
+-- pre-feature NULL-hashed rows don't trip the constraint; new inserts
+-- always supply a hash.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercise_images_hash
+    ON exercise_images(exercise_id, content_hash)
+    WHERE content_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);
 CREATE INDEX IF NOT EXISTS idx_routine_ex_routine ON routine_exercises(routine_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON workout_sessions(user_id, started_at);

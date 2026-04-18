@@ -248,7 +248,8 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     caption TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    content_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS routines (
@@ -352,6 +353,11 @@ CREATE INDEX IF NOT EXISTS idx_session_sets_session ON session_sets(session_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user ON symptom_logs(user_id, logged_at);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
 CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
+-- Dedup guard: an exercise can only hold one image per content hash. Partial
+-- index so existing NULL-hashed rows (pre-feature) don't trip the constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercise_images_hash
+    ON exercise_images(exercise_id, content_hash)
+    WHERE content_hash IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_global_slug ON exercises(slug) WHERE user_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_user_slug ON exercises(user_id, slug) WHERE user_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_session_sets_key ON session_sets(session_id, exercise_id, set_number);
@@ -381,6 +387,11 @@ def init_db():
         _ensure_columns(cur, "routines", [
             ("reminder_time", "TEXT"),
             ("reminder_days", "TEXT"),
+        ])
+        _ensure_columns(cur, "exercise_images", [
+            # Phase 6.3: content hash for dedup. Existing rows get NULL and
+            # the partial unique index skips them; new inserts supply a hash.
+            ("content_hash", "TEXT"),
         ])
 
 
