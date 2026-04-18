@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
 import { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
@@ -9,17 +9,22 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  // Inline error banner — matches the Register screen's pattern so users
+  // get consistent feedback. Previously login surfaced errors via Alert
+  // which obscured the form and took an extra tap to dismiss.
+  const [error, setError] = useState<string | null>(null);
   const loginFn = useAuthStore((s) => s.login);
   const router = useRouter();
 
   const handleLogin = async () => {
-    if (!email || !password) return Alert.alert('Error', 'Fill in all fields');
+    if (!email || !password) { setError('Fill in all fields.'); return; }
     setLoading(true);
+    setError(null);
     try {
       await loginFn(email.trim().toLowerCase(), password);
       router.replace('/(tabs)/tasks');
     } catch (e: unknown) {
-      Alert.alert('Login Failed', describeApiError(e, 'Check your credentials'));
+      setError(describeApiError(e, 'Check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -47,7 +52,13 @@ export default function LoginScreen() {
           onChangeText={setPassword}
           secureTextEntry
           placeholderTextColor="#999"
+          onSubmitEditing={handleLogin}
+          returnKeyType="go"
         />
+
+        {error && (
+          <Text style={styles.error} accessibilityLiveRegion="polite">{error}</Text>
+        )}
 
         <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
           <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
@@ -70,4 +81,5 @@ const styles = StyleSheet.create({
   button: { backgroundColor: colors.primary, borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   link: { color: colors.primary, textAlign: 'center', marginTop: 16, fontSize: 14 },
+  error: { color: colors.danger, fontSize: 13, marginBottom: 8 },
 });

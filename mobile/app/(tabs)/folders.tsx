@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, TextInput,
-  Platform, useWindowDimensions,
+  Platform, useWindowDimensions, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,7 +79,15 @@ export default function FoldersScreen() {
       setAdding(false);
       loadFolders();
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed');
+      const msg = e?.response?.data?.detail || 'Could not create folder.';
+      // Previously this branch only ran on web; native users saw silent
+      // failure. Fall back to Alert.alert on iOS / Android so the user
+      // knows the button press didn't do anything.
+      if (Platform.OS === 'web') {
+        window.alert(msg);
+      } else {
+        Alert.alert('Folder not created', msg);
+      }
     }
   };
 

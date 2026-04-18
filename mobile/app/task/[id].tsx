@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore, Task, Tag } from '@/lib/stores';
 import * as api from '@/lib/api';
+import DateField from '@/components/DateField';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -149,8 +150,8 @@ export default function TaskDetailScreen() {
         <Switch value={starred} onValueChange={setStarred} trackColor={{ true: colors.accent }} />
       </View>
 
-      <Text style={styles.label}>Due Date (YYYY-MM-DD)</Text>
-      <TextInput style={styles.input} value={dueDate} onChangeText={setDueDate} placeholder="2026-04-01" placeholderTextColor="#999" />
+      <Text style={styles.label}>Due date</Text>
+      <DateField value={dueDate} onChange={setDueDate} placeholder="Pick a due date" />
 
       {tags.length > 0 && (
         <>
