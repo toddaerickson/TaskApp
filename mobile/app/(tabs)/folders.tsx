@@ -21,14 +21,30 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
   task: Task; onPress: () => void; onStar: () => void; onComplete: () => void;
 }) {
   return (
-    <Pressable style={styles.taskRow} onPress={onPress}>
-      <Pressable onPress={onComplete} style={styles.checkBox}>
+    <Pressable
+      style={styles.taskRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open task: ${task.title}`}
+    >
+      <Pressable
+        onPress={onComplete}
+        style={styles.checkBox}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: task.completed }}
+        accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+      >
         <Ionicons
           name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
           size={22} color={task.completed ? colors.success : '#ccc'}
         />
       </Pressable>
-      <Pressable onPress={onStar} style={{ marginRight: 8 }}>
+      <Pressable
+        onPress={onStar}
+        style={{ marginRight: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
+      >
         <Ionicons
           name={task.starred ? 'star' : 'star-outline'}
           size={18} color={task.starred ? colors.accent : '#ccc'}
@@ -147,20 +163,26 @@ export default function FoldersScreen() {
             <TextInput
               style={styles.addInput}
               placeholder="Folder name"
+              accessibilityLabel="New folder name"
               value={newName}
               onChangeText={setNewName}
               autoFocus
               onSubmitEditing={handleAdd}
             />
-            <Pressable onPress={handleAdd}>
+            <Pressable onPress={handleAdd} accessibilityRole="button" accessibilityLabel="Create folder">
               <Ionicons name="checkmark-circle" size={24} color={colors.success} />
             </Pressable>
-            <Pressable onPress={() => setAdding(false)}>
+            <Pressable onPress={() => setAdding(false)} accessibilityRole="button" accessibilityLabel="Cancel folder creation">
               <Ionicons name="close-circle" size={24} color={colors.danger} />
             </Pressable>
           </View>
         ) : (
-          <Pressable style={styles.addButton} onPress={() => setAdding(true)}>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => setAdding(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add a new folder"
+          >
             <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
             <Text style={styles.addText}>Add Folder</Text>
           </Pressable>
@@ -173,7 +195,12 @@ export default function FoldersScreen() {
       <View style={[styles.main, isNarrow && styles.mainNarrow]}>
         <View style={styles.mainHeader}>
           {isNarrow && (
-            <Pressable onPress={() => setShowTasksPane(false)} style={styles.backBtn}>
+            <Pressable
+              onPress={() => setShowTasksPane(false)}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Back to folder list"
+            >
               <Ionicons name="chevron-back" size={22} color={colors.primary} />
             </Pressable>
           )}

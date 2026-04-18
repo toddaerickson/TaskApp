@@ -66,12 +66,21 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
   // ---- Native: tap to open the platform picker ----
   return (
     <>
-      <Pressable style={styles.trigger} onPress={() => setOpen(true)}>
+      <Pressable
+        style={styles.trigger}
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={value ? `Edit date: ${pretty(value)}` : (placeholder || 'Pick a date')}
+      >
         <Text style={[styles.text, !value && { color: colors.textMuted }]}>
           {value ? pretty(value) : placeholder}
         </Text>
         {value ? (
-          <Pressable onPress={(e) => { e.stopPropagation?.(); onChange(''); }}>
+          <Pressable
+            onPress={(e) => { e.stopPropagation?.(); onChange(''); }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear date"
+          >
             <Ionicons name="close-circle" size={18} color="#bbb" />
           </Pressable>
         ) : (

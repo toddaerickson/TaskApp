@@ -190,6 +190,7 @@ export default function WorkoutsScreen() {
               value={newName}
               onChangeText={setNewName}
               placeholder="e.g. Morning mobility"
+              accessibilityLabel="Routine name"
               placeholderTextColor="#bbb"
               style={styles.modalInput}
               autoFocus

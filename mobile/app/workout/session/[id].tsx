@@ -411,6 +411,7 @@ export default function ActiveSessionScreen() {
             </View>
             <TextInput
               placeholder="custom (e.g. left_achilles)"
+              accessibilityLabel="Custom body part"
               value={symptomCustom}
               onChangeText={setSymptomCustom}
               style={styles.modalInput}
@@ -434,6 +435,7 @@ export default function ActiveSessionScreen() {
             <Text style={styles.modalLabel}>Notes</Text>
             <TextInput
               placeholder="e.g. sharp at toe-off during set 2"
+              accessibilityLabel="Symptom notes"
               value={symptomNotes}
               onChangeText={setSymptomNotes}
               multiline
@@ -689,6 +691,7 @@ function LabeledInput({ label, value, onChange }: {
         keyboardType="numeric"
         style={styles.input}
         placeholder="—"
+        accessibilityLabel={label}
       />
     </View>
   );
