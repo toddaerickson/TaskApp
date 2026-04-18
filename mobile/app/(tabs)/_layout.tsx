@@ -16,6 +16,11 @@ export default function TabLayout() {
   return (
     <Tabs screenOptions={{
       tabBarActiveTintColor: colors.primary,
+      // Shade the active tab so selection is visible at a glance — each
+      // screen used to print its name as a big title underneath the header,
+      // which duplicated the tab label. Removing those titles freed vertical
+      // space; this keeps "which tab am I on" obvious without the duplicate.
+      tabBarActiveBackgroundColor: 'rgba(26,115,232,0.10)',
       headerStyle: { backgroundColor: colors.primary },
       headerTintColor: '#fff',
       // Mobile Safari covers the bottom of the viewport with its own chrome,

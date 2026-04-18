@@ -86,32 +86,49 @@ export default function WorkoutsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Tab bar below already labels this as "Workouts"; skip the big title
+          to free vertical space. The primary action (New routine) stays
+          prominent; secondary tools are collapsed into icon-only buttons
+          so they don't out-shout the create/choose flow. */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Workouts</Text>
-          <Text style={styles.headerSub}>{routines.length} routine{routines.length === 1 ? '' : 's'}</Text>
-        </View>
-        <View style={styles.headerActions}>
+        <View style={styles.headerLeft}>
           <Pressable style={styles.newBtn} onPress={openCreate} accessibilityRole="button" accessibilityLabel="New routine">
             <Ionicons name="add" size={16} color="#fff" />
-            <Text style={styles.newBtnText}>Routine</Text>
+            <Text style={styles.newBtnText}>New routine</Text>
           </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/progress')}>
-            <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Progress</Text>
-          </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/admin')}>
-            <Ionicons name="images-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Admin</Text>
-          </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/track')}>
-            <Ionicons name="pulse-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Track</Text>
-          </Pressable>
+          <Text style={styles.headerCount}>
+            {routines.length} routine{routines.length === 1 ? '' : 's'}
+          </Text>
+        </View>
+        <View style={styles.headerRight}>
           <View style={styles.streakBox}>
-            <Ionicons name="flame" size={18} color={colors.warning} />
-            <Text style={styles.streakText}>{streak} day{streak === 1 ? '' : 's'}</Text>
+            <Ionicons name="flame" size={14} color={colors.warning} />
+            <Text style={styles.streakText}>{streak}</Text>
           </View>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/progress')}
+            accessibilityRole="button"
+            accessibilityLabel="Progress"
+          >
+            <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/admin')}
+            accessibilityRole="button"
+            accessibilityLabel="Exercise image admin"
+          >
+            <Ionicons name="images-outline" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/track')}
+            accessibilityRole="button"
+            accessibilityLabel="Track symptoms"
+          >
+            <Ionicons name="pulse-outline" size={18} color={colors.primary} />
+          </Pressable>
         </View>
       </View>
 
@@ -260,33 +277,29 @@ function computeStreak(sessions: WorkoutSession[]): number {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: {
-    // Wrap so the action chips drop to a second row on narrow screens
-    // instead of overflowing horizontally and clipping "Track".
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
     alignItems: 'center', rowGap: 8,
-    padding: 16, backgroundColor: '#fff',
+    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#eee',
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#333' },
-  headerSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerCount: { fontSize: 12, color: colors.textMuted },
   streakBox: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#fff5e6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#fff5e6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
   },
-  streakText: { fontWeight: '700', color: colors.warning },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  streakText: { fontWeight: '700', color: colors.warning, fontSize: 12 },
   newBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
     backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
   newBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  trackBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+  iconBtn: {
+    padding: 6, borderRadius: 8,
     backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
   },
-  trackBtnText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
 
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
