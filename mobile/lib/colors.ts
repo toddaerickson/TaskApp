@@ -17,11 +17,19 @@ export const colors = {
   primaryOnLight: '#e8f0fe',
   primaryOnLightActive: 'rgba(255,255,255,0.25)',
 
-  // Semantic palette.
+  // Semantic palette. The base hues (success/warning/danger) look right
+  // on icons and AA-Large headings but they all fail AA-Normal body-text
+  // contrast on every surface (see docs/a11y-audit-2026-04.md). When you
+  // need short body text in these tones — "Set saved", "Symptom logged",
+  // "Could not delete" — use the *Text variants below; they're hue-
+  // preserving but darkened to clear 4.5:1 on #fff, #f5f6fa, and #e8f0fe.
   success: '#27ae60',
+  successText: '#1a6e3a',    // ≥ 5.49:1 on every surface
   warning: '#e67e22',
+  warningText: '#a05a00',    // ≥ 4.63:1 on every surface
   warningSoft: '#f0ad4e',
   danger: '#e74c3c',
+  dangerText: '#a52a1a',     // ≥ 6.22:1 on every surface
   accent: '#f39c12',   // keystone / starred
   violet: '#8e44ad',   // tag badges
   group: '#6c5ce7',    // group-by pill
