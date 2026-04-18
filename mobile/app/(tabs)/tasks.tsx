@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
   filterText: { fontSize: 12, color: '#666' },
   filterTextActive: { fontSize: 12, color: '#fff' },
   sortInfo: { flex: 1, marginLeft: 4 },
-  sortInfoText: { fontSize: 10, color: '#888', fontStyle: 'italic' },
+  sortInfoText: { fontSize: 10, color: colors.textMuted, fontStyle: 'italic' },
   newTaskBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
@@ -522,14 +522,14 @@ const styles = StyleSheet.create({
   cell: { paddingHorizontal: 6, justifyContent: 'center' },
   cellText: { fontSize: 13, color: '#444' },
   titleText: { fontWeight: '500' },
-  completedText: { textDecorationLine: 'line-through', color: '#999' },
+  completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   startDateText: { color: colors.success },
   dueDateText: { color: colors.warning },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8 },
+  emptyText: { color: colors.textMuted, marginTop: 8 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
   emptyCta: {

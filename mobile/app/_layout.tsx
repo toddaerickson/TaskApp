@@ -44,7 +44,7 @@ const errStyles = StyleSheet.create({
   primaryText: { color: '#fff', fontWeight: '700' },
   secondaryBtn: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
   secondaryText: { color: '#444', fontWeight: '600' },
-  stack: { marginTop: 24, fontSize: 11, color: '#888', fontFamily: 'monospace' as any },
+  stack: { marginTop: 24, fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' as any },
 });
 
 export default function RootLayout() {

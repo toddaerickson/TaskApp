@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
   mainNarrow: { width: '100%' },
   backBtn: { padding: 4, marginRight: 4, cursor: 'pointer' as any },
   sidebarTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    fontSize: 13, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8,
   },
   folderRow: {
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
   checkBox: { marginRight: 8 },
   taskContent: { flex: 1 },
   taskTitle: { fontSize: 14, color: '#333' },
-  completedText: { textDecorationLine: 'line-through', color: '#999' },
+  completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskMeta: { flexDirection: 'row', gap: 6, marginTop: 2, flexWrap: 'wrap' },
   tagBadge: { fontSize: 11, color: colors.violet, backgroundColor: '#f3e8ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
   dueDateText: { fontSize: 11, color: colors.warning },
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8 },
+  emptyText: { color: colors.textMuted, marginTop: 8 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
   emptyCta: {

@@ -136,7 +136,7 @@ export default function CreateTaskScreen() {
         value={title}
         onChangeText={setTitle}
         autoFocus
-        placeholderTextColor="#999"
+        placeholderTextColor={colors.textMuted}
       />
 
       {/* Folder — dropdown replaces the chip strip */}
@@ -217,7 +217,7 @@ export default function CreateTaskScreen() {
           value={newTag}
           onChangeText={setNewTag}
           placeholder={tags.length === 0 ? 'Create your first tag…' : '+ New tag'}
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
           style={styles.newTagInput}
           autoCapitalize="none"
           onSubmitEditing={handleCreateTag}
@@ -286,7 +286,7 @@ export default function CreateTaskScreen() {
             value={note}
             onChangeText={setNote}
             multiline
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
       )}
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
   advancedToggleText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
-  advancedSummary: { color: '#888', fontSize: 12, flex: 1 },
+  advancedSummary: { color: colors.textMuted, fontSize: 12, flex: 1 },
 
   saveButton: {
     flexDirection: 'row', backgroundColor: colors.success, borderRadius: 8, padding: 16,

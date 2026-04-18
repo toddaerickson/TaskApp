@@ -32,7 +32,7 @@ export default function Dropdown<T = any>({
         accessibilityRole="combobox"
         accessibilityLabel={`${placeholder}, ${current?.label ?? 'not set'}`}
       >
-        <Text style={[styles.triggerText, !current && { color: '#999' }]}>
+        <Text style={[styles.triggerText, !current && { color: colors.textMuted }]}>
           {current?.label ?? placeholder}
         </Text>
         <Ionicons name="chevron-down" size={18} color="#666" />

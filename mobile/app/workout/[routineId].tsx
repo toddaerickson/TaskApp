@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
-  meta: { fontSize: 13, color: '#888', marginTop: 4 },
+  meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
 
   exCard: {
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   fieldInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     fontSize: 13, backgroundColor: '#fafafa',

@@ -67,7 +67,7 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
   return (
     <>
       <Pressable style={styles.trigger} onPress={() => setOpen(true)}>
-        <Text style={[styles.text, !value && { color: '#999' }]}>
+        <Text style={[styles.text, !value && { color: colors.textMuted }]}>
           {value ? pretty(value) : placeholder}
         </Text>
         {value ? (

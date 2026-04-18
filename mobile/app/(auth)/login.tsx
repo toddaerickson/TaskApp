@@ -43,7 +43,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
         />
         <TextInput
           style={styles.input}
@@ -51,7 +51,7 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
           onSubmitEditing={handleLogin}
           returnKeyType="go"
         />
