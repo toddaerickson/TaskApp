@@ -40,7 +40,14 @@ export const colors = {
   border: '#e0e0e0',
   borderSoft: '#eee',
   text: '#333',
-  textMuted: '#999',
+  // Darkened from #999 (2.85:1 on #fff — AA Normal FAIL) to #595959
+  // (~7:1 on #fff — AA Normal + Large PASS on every surface the app
+  // uses). Applied at the token, so every consumer picks up the
+  // change automatically. See docs/a11y-audit-2026-04.md.
+  textMuted: '#595959',
+  // Explicitly decorative — never body text. ~1.6:1 on #fff, so only
+  // use for disabled backgrounds, placeholder chrome, or non-semantic
+  // borders. If you need muted body text, use `textMuted`.
   textFaint: '#ccc',
 } as const;
 
