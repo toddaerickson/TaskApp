@@ -2,6 +2,7 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import { Platform } from 'react-native';
 import { emitSessionExpired } from './sessionExpiry';
+import { newRequestId } from './requestId';
 
 // EXPO_PUBLIC_ env vars are inlined at build time by Metro. Override for
 // production by setting EXPO_PUBLIC_API_URL in the host's build env
@@ -61,6 +62,12 @@ api.interceptors.request.use(async (config) => {
   }
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Tag every request with a short id so a failed call can be paired with
+  // the server log line. axios-retry reuses config on retry, so the id is
+  // stable across attempts — making "did retry #3 succeed?" answerable.
+  if (!config.headers['X-Request-Id']) {
+    config.headers['X-Request-Id'] = newRequestId();
   }
   return config;
 });
