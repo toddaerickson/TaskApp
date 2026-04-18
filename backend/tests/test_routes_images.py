@@ -75,6 +75,82 @@ def test_bulk_images_unknown_slug_reports_not_found(auth_client):
     assert r.json() == [{"slug": "does_not_exist", "status": "not_found", "added": 0, "replaced": 0}]
 
 
+# ---------- Dedup by content_hash ----------
+
+def test_add_image_dedup_returns_existing(auth_client, seeded_globals):
+    """Same URL twice → the second POST returns the first row's id, no
+    duplicate in the DB. Idempotent for bulk scripts and admin repeats."""
+    c, tok, _ = auth_client
+    url = "https://example.com/dedup.jpg"
+    r1 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok),
+                json={"url": url})
+    r2 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok),
+                json={"url": url})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["id"] == r2.json()["id"]
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert len(fetched["images"]) == 1
+
+
+def test_add_image_dedup_normalizes_scheme_and_host_case(auth_client, seeded_globals):
+    """Same image fetched over different scheme/host casings should dedup —
+    that's the whole point of normalizing before hashing."""
+    c, tok, _ = auth_client
+    a = "HTTPS://Example.COM/Image.Jpg?v=1"
+    b = "https://example.com/Image.Jpg?v=1"
+    r1 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok), json={"url": a})
+    r2 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok), json={"url": b})
+    assert r1.json()["id"] == r2.json()["id"]
+
+
+def test_add_image_dedup_ignores_url_fragment(auth_client, seeded_globals):
+    """#fragment is client-side only; same resource either way."""
+    c, tok, _ = auth_client
+    a = "https://example.com/img.jpg"
+    b = "https://example.com/img.jpg#top"
+    r1 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok), json={"url": a})
+    r2 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok), json={"url": b})
+    assert r1.json()["id"] == r2.json()["id"]
+
+
+def test_add_image_dedup_different_exercises_allow_same_url(auth_client, seeded_globals):
+    """Dedup is scoped per-exercise — two exercises can share a URL."""
+    c, tok, _ = auth_client
+    url = "https://example.com/shared.jpg"
+    r1 = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok), json={"url": url})
+    r2 = c.post(f"/exercises/{seeded_globals['bridge']}/images", headers=_h(tok), json={"url": url})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["id"] != r2.json()["id"]
+
+
+def test_bulk_images_dedups_within_batch(auth_client, seeded_globals):
+    c, tok, _ = auth_client
+    r = c.post("/exercises/images/bulk", headers=_h(tok), json={"entries": [
+        {"slug": "wall_ankle_dorsiflexion", "urls": [
+            "https://example.com/x.jpg",
+            "https://example.com/x.jpg",   # exact dupe
+            "HTTPS://Example.COM/x.jpg",   # normalized dupe
+        ]},
+    ]})
+    assert r.status_code == 200
+    assert r.json()[0]["added"] == 1
+
+
+def test_bulk_images_dedups_against_existing(auth_client, seeded_globals):
+    c, tok, _ = auth_client
+    c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok),
+           json={"url": "https://example.com/already.jpg"})
+    r = c.post("/exercises/images/bulk", headers=_h(tok), json={"entries": [
+        {"slug": "wall_ankle_dorsiflexion", "urls": [
+            "https://example.com/already.jpg",    # dedup against existing
+            "https://example.com/new.jpg",        # fresh
+        ]},
+    ]})
+    assert r.json()[0]["added"] == 1
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert len(fetched["images"]) == 2
+
+
 # ---------- search-images (with monkeypatched providers) ----------
 
 @pytest.fixture
