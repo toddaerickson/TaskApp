@@ -13,6 +13,7 @@
     "@expo/metro-runtime": "~4.0.1",
     "@expo/vector-icons": "~14.0.4",
     "@react-native-community/datetimepicker": "8.2.0",
+    "@sentry/react-native": "^8.8.0",
     "axios": "^1.7.0",
     "axios-retry": "^4.5.0",
     "date-fns": "^4.0.0",
