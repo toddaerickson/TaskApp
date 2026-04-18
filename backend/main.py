@@ -18,6 +18,7 @@ from app.routes import (
 from app.config import DB_TYPE
 from app.database import init_db
 from app.rate_limit import limiter
+from app.admin_audit import AdminAuditMiddleware
 from app.request_id import (
     RequestIDMiddleware, current_request_id, install_logging_filter,
 )
@@ -125,6 +126,9 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 
 app.add_middleware(SlowAPIMiddleware)
+# Records every /admin/* request in admin_audit. Must be registered here so
+# it sees the response status; per-route decoration can't observe that.
+app.add_middleware(AdminAuditMiddleware)
 
 
 @app.exception_handler(Exception)
