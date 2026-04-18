@@ -188,7 +188,7 @@ function LineChart({ stat, height }: { stat: ExerciseStat; height: number }) {
 
   const pts = stat.points;
   if (pts.length === 0) {
-    return <Text style={{ textAlign: 'center', color: '#999', padding: 20 }}>No data.</Text>;
+    return <Text style={{ textAlign: 'center', color: colors.textMuted, padding: 20 }}>No data.</Text>;
   }
   if (pts.length === 1) {
     return (
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#222' },
-  cardSub: { fontSize: 12, color: '#888', marginTop: 2, marginBottom: 10 },
+  cardSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 10 },
 
   pickerRow: { paddingVertical: 8, gap: 6 },
   chip: {

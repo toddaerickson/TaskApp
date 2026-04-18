@@ -411,6 +411,7 @@ export default function ActiveSessionScreen() {
             </View>
             <TextInput
               placeholder="custom (e.g. left_achilles)"
+              accessibilityLabel="Custom body part"
               value={symptomCustom}
               onChangeText={setSymptomCustom}
               style={styles.modalInput}
@@ -434,6 +435,7 @@ export default function ActiveSessionScreen() {
             <Text style={styles.modalLabel}>Notes</Text>
             <TextInput
               placeholder="e.g. sharp at toe-off during set 2"
+              accessibilityLabel="Symptom notes"
               value={symptomNotes}
               onChangeText={setSymptomNotes}
               multiline
@@ -689,6 +691,7 @@ function LabeledInput({ label, value, onChange }: {
         keyboardType="numeric"
         style={styles.input}
         placeholder="—"
+        accessibilityLabel={label}
       />
     </View>
   );
@@ -698,7 +701,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   progressBar: { height: 4, backgroundColor: '#e0e0e0' },
   progressFill: { height: 4, backgroundColor: colors.success },
-  progressText: { fontSize: 11, color: '#888' },
+  progressText: { fontSize: 11, color: colors.textMuted },
   progressRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 6,
@@ -728,7 +731,7 @@ const styles = StyleSheet.create({
   },
   modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#222' },
-  modalLabel: { fontSize: 12, color: '#888', fontWeight: '600', marginTop: 14, marginBottom: 6 },
+  modalLabel: { fontSize: 12, color: colors.textMuted, fontWeight: '600', marginTop: 14, marginBottom: 6 },
   modalInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
     fontSize: 14, marginTop: 6, backgroundColor: '#fff',
@@ -768,7 +771,7 @@ const styles = StyleSheet.create({
     color: '#fff', textAlign: 'center', lineHeight: 30, fontWeight: '700',
   },
   exHeadName: { fontSize: 15, fontWeight: '600', color: '#222' },
-  exHeadTarget: { fontSize: 12, color: '#888', marginTop: 1 },
+  exHeadTarget: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
 
   activeImage: { width: '100%', height: 160, borderRadius: 6, marginTop: 12, backgroundColor: '#eee' },
 
@@ -789,7 +792,7 @@ const styles = StyleSheet.create({
   setPending: { fontSize: 13, color: '#bbb' },
 
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  inputLabel: { fontSize: 11, color: '#888', marginBottom: 2 },
+  inputLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 2 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 14 },
 
   logBtn: {

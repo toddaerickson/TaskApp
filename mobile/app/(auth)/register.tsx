@@ -56,26 +56,29 @@ export default function RegisterScreen() {
         <TextInput
           style={styles.input}
           placeholder="Display Name (optional)"
+          accessibilityLabel="Display name, optional"
           value={name}
           onChangeText={setName}
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
         />
         <TextInput
           style={styles.input}
           placeholder="Email"
+          accessibilityLabel="Email"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
         />
         <TextInput
           style={styles.input}
           placeholder="Password"
+          accessibilityLabel="Password"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor="#999"
+          placeholderTextColor={colors.textMuted}
         />
 
         <Pressable

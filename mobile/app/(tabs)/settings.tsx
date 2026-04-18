@@ -133,9 +133,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 20, marginBottom: 12 },
   name: { fontSize: 18, fontWeight: '600', color: '#333' },
-  email: { fontSize: 14, color: '#888' },
+  email: { fontSize: 14, color: colors.textMuted },
   sectionHeader: {
-    fontSize: 12, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    fontSize: 12, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6,
   },
   row: {

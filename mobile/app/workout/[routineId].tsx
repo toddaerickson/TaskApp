@@ -156,20 +156,35 @@ export default function RoutineDetailScreen() {
                 </View>
                 {editMode && (
                   <View style={styles.editControls}>
-                    <Pressable onPress={() => moveExercise(idx, -1)} disabled={idx === 0} style={styles.ctrlBtn}>
+                    <Pressable
+                      onPress={() => moveExercise(idx, -1)}
+                      disabled={idx === 0}
+                      style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move ${re.exercise?.name ?? 'exercise'} up`}
+                      accessibilityState={{ disabled: idx === 0 }}
+                    >
                       <Ionicons name="chevron-up" size={18} color={idx === 0 ? '#ccc' : colors.primary} />
                     </Pressable>
                     <Pressable
                       onPress={() => moveExercise(idx, 1)}
                       disabled={idx === routine.exercises.length - 1}
                       style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move ${re.exercise?.name ?? 'exercise'} down`}
+                      accessibilityState={{ disabled: idx === routine.exercises.length - 1 }}
                     >
                       <Ionicons
                         name="chevron-down" size={18}
                         color={idx === routine.exercises.length - 1 ? '#ccc' : colors.primary}
                       />
                     </Pressable>
-                    <Pressable onPress={() => deleteRoutineExercise(re.id)} style={styles.ctrlBtn}>
+                    <Pressable
+                      onPress={() => deleteRoutineExercise(re.id)}
+                      style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${re.exercise?.name ?? 'exercise'} from routine`}
+                    >
                       <Ionicons name="trash-outline" size={18} color={colors.danger} />
                     </Pressable>
                   </View>
@@ -268,19 +283,21 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   return (
     <View style={styles.header}>
       <Text style={styles.fieldLabel}>Routine name</Text>
-      <TextInput value={name} onChangeText={setName} style={styles.fieldInput} />
+      <TextInput value={name} onChangeText={setName} style={styles.fieldInput} accessibilityLabel="Routine name" />
       <Text style={styles.fieldLabel}>Notes</Text>
       <TextInput
         value={notes}
         onChangeText={setNotes}
         multiline
         style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
+        accessibilityLabel="Routine notes"
       />
       <Text style={styles.fieldLabel}>Reminder time (HH:MM, blank = off)</Text>
       <TextInput
         value={time}
         onChangeText={setTime}
         placeholder="07:00"
+        accessibilityLabel="Reminder time, HH colon MM format"
         autoCapitalize="none"
         style={styles.fieldInput}
       />
@@ -373,6 +390,7 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
         onChangeText={setNotes}
         multiline
         style={[styles.fieldInput, { minHeight: 40, textAlignVertical: 'top' }]}
+        accessibilityLabel="Exercise notes"
       />
       <Pressable
         style={[styles.saveBtn, busy && { opacity: 0.5 }]}
@@ -397,6 +415,7 @@ function EditField({ label, value, onChange, numeric }: {
         onChangeText={onChange}
         keyboardType={numeric ? 'numeric' : 'default'}
         style={styles.fieldInput}
+        accessibilityLabel={label}
       />
     </View>
   );
@@ -425,7 +444,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
-  meta: { fontSize: 13, color: '#888', marginTop: 4 },
+  meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
 
   exCard: {
@@ -486,7 +505,7 @@ const styles = StyleSheet.create({
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   fieldInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     fontSize: 13, backgroundColor: '#fafafa',
