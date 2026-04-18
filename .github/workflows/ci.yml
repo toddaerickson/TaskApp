@@ -75,3 +75,17 @@ jobs:
 
       - name: Test
         run: npm test -- --ci
+
+  a11y:
+    name: mobile a11y-ast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Strict gate — any rn-pressable-no-accessible-name or
+      # rn-textinput-no-label finding fails the job. Fixed all 46
+      # baseline entries in PR #21; the ratchet/baseline is gone.
+      - name: Scan
+        run: python3 tools/a11y_rn_ast.py mobile/ --ci
