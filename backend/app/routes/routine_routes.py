@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
 from pydantic import BaseModel
@@ -21,6 +23,39 @@ class RoutineExerciseUpdate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = None
     notes: Optional[str] = None
+    # See RoutineUpdate.expected_updated_at — same story for per-exercise rows.
+    expected_updated_at: Optional[datetime] = None
+
+
+def _parse_ts(v) -> Optional[datetime]:
+    """Coerce a DB timestamp (SQLite TEXT or PG datetime) into a timezone-
+    aware datetime for comparison. SQLite stores 'YYYY-MM-DD HH:MM:SS' UTC;
+    Postgres returns a proper datetime already. NULL (legacy rows without
+    updated_at) becomes None and opts the row out of the conflict check."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    if isinstance(v, str):
+        s = v.replace("T", " ").rstrip("Z")
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return None
+
+
+def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool:
+    """Row has moved past the client's snapshot. NULL current (legacy) opts
+    out. NULL expected (client didn't send one) also opts out — this is an
+    opt-in check so existing callers aren't broken. Compare at second
+    granularity because SQLite's datetime('now') truncates to seconds;
+    a round-trip through Pydantic that preserves microseconds would
+    otherwise trip a false positive."""
+    if expected is None or current is None:
+        return False
+    return current.replace(microsecond=0) > expected.replace(microsecond=0)
 
 
 class RoutineReorderRequest(BaseModel):
@@ -109,11 +144,34 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
 def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?", (routine_id, user_id))
-        if not cur.fetchone():
+        cur.execute(
+            "SELECT updated_at FROM routines WHERE id = ? AND user_id = ?",
+            (routine_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Routine not found")
-        fields = {k: v for k, v in req.model_dump(exclude_unset=True).items()}
+
+        # Optimistic concurrency: if the client sent expected_updated_at
+        # and the row has moved past it, 409 with the current row embedded
+        # so the client can reconcile in one round-trip.
+        fields = req.model_dump(exclude_unset=True)
+        expected = fields.pop("expected_updated_at", None)
+        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+            cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
+            current = _hydrate_routine(cur, cur.fetchone())
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "conflict",
+                    "detail": "Routine changed since you loaded it.",
+                    "current": jsonable_encoder(current),
+                },
+            )
+
         if fields:
+            # Always bump updated_at alongside the caller's fields.
+            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE routines SET {sets} WHERE id = ?",
                         tuple(list(fields.values()) + [routine_id]))
@@ -166,16 +224,32 @@ def update_routine_exercise(
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT re.id FROM routine_exercises re
+            SELECT re.id, re.updated_at FROM routine_exercises re
             JOIN routines r ON r.id = re.routine_id
             WHERE re.id = ? AND r.user_id = ?
         """, (routine_exercise_id, user_id))
-        if not cur.fetchone():
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
+        expected = fields.pop("expected_updated_at", None)
+        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+            cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
+            current = cur.fetchone()
+            current["keystone"] = bool(current["keystone"])
+            current["exercise"] = _load_exercise(cur, current["exercise_id"])
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "conflict",
+                    "detail": "Exercise changed since you loaded it.",
+                    "current": jsonable_encoder(current),
+                },
+            )
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
         if fields:
+            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(
                 f"UPDATE routine_exercises SET {sets} WHERE id = ?",

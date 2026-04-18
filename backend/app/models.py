@@ -275,6 +275,7 @@ class RoutineExerciseCreate(BaseModel):
 class RoutineExerciseResponse(RoutineExerciseCreate):
     id: int
     routine_id: int
+    updated_at: Optional[datetime] = None
     exercise: Optional[ExerciseResponse] = None
 
 class RoutineCreate(BaseModel):
@@ -293,6 +294,10 @@ class RoutineUpdate(BaseModel):
     sort_order: Optional[int] = None
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
+    # Optimistic concurrency (Phase 7.4). When present, server returns 409
+    # if the row's current updated_at has moved past this value since the
+    # client's last GET. Omit to opt out (silent last-write-wins).
+    expected_updated_at: Optional[datetime] = None
 
 class RoutineResponse(BaseModel):
     id: int
@@ -304,6 +309,7 @@ class RoutineResponse(BaseModel):
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
     exercises: list[RoutineExerciseResponse] = []
 
 

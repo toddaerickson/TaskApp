@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,          -- "HH:MM" local time; NULL = off
     reminder_days TEXT,          -- CSV of "mon,tue,..." or "daily"; NULL = daily when time set
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS routine_exercises (
@@ -139,7 +140,8 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     rest_sec INTEGER DEFAULT 60,
     tempo TEXT,
     keystone BOOLEAN DEFAULT FALSE,
-    notes TEXT
+    notes TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Sessions: a logged workout
