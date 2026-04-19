@@ -1,5 +1,6 @@
 import {
   validateDurationWeeks, swapPhases, isPhased, countExercisesInPhase,
+  reorderPhaseIds,
 } from '@/lib/phaseEditor';
 import type { RoutinePhase } from '@/lib/stores';
 
@@ -95,5 +96,34 @@ describe('countExercisesInPhase', () => {
 
   test('handles missing exercises array', () => {
     expect(countExercisesInPhase({ exercises: undefined as never }, 100)).toBe(0);
+  });
+});
+
+describe('reorderPhaseIds', () => {
+  const phases = [mkPhase(10, 0), mkPhase(20, 1), mkPhase(30, 2), mkPhase(40, 3)];
+
+  test('move down: first to third', () => {
+    expect(reorderPhaseIds(phases, 0, 2)).toEqual([20, 30, 10, 40]);
+  });
+
+  test('move up: last to first', () => {
+    expect(reorderPhaseIds(phases, 3, 0)).toEqual([40, 10, 20, 30]);
+  });
+
+  test('adjacent swap', () => {
+    expect(reorderPhaseIds(phases, 1, 2)).toEqual([10, 30, 20, 40]);
+  });
+
+  test('no-op when from === to', () => {
+    expect(reorderPhaseIds(phases, 2, 2)).toEqual([10, 20, 30, 40]);
+  });
+
+  test('out-of-range leaves order unchanged', () => {
+    expect(reorderPhaseIds(phases, 4, 0)).toEqual([10, 20, 30, 40]);
+    expect(reorderPhaseIds(phases, 0, -1)).toEqual([10, 20, 30, 40]);
+  });
+
+  test('empty list', () => {
+    expect(reorderPhaseIds([], 0, 0)).toEqual([]);
   });
 });

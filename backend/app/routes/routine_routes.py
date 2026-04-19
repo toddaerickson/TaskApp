@@ -67,6 +67,10 @@ def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool
 class RoutineReorderRequest(BaseModel):
     routine_exercise_ids: list[int]
 
+
+class PhaseReorderRequest(BaseModel):
+    phase_ids: list[int]
+
 router = APIRouter(prefix="/routines", tags=["routines"])
 
 
@@ -588,3 +592,57 @@ def delete_phase(
         )
         cur.execute("DELETE FROM routine_phases WHERE id = ?", (phase_id,))
     return {"ok": True}
+
+
+@router.post("/{routine_id}/phases/reorder", response_model=list[PhaseResponse])
+def reorder_phases(
+    routine_id: int,
+    req: PhaseReorderRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Atomically reorder the phases of a routine. Body: `phase_ids` in
+    the desired order (index 0 = phase 0). The previous client-side
+    "3-step dance" to skirt UNIQUE(routine_id, order_idx) was not
+    transactional — a failed second call left a phase parked at a
+    negative order_idx permanently. Here we do the whole move inside
+    one DB transaction: first shift every phase in the routine to a
+    guaranteed-unique temporary index (negative of its primary key),
+    then set the final indices. Uniqueness is preserved at every
+    intermediate step so the UNIQUE constraint never fires."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_routine_or_404(cur, routine_id, user_id)
+
+        cur.execute(
+            "SELECT id FROM routine_phases WHERE routine_id = ?",
+            (routine_id,),
+        )
+        existing = {r["id"] for r in cur.fetchall()}
+        if set(req.phase_ids) != existing:
+            raise HTTPException(
+                400, "phase_ids must contain every phase id for this routine, exactly once"
+            )
+        if len(req.phase_ids) != len(set(req.phase_ids)):
+            raise HTTPException(400, "phase_ids contains duplicates")
+
+        # Two-pass within a single transaction (get_db commits on success,
+        # rolls back on any exception). Pass 1 parks every phase at a
+        # guaranteed-unique negative index keyed on its primary id. Pass 2
+        # assigns the final 0..N-1 positions. UNIQUE(routine_id, order_idx)
+        # holds across both passes because negatives and non-negatives
+        # never collide.
+        cur.execute(
+            "UPDATE routine_phases SET order_idx = -id WHERE routine_id = ?",
+            (routine_id,),
+        )
+        for new_idx, phase_id in enumerate(req.phase_ids):
+            cur.execute(
+                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                (new_idx, phase_id, routine_id),
+            )
+        cur.execute(
+            "SELECT * FROM routine_phases WHERE routine_id = ? "
+            "ORDER BY order_idx ASC, id ASC",
+            (routine_id,),
+        )
+        return cur.fetchall()

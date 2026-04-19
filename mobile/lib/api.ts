@@ -532,6 +532,13 @@ export async function deletePhase(routineId: number, phaseId: number) {
   await api.delete(`/routines/${routineId}/phases/${phaseId}`);
 }
 
+export async function reorderPhases(routineId: number, phaseIds: number[]) {
+  const { data } = await api.post(
+    `/routines/${routineId}/phases/reorder`, { phase_ids: phaseIds },
+  );
+  return data;
+}
+
 // --- Workouts: Sessions ---
 export async function startSession(routineId?: number, notes?: string) {
   const { data } = await api.post('/sessions', { routine_id: routineId, notes });

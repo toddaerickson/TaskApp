@@ -208,6 +208,90 @@ def test_user2_cannot_crud_user1_phases(client, seeded_globals):
     assert client.delete(f"/routines/{rid}/phases/{pid}", headers=_h(t2)).status_code == 404
 
 
+def test_reorder_phases_happy_path(auth_client, seeded_globals):
+    """Reorder 4 phases — verify every pre/post position lands correctly.
+    The previous client-side 3-step swap couldn't express a reverse; this
+    endpoint does the full permutation in one transaction."""
+    c, tok, _ = auth_client
+    rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+    ids = [
+        c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+            "label": f"P{i}", "order_idx": i, "duration_weeks": 1,
+        }).json()["id"]
+        for i in range(4)
+    ]
+
+    # Reverse: [P3, P2, P1, P0]
+    reversed_ids = list(reversed(ids))
+    r = c.post(f"/routines/{rid}/phases/reorder", headers=_h(tok),
+               json={"phase_ids": reversed_ids})
+    assert r.status_code == 200, r.text
+    returned = r.json()
+    assert [p["id"] for p in returned] == reversed_ids
+    assert [p["order_idx"] for p in returned] == [0, 1, 2, 3]
+
+    # Hydrated routine matches.
+    routine = c.get(f"/routines/{rid}", headers=_h(tok)).json()
+    assert [p["id"] for p in routine["phases"]] == reversed_ids
+
+
+def test_reorder_phases_rejects_missing_ids(auth_client, seeded_globals):
+    """A payload that drops a phase id corrupts the routine. Reject."""
+    c, tok, _ = auth_client
+    rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+    ids = [
+        c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+            "label": f"P{i}", "order_idx": i, "duration_weeks": 1,
+        }).json()["id"]
+        for i in range(3)
+    ]
+    r = c.post(f"/routines/{rid}/phases/reorder", headers=_h(tok),
+               json={"phase_ids": ids[:2]})
+    assert r.status_code == 400
+
+
+def test_reorder_phases_rejects_foreign_id(auth_client, seeded_globals):
+    """A phase_id from another routine in the list must 400, not
+    silently re-parent it."""
+    c, tok, _ = auth_client
+    r1 = c.post("/routines", headers=_h(tok), json={"name": "A"}).json()["id"]
+    r2 = c.post("/routines", headers=_h(tok), json={"name": "B"}).json()["id"]
+    p_a = c.post(f"/routines/{r1}/phases", headers=_h(tok), json={
+        "label": "A0", "order_idx": 0, "duration_weeks": 1,
+    }).json()["id"]
+    p_b = c.post(f"/routines/{r2}/phases", headers=_h(tok), json={
+        "label": "B0", "order_idx": 0, "duration_weeks": 1,
+    }).json()["id"]
+    r = c.post(f"/routines/{r1}/phases/reorder", headers=_h(tok),
+               json={"phase_ids": [p_a, p_b]})
+    assert r.status_code == 400
+
+
+def test_reorder_phases_rejects_duplicates(auth_client, seeded_globals):
+    c, tok, _ = auth_client
+    rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+    pid = c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+        "label": "only", "order_idx": 0, "duration_weeks": 1,
+    }).json()["id"]
+    r = c.post(f"/routines/{rid}/phases/reorder", headers=_h(tok),
+               json={"phase_ids": [pid, pid]})
+    assert r.status_code == 400
+
+
+def test_reorder_phases_cross_user_blocked(client, seeded_globals):
+    t1 = client.post("/auth/register",
+                     json={"email": "ro1@x.com", "password": "pw1234567"}).json()["access_token"]
+    rid = client.post("/routines", headers=_h(t1),
+                      json={"name": "Mine"}).json()["id"]
+    pid = client.post(f"/routines/{rid}/phases", headers=_h(t1),
+                      json={"label": "A", "order_idx": 0, "duration_weeks": 1}).json()["id"]
+
+    t2 = client.post("/auth/register",
+                     json={"email": "ro2@x.com", "password": "pw1234567"}).json()["access_token"]
+    assert client.post(f"/routines/{rid}/phases/reorder",
+                       headers=_h(t2), json={"phase_ids": [pid]}).status_code == 404
+
+
 def test_current_phase_id_advances_with_start_date(auth_client, seeded_globals):
     """End-to-end: phases + phase_start_date → current_phase_id in
     hydrated routine. Sets a start date 10 days ago on a 2-week + 4-week

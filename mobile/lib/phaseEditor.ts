@@ -46,6 +46,24 @@ export function swapPhases(
 }
 
 /**
+ * Compute the id list to POST to /phases/reorder for a single "move phase
+ * at index `from` to index `to`" operation. Out-of-range or no-op inputs
+ * return the unchanged id order.
+ */
+export function reorderPhaseIds(
+  phases: RoutinePhase[],
+  from: number,
+  to: number,
+): number[] {
+  const ids = phases.map((p) => p.id);
+  if (from === to) return ids;
+  if (from < 0 || to < 0 || from >= ids.length || to >= ids.length) return ids;
+  const [moving] = ids.splice(from, 1);
+  ids.splice(to, 0, moving);
+  return ids;
+}
+
+/**
  * A routine is "phased" (the banner shows, exercises filter) only when
  * it has at least one phase AND phase_start_date is set. Matches the
  * server-side resolver in `hydrate_routines_full`.
