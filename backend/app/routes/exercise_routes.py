@@ -100,6 +100,12 @@ def create_exercise(req: ExerciseCreate, user_id: int = Depends(get_current_user
         return _hydrate_one(cur, cur.fetchone())
 
 
+_EXERCISE_UPDATE_COLUMNS = {
+    "name", "category", "primary_muscle", "equipment", "difficulty",
+    "is_bodyweight", "measurement", "instructions", "cue", "contraindications",
+}
+
+
 @router.put("/{exercise_id}", response_model=ExerciseResponse)
 def update_exercise(exercise_id: int, req: ExerciseUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
@@ -112,7 +118,12 @@ def update_exercise(exercise_id: int, req: ExerciseUpdate, user_id: int = Depend
         # Single-user self-hosted: any authenticated user can tune the shared library.
         if row["user_id"] is not None and row["user_id"] != user_id:
             raise HTTPException(403, "Cannot edit another user's exercise")
-        fields = {k: v for k, v in req.model_dump(exclude_unset=True).items()}
+        # Allow-list the columns so the dynamic UPDATE never interpolates
+        # a column name that wasn't hand-approved here.
+        fields = {
+            k: v for k, v in req.model_dump(exclude_unset=True).items()
+            if k in _EXERCISE_UPDATE_COLUMNS
+        }
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             params = list(fields.values()) + [exercise_id]

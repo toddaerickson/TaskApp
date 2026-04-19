@@ -144,6 +144,9 @@ def get_session_prs(session_id: int, user_id: int = Depends(get_current_user_id)
     ]
 
 
+_SESSION_UPDATE_COLUMNS = {"ended_at", "rpe", "mood", "notes"}
+
+
 @router.put("/sessions/{session_id}", response_model=SessionResponse)
 def update_session(session_id: int, req: SessionUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
@@ -152,7 +155,12 @@ def update_session(session_id: int, req: SessionUpdate, user_id: int = Depends(g
                     (session_id, user_id))
         if not cur.fetchone():
             raise HTTPException(404, "Session not found")
-        fields = req.model_dump(exclude_unset=True)
+        # Allow-list the columns so the dynamic UPDATE can never
+        # interpolate a column name that wasn't hand-approved here.
+        fields = {
+            k: v for k, v in req.model_dump(exclude_unset=True).items()
+            if k in _SESSION_UPDATE_COLUMNS
+        }
         if "ended_at" in fields and fields["ended_at"] is not None:
             fields["ended_at"] = fields["ended_at"].isoformat()
         if fields:
