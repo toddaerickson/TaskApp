@@ -292,6 +292,55 @@ def test_reorder_phases_cross_user_blocked(client, seeded_globals):
                        headers=_h(t2), json={"phase_ids": [pid]}).status_code == 404
 
 
+def test_update_routine_exercise_rejects_foreign_phase_id(auth_client, seeded_globals):
+    """phase_id on a routine_exercise must belong to the same routine.
+    Pointing at another routine's phase (even if the user owns both)
+    creates an orphan FK that filterExercisesForPhase silently hides."""
+    c, tok, _ = auth_client
+    r1 = c.post("/routines", headers=_h(tok), json={"name": "A"}).json()["id"]
+    r2 = c.post("/routines", headers=_h(tok), json={"name": "B"}).json()["id"]
+    p_b = c.post(f"/routines/{r2}/phases", headers=_h(tok), json={
+        "label": "B0", "order_idx": 0, "duration_weeks": 1,
+    }).json()["id"]
+
+    # Add an exercise to routine A; try to point its phase_id at routine B's phase.
+    ex = c.post(f"/routines/{r1}/exercises", headers=_h(tok),
+                json={"exercise_id": 1}).json()
+    bad = c.put(f"/routines/exercises/{ex['id']}", headers=_h(tok),
+                json={"phase_id": p_b})
+    assert bad.status_code == 400
+    assert "does not belong" in bad.text
+
+    # Creating a phase in routine A and pointing at it works.
+    p_a = c.post(f"/routines/{r1}/phases", headers=_h(tok), json={
+        "label": "A0", "order_idx": 0, "duration_weeks": 1,
+    }).json()["id"]
+    ok = c.put(f"/routines/exercises/{ex['id']}", headers=_h(tok),
+               json={"phase_id": p_a})
+    assert ok.status_code == 200
+
+    # Clearing phase_id to null is always allowed ("applies in every phase").
+    clear = c.put(f"/routines/exercises/{ex['id']}", headers=_h(tok),
+                  json={"phase_id": None})
+    assert clear.status_code == 200
+
+
+def test_update_routine_rejects_bad_phase_start_date(auth_client, seeded_globals):
+    """A free-form phase_start_date used to pass Pydantic and silently
+    store a broken routine. Now rejected at the 422 boundary."""
+    c, tok, _ = auth_client
+    rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+    bad = c.put(f"/routines/{rid}", headers=_h(tok),
+                json={"phase_start_date": "not-a-date"})
+    assert bad.status_code == 422
+
+    # Empty string normalizes to None (clears the field).
+    clear = c.put(f"/routines/{rid}", headers=_h(tok),
+                  json={"phase_start_date": ""})
+    assert clear.status_code == 200
+    assert clear.json()["phase_start_date"] is None
+
+
 def test_current_phase_id_advances_with_start_date(auth_client, seeded_globals):
     """End-to-end: phases + phase_start_date → current_phase_id in
     hydrated routine. Sets a start date 10 days ago on a 2-week + 4-week

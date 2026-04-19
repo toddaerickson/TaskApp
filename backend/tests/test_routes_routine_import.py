@@ -124,6 +124,46 @@ def test_import_requires_at_least_one_exercise(auth_client, seeded_globals):
     assert r.status_code == 400
 
 
+def test_import_rejects_bad_phase_start_date(auth_client, seeded_globals):
+    """phase_start_date must be a real ISO date. A free-form string
+    (old behavior) used to pass Pydantic and silently store a broken
+    routine — phased at the DB level but with the resolver bailing
+    on the bad date so the banner never shows."""
+    c, tok, _ = auth_client
+    body = _minimal()
+    body["phase_start_date"] = "not-a-date"
+    r = c.post("/routines/import", headers=_h(tok), json=body)
+    assert r.status_code == 422
+
+    # Empty string is normalized to None (same as omitting the field).
+    body["phase_start_date"] = ""
+    ok = c.post("/routines/import", headers=_h(tok), json=body)
+    assert ok.status_code == 200
+    assert ok.json()["phase_start_date"] is None
+
+
+def test_import_caps_list_sizes(auth_client, seeded_globals):
+    """max_length on phases / exercises keeps a confused or malicious
+    client from building a slug IN (?,?,...) query that exceeds the
+    SQLite parameter cap (32,766) and takes a worker down."""
+    c, tok, _ = auth_client
+
+    too_many_exercises = {
+        "name": "Huge",
+        "exercises": [{"slug": "wall_ankle_dorsiflexion",
+                       "target_sets": 1, "target_duration_sec": 30}
+                      for _ in range(201)],
+    }
+    r = c.post("/routines/import", headers=_h(tok), json=too_many_exercises)
+    assert r.status_code == 422
+
+    too_many_phases = _minimal()
+    too_many_phases["phases"] = [{"label": f"P{i}", "duration_weeks": 1}
+                                 for i in range(21)]
+    r = c.post("/routines/import", headers=_h(tok), json=too_many_phases)
+    assert r.status_code == 422
+
+
 def test_import_isolates_users(auth_client, seeded_globals):
     """A user's exercise (user_id != NULL) is invisible to other users —
     importing a routine that references it 400s for the second user."""
