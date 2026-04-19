@@ -3,7 +3,8 @@ Shared batch hydrators for the workout module. Single source of truth for
 converting SQLite bool ints and nested objects — previously inlined in 3
 route files with subtly different sort orders.
 """
-from typing import Iterable
+from datetime import date, datetime
+from typing import Iterable, Optional
 
 
 def _in_clause(n: int) -> str:
@@ -59,7 +60,9 @@ def load_exercises_by_ids(cur, exercise_ids: Iterable[int]) -> dict[int, dict]:
 def hydrate_routines_full(cur, routine_rows: list[dict]) -> list[dict]:
     """
     Attach exercises (with their own exercise + images) to each routine in
-    a bounded number of queries regardless of list size.
+    a bounded number of queries regardless of list size. Also attaches
+    `phases` and the server-resolved `current_phase_id` so the client
+    doesn't re-implement the time-math.
     """
     if not routine_rows:
         return routine_rows
@@ -77,9 +80,79 @@ def hydrate_routines_full(cur, routine_rows: list[dict]) -> list[dict]:
         re["keystone"] = bool(re["keystone"])
         re["exercise"] = exercises_by_id.get(re["exercise_id"])
         grouped[re["routine_id"]].append(re)
+
+    # Phases in one query, keyed by routine_id. Ordered by order_idx so
+    # the client can render them as-is without re-sorting. A routine with
+    # no phases gets an empty list and a null current_phase_id — that's
+    # the "flat" (legacy) path.
+    cur.execute(
+        f"SELECT * FROM routine_phases "
+        f"WHERE routine_id IN {_in_clause(len(routine_ids))} "
+        f"ORDER BY order_idx ASC, id ASC",
+        tuple(routine_ids),
+    )
+    phases_by_routine: dict[int, list[dict]] = {rid: [] for rid in routine_ids}
+    for p in cur.fetchall():
+        phases_by_routine[p["routine_id"]].append(p)
+
+    today = date.today()
     for r in routine_rows:
         r["exercises"] = grouped.get(r["id"], [])
+        phases = phases_by_routine.get(r["id"], [])
+        r["phases"] = phases
+        r["current_phase_id"] = resolve_current_phase_id(
+            phases, r.get("phase_start_date"), today,
+        )
     return routine_rows
+
+
+def resolve_current_phase_id(
+    phases: list[dict],
+    phase_start_date: Optional[str],
+    today: date,
+) -> Optional[int]:
+    """Find the phase whose [offset, offset+duration_weeks) contains today,
+    counting offset in weeks from `phase_start_date`.
+
+    - No phases OR no start date → None (the routine is flat / unscheduled).
+    - Before the first phase (start date in future) → first phase (so the
+      user sees "upcoming" rather than a blank banner).
+    - After the last phase's end → last phase (the program is complete; we
+      keep the user in "maintenance / final phase" rather than falling off
+      a cliff).
+
+    Phases are assumed sorted by order_idx; callers should pass the list
+    straight from `hydrate_routines_full`.
+    """
+    if not phases or not phase_start_date:
+        return None
+    try:
+        start = _parse_iso_date(phase_start_date)
+    except ValueError:
+        return None
+    weeks_elapsed = max((today - start).days, 0) // 7
+    cumulative = 0
+    for p in phases:
+        end = cumulative + int(p["duration_weeks"])
+        if cumulative <= weeks_elapsed < end:
+            return p["id"]
+        cumulative = end
+    # Past the end of the program — pin to the last phase.
+    return phases[-1]["id"]
+
+
+def _parse_iso_date(value) -> date:
+    """Accept either a `date`/`datetime` from PG or an ISO string from
+    SQLite's TEXT storage. Raises ValueError on anything else."""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        # Strip optional time component — PG might hand back "YYYY-MM-DD"
+        # or, for defensive reading, "YYYY-MM-DDTHH:MM:SS".
+        return date.fromisoformat(value[:10])
+    raise ValueError(f"unrecognized phase_start_date value: {value!r}")
 
 
 def hydrate_sessions_full(cur, session_rows: list[dict]) -> list[dict]:

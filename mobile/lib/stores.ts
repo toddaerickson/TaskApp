@@ -253,14 +253,30 @@ export interface RoutineExercise {
   target_sets?: number; target_reps?: number; target_weight?: number;
   target_duration_sec?: number; rest_sec?: number; tempo?: string;
   keystone: boolean; notes?: string; exercise?: Exercise;
+  /** Null = applies in every phase (warmups, cooldowns). Set = only surfaces
+   *  when that phase is active. */
+  phase_id?: number | null;
   /** Optimistic concurrency token — send back in expected_updated_at on save. */
   updated_at?: string | null;
+}
+export interface RoutinePhase {
+  id: number; routine_id: number; label: string;
+  order_idx: number; duration_weeks: number; notes?: string | null;
 }
 export interface Routine {
   id: number; user_id: number; name: string; goal: string;
   notes?: string; sort_order: number; created_at: string;
   reminder_time?: string | null;   // "HH:MM"
   reminder_days?: string | null;   // "mon,tue,..." or "daily"
+  /** ISO date (YYYY-MM-DD) marking when phase 0 starts. Null = not phased
+   *  and the routine behaves as a flat list. */
+  phase_start_date?: string | null;
+  /** Curovate-style progression phases, ordered by order_idx. Empty when
+   *  the routine is flat. */
+  phases?: RoutinePhase[];
+  /** Server-resolved id of the phase active today (derived from
+   *  phase_start_date + cumulative durations). Null when not phased. */
+  current_phase_id?: number | null;
   /** Optimistic concurrency token — send back in expected_updated_at on save. */
   updated_at?: string | null;
   exercises: RoutineExercise[];
