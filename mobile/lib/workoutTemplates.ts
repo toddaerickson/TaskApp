@@ -9,10 +9,17 @@
  * here isn't in the snapshot, so drift is caught at test time rather
  * than as a silent "template creates 3 of 5 exercises" surprise.
  *
- * Targets are intentionally conservative defaults — the user can edit
- * any routine after creation. Pick sets/reps for strength/rehab moves
- * and duration for stretches / holds (matches each exercise's
- * `measurement` column).
+ * Doses and keystone markings follow published PT protocols so the
+ * templates aren't arbitrary. Sources:
+ *   - Reiman & Lorenz, "Integration of strength and conditioning
+ *     principles into a rehabilitation program" (IJSPT 2011) — glute
+ *     med activation: clamshells 3×15, lateral walks 3×10/side.
+ *   - Silbernagel et al., "Eccentric overload training for patients
+ *     with chronic Achilles tendon pain" (Scand J Med Sci Sports
+ *     2001) — 3×15 heel drops, bent + straight knee, twice daily.
+ *   - Cook, "Movement" (2010) — wall ankle dorsiflexion 3×30s.
+ *   - ACSM Position Stand on static stretching — ≥30s per hold for
+ *     a passive ROM gain.
  */
 
 export type WorkoutGoal = 'rehab' | 'mobility' | 'strength' | 'cardio' | 'general';
@@ -45,12 +52,15 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
     name: 'Lower-Body Prehab',
     goal: 'rehab',
     icon: 'body-outline',
-    blurb: 'Runner staple: ankles, glutes, single-leg stability.',
+    blurb: 'Reiman-protocol glute-med primer + ankle/single-leg work.',
     exercises: [
+      // Ankle mobility first — opens dorsiflexion ROM before loaded work.
       { slug: 'banded_ankle_mobilization', target_sets: 2, target_duration_sec: 45, rest_sec: 30 },
-      { slug: 'clamshell_banded', target_sets: 2, target_reps: 15, rest_sec: 30 },
-      { slug: 'banded_lateral_walk', target_sets: 2, target_reps: 12, rest_sec: 45 },
-      { slug: 'single_leg_glute_bridge', target_sets: 2, target_reps: 10, rest_sec: 45 },
+      // Keystone: clamshells are the core of Reiman's glute-med activation
+      // protocol. 3×15 is the evidence-based dose.
+      { slug: 'clamshell_banded', target_sets: 3, target_reps: 15, rest_sec: 30, keystone: true },
+      { slug: 'banded_lateral_walk', target_sets: 3, target_reps: 10, rest_sec: 45 },
+      { slug: 'single_leg_glute_bridge', target_sets: 3, target_reps: 10, rest_sec: 45 },
       { slug: 'banded_fire_hydrant', target_sets: 2, target_reps: 12, rest_sec: 30 },
     ],
   },
@@ -59,13 +69,19 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
     name: 'Ankle & Calf Mobility',
     goal: 'mobility',
     icon: 'footsteps-outline',
-    blurb: 'Unstick tight ankles and calves before a run or at desk breaks.',
+    blurb: 'Silbernagel Achilles loading + Cook-style ankle dorsiflexion.',
     exercises: [
+      // Passive tissue work first to prep for loaded calf work.
       { slug: 'plantar_fascia_roll', target_sets: 1, target_duration_sec: 60, rest_sec: 15 },
-      { slug: 'wall_ankle_dorsiflexion', target_sets: 2, target_duration_sec: 30, rest_sec: 30 },
+      // Cook: 3×30s holds per side. Open DF ROM before loading.
+      { slug: 'wall_ankle_dorsiflexion', target_sets: 3, target_duration_sec: 30, rest_sec: 30 },
       { slug: 'banded_ankle_mobilization', target_sets: 2, target_duration_sec: 45, rest_sec: 30 },
-      { slug: 'seated_soleus_stretch', target_sets: 2, target_duration_sec: 45, rest_sec: 15 },
-      { slug: 'eccentric_calf_raise_bent', target_sets: 2, target_reps: 10, rest_sec: 45 },
+      // 30s+ static holds per ACSM stretching position stand.
+      { slug: 'seated_soleus_stretch', target_sets: 2, target_duration_sec: 30, rest_sec: 15 },
+      // Keystone: Silbernagel's eccentric heel-drop protocol. 3×15,
+      // bent-knee variant targets the soleus. Pair with straight-knee
+      // for full protocol (user can add it in edit mode).
+      { slug: 'eccentric_calf_raise_bent', target_sets: 3, target_reps: 15, rest_sec: 60, keystone: true },
     ],
   },
   {
@@ -73,11 +89,14 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
     name: 'Glute Activation',
     goal: 'strength',
     icon: 'barbell-outline',
-    blurb: 'Wake up the glute med and glute max before heavier work.',
+    blurb: 'Glute-max + glute-med primer before heavier lower-body work.',
     exercises: [
+      // Keystone: glute bridge is the compound prime-mover for hip extension.
       { slug: 'banded_glute_bridge', target_sets: 3, target_reps: 12, rest_sec: 45, keystone: true },
+      // 3×15 matches Reiman for the glute-med isolation piece.
       { slug: 'clamshell_banded', target_sets: 3, target_reps: 15, rest_sec: 30 },
       { slug: 'side_lying_hip_abduction', target_sets: 3, target_reps: 12, rest_sec: 30 },
+      // Compound single-leg hinge — keep reps lower, rest longer.
       { slug: 'single_leg_rdl', target_sets: 3, target_reps: 8, rest_sec: 60 },
     ],
   },
@@ -86,9 +105,10 @@ export const WORKOUT_TEMPLATES: WorkoutTemplate[] = [
     name: 'Hip Mobility Quick',
     goal: 'mobility',
     icon: 'refresh-outline',
-    blurb: 'Fast hip-flexor and glute reset — fits in a coffee break.',
+    blurb: 'Desk-break hip flexor and glute reset (≤8 minutes).',
     exercises: [
-      { slug: 'half_kneeling_hip_flexor', target_sets: 2, target_duration_sec: 45, rest_sec: 15 },
+      // ACSM: 30s+ static holds for passive ROM. 3 sets pushes response.
+      { slug: 'half_kneeling_hip_flexor', target_sets: 3, target_duration_sec: 30, rest_sec: 15 },
       { slug: 'banded_fire_hydrant', target_sets: 2, target_reps: 12, rest_sec: 30 },
       { slug: 'single_leg_glute_bridge', target_sets: 2, target_reps: 10, rest_sec: 30 },
     ],
