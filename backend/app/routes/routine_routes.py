@@ -662,6 +662,11 @@ def reorder_phases(
         cur = conn.cursor()
         _own_routine_or_404(cur, routine_id, user_id)
 
+        # Duplicates first so a payload like [1, 1] reports the actual
+        # problem ("contains duplicates") instead of the misleading
+        # set-equality error ("must contain every phase id").
+        if len(req.phase_ids) != len(set(req.phase_ids)):
+            raise HTTPException(400, "phase_ids contains duplicates")
         cur.execute(
             "SELECT id FROM routine_phases WHERE routine_id = ?",
             (routine_id,),
@@ -671,8 +676,6 @@ def reorder_phases(
             raise HTTPException(
                 400, "phase_ids must contain every phase id for this routine, exactly once"
             )
-        if len(req.phase_ids) != len(set(req.phase_ids)):
-            raise HTTPException(400, "phase_ids contains duplicates")
 
         # Two-pass within a single transaction (get_db commits on success,
         # rolls back on any exception). Pass 1 parks every phase at a
