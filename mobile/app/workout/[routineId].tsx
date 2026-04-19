@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise } from '@/lib/stores';
 import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
 import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
+import { PhaseEditor } from '@/components/PhaseEditor';
+import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 
 /** Two-choice conflict prompt. Resolves with the user's decision rather
  *  than blocking state. Web uses confirm() because there's no native
@@ -97,10 +99,12 @@ export default function RoutineDetailScreen() {
   // reduces to routine.exercises and activePhase is null — the banner
   // isn't rendered and nothing about the old behavior changes.
   const activePhase = getActivePhaseInfo(routine);
-  const visibleExercises = filterExercisesForPhase(
-    routine.exercises,
-    routine.current_phase_id ?? null,
-  );
+  // In edit mode we show every exercise — otherwise the user couldn't see
+  // or reassign an exercise that belongs to a different (non-active)
+  // phase. Run mode keeps the phase filter for the banner-matched view.
+  const visibleExercises = editMode
+    ? routine.exercises
+    : filterExercisesForPhase(routine.exercises, routine.current_phase_id ?? null);
 
   const totalMins = Math.round(
     visibleExercises.reduce((sum, re) => {
@@ -194,6 +198,16 @@ export default function RoutineDetailScreen() {
                     )}
                   </View>
                   <Text style={styles.exTarget}>{formatTarget(re)}</Text>
+                  {editMode && (routine.phases?.length ?? 0) > 0 && (
+                    <View style={{ marginTop: 6 }}>
+                      <ExercisePhaseChip
+                        routineExerciseId={re.id}
+                        currentPhaseId={re.phase_id ?? null}
+                        phases={routine.phases ?? []}
+                        onChanged={reload}
+                      />
+                    </View>
+                  )}
                   {(() => {
                     const sg = suggestions.find((s) => s.routine_exercise_id === re.id);
                     if (!sg || !sg.reason || sg.reason.startsWith('No prior')) return null;
@@ -298,12 +312,14 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   const [notes, setNotes] = useState(routine.notes || '');
   const [time, setTime] = useState(routine.reminder_time || '');
   const [days, setDays] = useState<Set<DayCode>>(parseDays(routine.reminder_days));
+  const [startDate, setStartDate] = useState(routine.phase_start_date || '');
   const [busy, setBusy] = useState(false);
 
   const dirty = name !== routine.name
     || notes !== (routine.notes || '')
     || time !== (routine.reminder_time || '')
-    || daysCsv(days) !== (routine.reminder_days || null);
+    || daysCsv(days) !== (routine.reminder_days || null)
+    || (startDate || null) !== (routine.phase_start_date || null);
 
   const toggleDay = (d: DayCode) => {
     const next = new Set(days);
@@ -318,6 +334,7 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         name, notes,
         reminder_time: time.trim() || null,
         reminder_days: time.trim() ? daysCsv(days) : null,
+        phase_start_date: startDate.trim() || null,
       };
       // Pass the token we read with the routine. Omit when `overwrite`
       // is true so the server drops the check — this is the "overwrite
@@ -382,6 +399,15 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
           </View>
         </>
       )}
+      <Text style={styles.fieldLabel}>Phase start date (YYYY-MM-DD, blank = not phased)</Text>
+      <TextInput
+        value={startDate}
+        onChangeText={setStartDate}
+        placeholder="2026-04-20"
+        accessibilityLabel="Phase start date in ISO YYYY-MM-DD format"
+        autoCapitalize="none"
+        style={styles.fieldInput}
+      />
       <Pressable
         style={[styles.saveBtn, (!dirty || busy) && { opacity: 0.5 }]}
         onPress={() => save()}
@@ -390,6 +416,11 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         <Ionicons name="save-outline" size={14} color="#fff" />
         <Text style={styles.saveText}>{busy ? 'Saving…' : dirty ? 'Save' : 'No changes'}</Text>
       </Pressable>
+      {/* Phase editor lives below the main save button because its
+          operations hit the phase CRUD endpoints directly (each add /
+          edit / reorder / delete is its own round trip), so it doesn't
+          participate in the routine-level Save flow above. */}
+      <PhaseEditor routine={routine} onChanged={onSaved} />
     </View>
   );
 }
