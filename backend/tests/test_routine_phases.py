@@ -11,6 +11,7 @@ Covers three surfaces:
 """
 from datetime import date, timedelta
 
+from app.database import get_db
 from app.hydrate import resolve_current_phase_id
 
 
@@ -305,6 +306,76 @@ def test_reorder_phases_cross_user_blocked(client, seeded_globals):
                      json={"email": "ro2@x.com", "password": "pw1234567"}).json()["access_token"]
     assert client.post(f"/routines/{rid}/phases/reorder",
                        headers=_h(t2), json={"phase_ids": [pid]}).status_code == 404
+
+
+def test_reorder_pass1_scoping_prevents_concurrent_add_corruption(auth_client, seeded_globals):
+    """Race-safety regression test for the Pass 1 scoping fix.
+
+    The race: validator's SELECT sees {A, B}; another request inserts
+    phase C; Pass 1 fires; Pass 2 only knows about {A, B} so C is left
+    parked. The fix scopes Pass 1 to the validated ids via `id IN (...)`
+    so an unmentioned phase is never touched.
+
+    Single-threaded tests can't interleave a real concurrent INSERT.
+    Instead we run the two Pass 1 SQL shapes (unscoped — the old bug —
+    and scoped — the fix) on parallel routines and assert opposite
+    outcomes. If someone reverts the fix to the unscoped form, the
+    second assertion below fires.
+    """
+    c, tok, _ = auth_client
+
+    def _setup():
+        rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+        ids = [
+            c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+                "label": f"P{i}", "order_idx": i, "duration_weeks": 1,
+            }).json()["id"]
+            for i in range(3)
+        ]
+        return rid, ids[:2], ids[2]  # validated ids + the "concurrent" racer
+
+    # --- OLD BUG SHAPE: unscoped Pass 1, then Pass 2 over validated only.
+    rid_bug, validated_bug, racer_bug = _setup()
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE routine_phases SET order_idx = -id WHERE routine_id = ?",
+            (rid_bug,),
+        )
+        for new_idx, pid in enumerate(validated_bug):
+            cur.execute(
+                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                (new_idx, pid, rid_bug),
+            )
+    routine = c.get(f"/routines/{rid_bug}", headers=_h(tok)).json()
+    by_id = {p["id"]: p for p in routine["phases"]}
+    # The bug: racer parked at -id, never restored.
+    assert by_id[racer_bug]["order_idx"] == -racer_bug, (
+        "old SQL no longer reproduces the bug — refactor likely broke this test"
+    )
+
+    # --- FIXED SHAPE: scoped Pass 1, then Pass 2.
+    rid_fix, validated_fix, racer_fix = _setup()
+    with get_db() as conn:
+        cur = conn.cursor()
+        placeholders = ",".join("?" * len(validated_fix))
+        cur.execute(
+            f"UPDATE routine_phases SET order_idx = -id "
+            f"WHERE routine_id = ? AND id IN ({placeholders})",
+            (rid_fix, *validated_fix),
+        )
+        for new_idx, pid in enumerate(validated_fix):
+            cur.execute(
+                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                (new_idx, pid, rid_fix),
+            )
+    routine = c.get(f"/routines/{rid_fix}", headers=_h(tok)).json()
+    by_id = {p["id"]: p for p in routine["phases"]}
+    # The fix: racer keeps its original order_idx (2 — third phase added).
+    assert by_id[racer_fix]["order_idx"] == 2, (
+        f"scoped Pass 1 corrupted the racer (got order_idx="
+        f"{by_id[racer_fix]['order_idx']}); fix in reorder_phases regressed"
+    )
 
 
 def test_update_routine_exercise_rejects_foreign_phase_id(auth_client, seeded_globals):
