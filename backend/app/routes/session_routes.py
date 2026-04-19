@@ -3,7 +3,7 @@ from app.database import get_db, is_unique_violation
 from app.auth import get_current_user_id
 from app.models import (
     SessionCreate, SessionUpdate, SessionResponse,
-    SessionSetCreate, SessionSetResponse,
+    SessionSetCreate, SessionSetResponse, SessionSetUpdate,
     SymptomLogCreate, SymptomLogResponse,
     ExerciseBest,
 )
@@ -21,14 +21,25 @@ def _hydrate(cur, row: dict) -> dict:
 def start_session(req: SessionCreate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
+        # Default: no-routine (ad-hoc) sessions don't track symptoms.
+        tracks_symptoms = False
         if req.routine_id is not None:
-            cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
-                        (req.routine_id, user_id))
-            if not cur.fetchone():
+            cur.execute(
+                "SELECT id, tracks_symptoms FROM routines WHERE id = ? AND user_id = ?",
+                (req.routine_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
                 raise HTTPException(404, "Routine not found")
+            # Snapshot the flag onto the session. Changing it on the
+            # routine later won't mutate this row, so a rehab session
+            # started today stays a rehab session even if the user
+            # flips the flag off tomorrow.
+            tracks_symptoms = bool(row["tracks_symptoms"])
         cur.execute(
-            "INSERT INTO workout_sessions (user_id, routine_id, notes) VALUES (?, ?, ?)",
-            (user_id, req.routine_id, req.notes),
+            "INSERT INTO workout_sessions (user_id, routine_id, notes, tracks_symptoms) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, req.routine_id, req.notes, int(tracks_symptoms)),
         )
         sid = cur.lastrowid
         cur.execute("SELECT * FROM workout_sessions WHERE id = ?", (sid,))
@@ -192,10 +203,19 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
         try:
             with get_db() as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT id FROM workout_sessions WHERE id = ? AND user_id = ?",
-                            (session_id, user_id))
-                if not cur.fetchone():
+                cur.execute(
+                    "SELECT id, tracks_symptoms FROM workout_sessions "
+                    "WHERE id = ? AND user_id = ?",
+                    (session_id, user_id),
+                )
+                session_row = cur.fetchone()
+                if not session_row:
                     raise HTTPException(404, "Session not found")
+                # Only persist pain_score when the session was started
+                # under a pain-monitored routine. Strength sessions that
+                # stray a value through the client get silently dropped
+                # so later suggestion runs don't see phantom pain data.
+                pain_score = req.pain_score if session_row["tracks_symptoms"] else None
                 if req.set_number is None:
                     cur.execute(
                         "SELECT COALESCE(MAX(set_number), 0) + 1 AS n FROM session_sets "
@@ -208,10 +228,11 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
                 cur.execute(
                     """INSERT INTO session_sets
                     (session_id, exercise_id, set_number, reps, weight, duration_sec,
-                     distance_m, rpe, completed, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     distance_m, rpe, pain_score, completed, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (session_id, req.exercise_id, set_number, req.reps, req.weight,
-                     req.duration_sec, req.distance_m, req.rpe, completed, req.notes),
+                     req.duration_sec, req.distance_m, req.rpe, pain_score,
+                     completed, req.notes),
                 )
                 set_id = cur.lastrowid
                 cur.execute("SELECT * FROM session_sets WHERE id = ?", (set_id,))
@@ -227,6 +248,57 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
                 raise HTTPException(409, "Conflict logging set; retry")
             continue
     raise HTTPException(500, "Unable to assign set number after retries")
+
+
+_SESSION_SET_UPDATE_COLUMNS = {"pain_score", "notes"}
+
+
+@router.patch("/sessions/sets/{set_id}", response_model=SessionSetResponse)
+def patch_set(
+    set_id: int,
+    req: SessionSetUpdate,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Backfill-friendly update for a logged set. The primary caller is
+    the per-exercise pain chip, which fires *after* the last set of an
+    exercise is already persisted. Keeping this on a separate endpoint
+    (vs extending POST) means the chip doesn't need to know which set
+    was the last one — the client hits the most-recent set id with just
+    pain_score in the body.
+
+    pain_score is only persisted when the parent session has
+    tracks_symptoms=TRUE; strength sessions silently drop the value
+    (mirrors log_set's guard) so stray client values can't pollute
+    later suggestions.
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT s.id, ws.tracks_symptoms FROM session_sets s "
+            "JOIN workout_sessions ws ON ws.id = s.session_id "
+            "WHERE s.id = ? AND ws.user_id = ?",
+            (set_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Set not found")
+        fields = {
+            k: v for k, v in req.model_dump(exclude_unset=True).items()
+            if k in _SESSION_SET_UPDATE_COLUMNS
+        }
+        if "pain_score" in fields and not row["tracks_symptoms"]:
+            # Strength session — drop the value rather than writing it.
+            fields.pop("pain_score")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            cur.execute(
+                f"UPDATE session_sets SET {sets} WHERE id = ?",
+                tuple(list(fields.values()) + [set_id]),
+            )
+        cur.execute("SELECT * FROM session_sets WHERE id = ?", (set_id,))
+        updated = cur.fetchone()
+        updated["completed"] = bool(updated["completed"])
+        return updated
 
 
 @router.delete("/sessions/sets/{set_id}")

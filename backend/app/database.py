@@ -263,6 +263,7 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,
     reminder_days TEXT,
+    tracks_symptoms INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -304,6 +305,7 @@ CREATE TABLE IF NOT EXISTS workout_sessions (
     rpe INTEGER CHECK (rpe BETWEEN 1 AND 10),
     mood INTEGER CHECK (mood BETWEEN 1 AND 5),
     notes TEXT,
+    tracks_symptoms INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -317,6 +319,7 @@ CREATE TABLE IF NOT EXISTS session_sets (
     duration_sec INTEGER,
     distance_m REAL,
     rpe INTEGER CHECK (rpe BETWEEN 1 AND 10),
+    pain_score INTEGER CHECK (pain_score BETWEEN 0 AND 10),
     completed BOOLEAN DEFAULT 1,
     notes TEXT
 );
@@ -411,6 +414,13 @@ def init_db():
             # as a flat list. Not a DATE type because SQLite stores dates
             # as TEXT; PG will implicitly cast on read.
             ("phase_start_date", "TEXT"),
+            # Pain-monitored progression: when TRUE, sessions started
+            # from this routine snapshot the flag and get per-set pain
+            # capture + Silbernagel-style advance/hold/back-off in the
+            # suggestion engine. Existing rows get 0 (off) so strength
+            # routines are untouched. INTEGER not BOOLEAN for SQLite
+            # portability; the app layer coerces to bool.
+            ("tracks_symptoms", "INTEGER NOT NULL DEFAULT 0"),
         ])
         _ensure_columns(cur, "routine_exercises", [
             ("updated_at", "TEXT"),
@@ -421,6 +431,18 @@ def init_db():
             # phase_id references a real phase; orphaned values are
             # ignored safely.
             ("phase_id", "INTEGER"),
+        ])
+        _ensure_columns(cur, "workout_sessions", [
+            # Session-time snapshot of the routine's tracks_symptoms. See
+            # the matching column on routines for why this is a snapshot
+            # rather than a live lookup.
+            ("tracks_symptoms", "INTEGER NOT NULL DEFAULT 0"),
+        ])
+        _ensure_columns(cur, "session_sets", [
+            # Per-set pain score 0-10. Only written when the parent
+            # session has tracks_symptoms=1; otherwise stays NULL and the
+            # progression dispatcher falls through to the RPE path.
+            ("pain_score", "INTEGER"),
         ])
         _ensure_columns(cur, "exercise_images", [
             # Phase 6.3: content hash for dedup. Existing rows get NULL and

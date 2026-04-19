@@ -15,6 +15,14 @@ class Suggestion:
     weight: Optional[float] = None
     duration_sec: Optional[int] = None
     reason: str = ""  # short human-readable explanation
+    # Which policy produced this Suggestion. None for the default RPE
+    # branch, "silbernagel" when pain-monitored progression fired. Routes
+    # surface this on SuggestionResponse.policy so clients can render
+    # a small badge and show why the number was chosen.
+    policy: Optional[str] = None
+    # Max pain score across the last-session sets that fed the decision.
+    # Populated only when the Silbernagel branch fires. None otherwise.
+    pain_last: Optional[int] = None
 
 
 def _avg(values: list[float]) -> float:
@@ -32,10 +40,18 @@ def suggest(
     target_weight: Optional[float],
     target_duration_sec: Optional[int],
     is_bodyweight: bool,
-    last_sets: list[dict],   # most-recent-first, each: {reps, weight, duration_sec, rpe}
+    last_sets: list[dict],   # most-recent-first, each: {reps, weight, duration_sec, rpe, pain_score}
+    tracks_symptoms: bool = False,
 ) -> Suggestion:
     """Return a target suggestion. Falls back to the routine target when
-    there's no history, so the caller can always show *something*."""
+    there's no history, so the caller can always show *something*.
+
+    When `tracks_symptoms=True` we first try the pain-monitored
+    Silbernagel policy; it returns None when the last session has no
+    pain_score data (e.g., the user forgot to rate), and we then fall
+    through to the RPE branch below. That fallback is deliberate — we
+    don't want to freeze a user who skipped a rating.
+    """
     # No history → echo the routine's target.
     if not last_sets:
         return Suggestion(
@@ -50,6 +66,18 @@ def suggest(
     # id changes to keep the analysis to one workout.
     first_sid = last_sets[0].get("session_id")
     recent = [s for s in last_sets if s.get("session_id") == first_sid]
+
+    # Pain-monitored branch — imported here to avoid a module-top cycle
+    # (silbernagel re-exports Suggestion + helpers from this file).
+    if tracks_symptoms:
+        from app.progression_policies import silbernagel
+        pain_based = silbernagel.suggest(
+            measurement, target_reps, target_weight, target_duration_sec,
+            is_bodyweight, recent,
+        )
+        if pain_based is not None:
+            return pain_based
+        # else: no pain data on the last session — fall through to RPE.
 
     rpes = [s["rpe"] for s in recent if s.get("rpe") is not None]
     avg_rpe = _avg(rpes) if rpes else None

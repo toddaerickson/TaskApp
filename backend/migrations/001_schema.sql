@@ -124,6 +124,13 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,          -- "HH:MM" local time; NULL = off
     reminder_days TEXT,          -- CSV of "mon,tue,..." or "daily"; NULL = daily when time set
+    -- When true, sessions started from this routine inherit the flag (see
+    -- workout_sessions.tracks_symptoms) and get pain-monitored progression
+    -- (Silbernagel-style advance/hold/back-off) plus the per-exercise pain
+    -- chip + symptom logger. Default FALSE keeps strength routines
+    -- untouched; the field is added via ALTER on existing databases so
+    -- pre-existing routines stay opted-out.
+    tracks_symptoms BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -177,6 +184,11 @@ CREATE TABLE IF NOT EXISTS workout_sessions (
     rpe INTEGER CHECK (rpe BETWEEN 1 AND 10),
     mood INTEGER CHECK (mood BETWEEN 1 AND 5),
     notes TEXT,
+    -- Snapshot of the routine's tracks_symptoms at POST /sessions time.
+    -- Flipping the routine flag afterwards doesn't mutate the in-progress
+    -- session (avoids "values changed under me" surprises mid-workout).
+    -- Ad-hoc sessions (routine_id NULL) get FALSE.
+    tracks_symptoms BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -190,6 +202,10 @@ CREATE TABLE IF NOT EXISTS session_sets (
     duration_sec INTEGER,
     distance_m REAL,
     rpe INTEGER CHECK (rpe BETWEEN 1 AND 10),
+    -- Per-set pain score (0 none, 10 worst). Only written when the parent
+    -- session has tracks_symptoms=TRUE; strength sessions leave NULL and
+    -- the progression dispatcher falls through to the RPE path.
+    pain_score INTEGER CHECK (pain_score BETWEEN 0 AND 10),
     completed BOOLEAN DEFAULT TRUE,
     notes TEXT
 );
