@@ -331,6 +331,9 @@ export interface RoutineExerciseCreatePayload {
   tempo?: string | null;
   keystone?: boolean;
   notes?: string | null;
+  /** null = "all phases" (every phase the routine has). Server-side
+   *  default for rows created before the phase editor shipped. */
+  phase_id?: number | null;
 }
 export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>> & {
   /** Same optimistic-concurrency story as RoutineUpdatePayload. */
