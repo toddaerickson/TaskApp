@@ -524,16 +524,18 @@ def _own_routine_or_404(cur, routine_id: int, user_id: int) -> None:
         raise HTTPException(404, "Routine not found")
 
 
-def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> dict:
-    cur.execute("""
-        SELECT p.* FROM routine_phases p
-        JOIN routines r ON r.id = p.routine_id
-        WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?
-    """, (phase_id, routine_id, user_id))
-    row = cur.fetchone()
-    if not row:
+def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> None:
+    """Raise 404 unless the (routine, phase, user) triple is consistent.
+    The JOIN through routines enforces that the phase belongs to a
+    routine the user owns — same shape as `_own_routine_or_404`."""
+    cur.execute(
+        "SELECT 1 FROM routine_phases p "
+        "JOIN routines r ON r.id = p.routine_id "
+        "WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?",
+        (phase_id, routine_id, user_id),
+    )
+    if not cur.fetchone():
         raise HTTPException(404, "Phase not found")
-    return row
 
 
 @router.get("/{routine_id}/phases", response_model=list[PhaseResponse])
@@ -660,6 +662,11 @@ def reorder_phases(
         cur = conn.cursor()
         _own_routine_or_404(cur, routine_id, user_id)
 
+        # Duplicates first so a payload like [1, 1] reports the actual
+        # problem ("contains duplicates") instead of the misleading
+        # set-equality error ("must contain every phase id").
+        if len(req.phase_ids) != len(set(req.phase_ids)):
+            raise HTTPException(400, "phase_ids contains duplicates")
         cur.execute(
             "SELECT id FROM routine_phases WHERE routine_id = ?",
             (routine_id,),
@@ -669,8 +676,6 @@ def reorder_phases(
             raise HTTPException(
                 400, "phase_ids must contain every phase id for this routine, exactly once"
             )
-        if len(req.phase_ids) != len(set(req.phase_ids)):
-            raise HTTPException(400, "phase_ids contains duplicates")
 
         # Two-pass within a single transaction (get_db commits on success,
         # rolls back on any exception). Pass 1 parks every phase at a
@@ -678,15 +683,27 @@ def reorder_phases(
         # assigns the final 0..N-1 positions. UNIQUE(routine_id, order_idx)
         # holds across both passes because negatives and non-negatives
         # never collide.
-        cur.execute(
-            "UPDATE routine_phases SET order_idx = -id WHERE routine_id = ?",
-            (routine_id,),
-        )
-        for new_idx, phase_id in enumerate(req.phase_ids):
+        #
+        # Pass 1 is scoped to req.phase_ids (not WHERE routine_id alone)
+        # specifically to handle a concurrent insert: if another request
+        # adds a new phase between the validator's SELECT above and this
+        # UPDATE, an unscoped Pass 1 would park that phase at -id and
+        # Pass 2 wouldn't restore it (the loop only knows the validated
+        # ids). Scoping leaves the new phase alone with the order_idx
+        # the inserting request assigned.
+        if req.phase_ids:
+            placeholders = ",".join("?" * len(req.phase_ids))
             cur.execute(
-                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
-                (new_idx, phase_id, routine_id),
+                f"UPDATE routine_phases "
+                f"SET order_idx = -id "
+                f"WHERE routine_id = ? AND id IN ({placeholders})",
+                (routine_id, *req.phase_ids),
             )
+            for new_idx, phase_id in enumerate(req.phase_ids):
+                cur.execute(
+                    "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                    (new_idx, phase_id, routine_id),
+                )
         cur.execute(
             "SELECT * FROM routine_phases WHERE routine_id = ? "
             "ORDER BY order_idx ASC, id ASC",

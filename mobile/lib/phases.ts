@@ -1,8 +1,12 @@
 /**
- * Phase helpers shared between the routine detail screen and the session
- * runner. Centralized so both render the same "which exercises apply
- * right now" answer — drift between the two would break the user's
- * promise that tapping Start runs what the detail page showed.
+ * Phase READ helpers shared between the routine detail screen and the
+ * session runner. Centralized so both render the same "which exercises
+ * apply right now" answer — drift between the two would break the
+ * user's promise that tapping Start runs what the detail page showed.
+ *
+ * Write-side helpers (validation, reorder, swap, count) live in
+ * `phaseEditor.ts` so the read path can import this file without
+ * pulling in editor-only logic.
  */
 import { Routine, RoutineExercise, RoutinePhase } from './stores';
 
