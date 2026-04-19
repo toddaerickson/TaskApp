@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "captured_at": "2026-04-16T20:08:39.815868+00:00",
+  "captured_at": "2026-04-19T20:36:14.682841+00:00",
   "exercises": [
     {
       "slug": "banded_ankle_mobilization",
@@ -16,7 +16,9 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ankle_Circles/0.jpg"
+      ]
     },
     {
       "slug": "banded_fire_hydrant",
@@ -48,7 +50,10 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hip_Lift_with_Band/0.jpg",
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hip_Extension_with_Bands/0.jpg"
+      ]
     },
     {
       "slug": "banded_lateral_walk",
@@ -64,7 +69,10 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Monster_Walk/0.jpg",
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Monster_Walk/1.jpg"
+      ]
     },
     {
       "slug": "clamshell_banded",
@@ -134,7 +142,9 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ankle_On_The_Knee/0.jpg"
+      ]
     },
     {
       "slug": "half_kneeling_hip_flexor",
@@ -168,7 +178,9 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://upload.wikimedia.org/wikipedia/commons/7/7a/Piriformis_stretch.jpg"
+      ]
     },
     {
       "slug": "plantar_fascia_roll",
@@ -184,7 +196,10 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Foot-SMR/0.jpg",
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Foot-SMR/1.jpg"
+      ]
     },
     {
       "slug": "seated_soleus_stretch",
@@ -216,7 +231,10 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://upload.wikimedia.org/wikipedia/commons/5/54/Side_Leg_Raise.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/f/f7/Side-reclining_leg_lift_pose.jpg"
+      ]
     },
     {
       "slug": "single_leg_glute_bridge",
@@ -250,7 +268,10 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kettlebell_One-Legged_Deadlift/0.jpg",
+        "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kettlebell_One-Legged_Deadlift/1.jpg"
+      ]
     },
     {
       "slug": "wall_ankle_dorsiflexion",

@@ -99,5 +99,7 @@ cd mobile && npm test            # 45 cases (3 suites, pure-function libs only)
 - Route `GET /routines` and `GET /sessions` are no longer N+1 and have
   cursor-based pagination (`limit` + `cursor`). Mobile `getRoutines()`
   pages transparently; `listSessions()` accepts an optional `cursor`.
-- 3 exercises still need images: `clamshell_banded`, `seated_soleus_stretch`,
-  `banded_fire_hydrant`. Use the admin screen's "Find" button.
+- 2 exercises still need images: `seated_soleus_stretch` and
+  `banded_fire_hydrant`. Use the admin screen's "Find" button. The
+  `MAX_IMAGELESS` ratchet in `backend/tests/test_seed_snapshot.py` is
+  set to 2 — bump it down when you source these.
