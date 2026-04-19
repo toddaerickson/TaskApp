@@ -108,17 +108,25 @@ export default function RoutineDetailScreen() {
           headerRight: () => (
             <Pressable
               onPress={() => setEditMode(!editMode)}
-              // Explicit 44×44 target; the earlier 22px icon sat in a
-              // ~30px box which is below WCAG minimum.
-              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}
+              // Labeled pill replaces the previous icon-only pencil. Users
+              // who tapped a "Quick start" template and landed here couldn't
+              // find where to customize the routine — the unlabeled 22px
+              // icon on the colored header didn't read as a button. 44×44
+              // minimum tap target is met via padding + hitSlop.
+              style={({ pressed }) => [
+                styles.headerEditBtn,
+                editMode && styles.headerEditBtnActive,
+                pressed && { opacity: 0.7 },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel={editMode ? 'Exit edit mode' : 'Edit routine'}
+              accessibilityLabel={editMode ? 'Done editing routine' : 'Edit routine'}
               hitSlop={8}
             >
               <Ionicons
                 name={editMode ? 'checkmark' : 'create-outline'}
-                size={22} color="#fff"
+                size={16} color="#fff"
               />
+              <Text style={styles.headerEditText}>{editMode ? 'Done' : 'Edit'}</Text>
             </Pressable>
           ),
         }}
@@ -485,6 +493,18 @@ const styles = StyleSheet.create({
   header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
   meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  headerEditBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    // 44×44 via explicit minHeight + horizontal padding. The visual pill
+    // is shorter than the tap target — the outline/fill is the "button".
+    minHeight: 44, minWidth: 44,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    borderRadius: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)',
+  },
+  headerEditBtnActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  headerEditText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
 
   exCard: {
