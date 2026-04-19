@@ -543,7 +543,13 @@ function InlineDoseRow({ re, readOnly, onSaved }: {
     // Nothing seeded yet. Give the user a way in without forcing edit mode.
     if (readOnly) return null;
     return (
-      <Pressable style={styles.doseAdd} onPress={() => setEditing('work')}>
+      <Pressable
+        style={styles.doseAdd}
+        onPress={() => setEditing('work')}
+        accessibilityRole="button"
+        accessibilityLabel="Set dose"
+        accessibilityHint="Opens inline editor for sets, reps, and duration"
+      >
         <Ionicons name="add" size={12} color={colors.primary} />
         <Text style={styles.doseAddText}>Set dose</Text>
       </Pressable>
