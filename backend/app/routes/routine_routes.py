@@ -524,16 +524,18 @@ def _own_routine_or_404(cur, routine_id: int, user_id: int) -> None:
         raise HTTPException(404, "Routine not found")
 
 
-def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> dict:
-    cur.execute("""
-        SELECT p.* FROM routine_phases p
-        JOIN routines r ON r.id = p.routine_id
-        WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?
-    """, (phase_id, routine_id, user_id))
-    row = cur.fetchone()
-    if not row:
+def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> None:
+    """Raise 404 unless the (routine, phase, user) triple is consistent.
+    The JOIN through routines enforces that the phase belongs to a
+    routine the user owns — same shape as `_own_routine_or_404`."""
+    cur.execute(
+        "SELECT 1 FROM routine_phases p "
+        "JOIN routines r ON r.id = p.routine_id "
+        "WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?",
+        (phase_id, routine_id, user_id),
+    )
+    if not cur.fetchone():
         raise HTTPException(404, "Phase not found")
-    return row
 
 
 @router.get("/{routine_id}/phases", response_model=list[PhaseResponse])
