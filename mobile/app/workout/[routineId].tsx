@@ -603,6 +603,14 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
   const [weight, setWeight] = useState(String(re.target_weight ?? ''));
   const [tempo, setTempo] = useState(re.tempo ?? '');
   const [rest, setRest] = useState(String(re.rest_sec ?? ''));
+  // Per-field dirty tracking. The chip UX implies "edit one value" but
+  // work-mode renders three inputs (sets / reps / seconds). Without the
+  // flags, an Overwrite-after-409 would silently revert any concurrent
+  // change to the two fields the user didn't actually touch — they'd
+  // get pulled in with their stale-on-mount values. Track per-input so
+  // the body only carries fields the user actively edited.
+  const [dirty, setDirty] = useState<Record<string, true>>({});
+  const mark = (k: string) => setDirty((d) => (d[k] ? d : { ...d, [k]: true }));
   const [busy, setBusy] = useState(false);
 
   const save = async (overwrite = false) => {
@@ -610,17 +618,24 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
     try {
       const body: api.RoutineExerciseUpdatePayload = {};
       if (kind === 'work') {
-        body.target_sets = sets ? Number(sets) : null;
         // Reps and duration are mutually exclusive at display time. Let
         // the user decide which to fill; blank → null clears the field.
-        body.target_reps = reps ? Number(reps) : null;
-        body.target_duration_sec = dur ? Number(dur) : null;
-      } else if (kind === 'weight') {
+        if (dirty.sets) body.target_sets = sets ? Number(sets) : null;
+        if (dirty.reps) body.target_reps = reps ? Number(reps) : null;
+        if (dirty.dur) body.target_duration_sec = dur ? Number(dur) : null;
+      } else if (kind === 'weight' && dirty.weight) {
         body.target_weight = weight ? Number(weight) : null;
-      } else if (kind === 'tempo') {
+      } else if (kind === 'tempo' && dirty.tempo) {
         body.tempo = tempo || null;
-      } else if (kind === 'rest') {
+      } else if (kind === 'rest' && dirty.rest) {
         body.rest_sec = rest ? Number(rest) : null;
+      }
+      // No-op save when the user hit Save without editing anything: skip
+      // the request entirely so we don't bump updated_at and create
+      // spurious 409s elsewhere.
+      if (Object.keys(body).length === 0) {
+        onClose();
+        return;
       }
       if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
       await api.updateRoutineExercise(re.id, body);
@@ -643,19 +658,25 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
     <View style={styles.inlinePanel}>
       {kind === 'work' && (
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          <EditField label="Sets" value={sets} onChange={setSets} numeric />
-          <EditField label="Reps" value={reps} onChange={setReps} numeric />
-          <EditField label="Seconds" value={dur} onChange={setDur} numeric />
+          <EditField label="Sets" value={sets}
+            onChange={(v) => { setSets(v); mark('sets'); }} numeric />
+          <EditField label="Reps" value={reps}
+            onChange={(v) => { setReps(v); mark('reps'); }} numeric />
+          <EditField label="Seconds" value={dur}
+            onChange={(v) => { setDur(v); mark('dur'); }} numeric />
         </View>
       )}
       {kind === 'weight' && (
-        <EditField label="Weight (lb)" value={weight} onChange={setWeight} numeric />
+        <EditField label="Weight (lb)" value={weight}
+          onChange={(v) => { setWeight(v); mark('weight'); }} numeric />
       )}
       {kind === 'tempo' && (
-        <EditField label="Tempo (e.g. 3-1-3)" value={tempo} onChange={setTempo} />
+        <EditField label="Tempo (e.g. 3-1-3)" value={tempo}
+          onChange={(v) => { setTempo(v); mark('tempo'); }} />
       )}
       {kind === 'rest' && (
-        <EditField label="Rest (s)" value={rest} onChange={setRest} numeric />
+        <EditField label="Rest (s)" value={rest}
+          onChange={(v) => { setRest(v); mark('rest'); }} numeric />
       )}
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
         <Pressable
