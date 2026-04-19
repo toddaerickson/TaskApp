@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import type { ImageCandidate } from '@/lib/api';
+import { RoutineImportCard } from '@/components/RoutineImportCard';
 
 const SAMPLE = `# Paste one row per URL: slug<TAB>url
 # Or multiple URLs per slug on one row: slug<TAB>url1<TAB>url2
@@ -165,6 +166,10 @@ export default function AdminScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Image Admin' }} />
       <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
+        {/* Routine import — top of admin so it's the first thing seen
+            after a user lands here from the workouts tab. */}
+        <RoutineImportCard exercises={exercises} />
+
         {/* Paste panel */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Bulk paste URLs</Text>

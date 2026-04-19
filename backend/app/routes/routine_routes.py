@@ -9,6 +9,7 @@ from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
     PhaseCreate, PhaseUpdate, PhaseResponse,
+    RoutineImportRequest,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
@@ -141,6 +142,99 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
                  ex.target_sets, ex.target_reps, ex.target_weight, ex.target_duration_sec,
                  ex.rest_sec, ex.tempo, bool(ex.keystone), ex.notes),
             )
+        cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
+        return _hydrate_routine(cur, cur.fetchone())
+
+
+@router.post("/import", response_model=RoutineResponse)
+def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current_user_id)):
+    """Create a routine from a portable JSON template. Resolves slugs to
+    exercise ids (rejecting unknown slugs), creates phases in declaration
+    order, then routine_exercises with phase_idx → phase_id remapping.
+    All-or-nothing: a single bad slug or out-of-range phase_idx 400s
+    before any rows are written, so the user never lands with a half-
+    imported routine."""
+    if not req.exercises:
+        raise HTTPException(400, "Routine must include at least one exercise")
+
+    slugs = [ex.slug for ex in req.exercises]
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        # Resolve slugs in one query. NULL user_id = global library; we
+        # also allow the importing user's own custom exercises.
+        placeholders = ",".join("?" for _ in slugs)
+        cur.execute(
+            f"SELECT id, slug, measurement FROM exercises "
+            f"WHERE slug IN ({placeholders}) "
+            f"AND (user_id IS NULL OR user_id = ?)",
+            tuple(slugs) + (user_id,),
+        )
+        slug_to_row = {r["slug"]: r for r in cur.fetchall()}
+        missing = [s for s in slugs if s not in slug_to_row]
+        if missing:
+            raise HTTPException(
+                400, f"Unknown exercise slug(s): {', '.join(sorted(set(missing)))}"
+            )
+
+        # Validate phase_idx + measurement compatibility before writing.
+        n_phases = len(req.phases)
+        for i, ex in enumerate(req.exercises):
+            if ex.phase_idx is not None and not (0 <= ex.phase_idx < n_phases):
+                raise HTTPException(
+                    400, f"exercises[{i}].phase_idx={ex.phase_idx} out of range "
+                         f"(have {n_phases} phase(s))"
+                )
+            row = slug_to_row[ex.slug]
+            measurement = row["measurement"]
+            has_reps = ex.target_reps is not None
+            has_dur = ex.target_duration_sec is not None
+            if measurement == "duration" and not has_dur:
+                raise HTTPException(
+                    400, f"'{ex.slug}' is a duration exercise — set target_duration_sec"
+                )
+            if measurement in ("reps", "reps_weight") and not has_reps:
+                raise HTTPException(
+                    400, f"'{ex.slug}' is a reps exercise — set target_reps"
+                )
+
+        # Insert routine + phases + exercises in one transaction (get_db
+        # commits on success, rolls back on exception). phase_start_date
+        # is null when the import omits it — the routine stays "flat".
+        cur.execute(
+            """INSERT INTO routines
+               (user_id, name, goal, notes, sort_order, phase_start_date)
+               VALUES (?, ?, ?, ?, 0, ?)""",
+            (user_id, req.name, req.goal or "general", req.notes,
+             req.phase_start_date),
+        )
+        rid = cur.lastrowid
+
+        # Phases first so routine_exercises can FK to them.
+        idx_to_phase_id: dict[int, int] = {}
+        for idx, ph in enumerate(req.phases):
+            cur.execute(
+                "INSERT INTO routine_phases "
+                "(routine_id, label, order_idx, duration_weeks, notes) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (rid, ph.label, idx, ph.duration_weeks, ph.notes),
+            )
+            idx_to_phase_id[idx] = cur.lastrowid
+
+        for idx, ex in enumerate(req.exercises):
+            phase_id = idx_to_phase_id.get(ex.phase_idx) if ex.phase_idx is not None else None
+            cur.execute(
+                """INSERT INTO routine_exercises
+                (routine_id, exercise_id, sort_order, target_sets, target_reps,
+                 target_weight, target_duration_sec, rest_sec, tempo, keystone,
+                 notes, phase_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (rid, slug_to_row[ex.slug]["id"], idx,
+                 ex.target_sets, ex.target_reps, ex.target_weight,
+                 ex.target_duration_sec, ex.rest_sec, ex.tempo,
+                 bool(ex.keystone), ex.notes, phase_id),
+            )
+
         cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
         return _hydrate_routine(cur, cur.fetchone())
 
