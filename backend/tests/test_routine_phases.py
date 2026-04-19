@@ -269,14 +269,29 @@ def test_reorder_phases_rejects_foreign_id(auth_client, seeded_globals):
 
 
 def test_reorder_phases_rejects_duplicates(auth_client, seeded_globals):
+    """The duplicate check runs before the set-equality check so the
+    error message names the real problem. Earlier order had [1, 1]
+    against {1, 2} report "must contain every phase id" — confusing."""
     c, tok, _ = auth_client
     rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
-    pid = c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
-        "label": "only", "order_idx": 0, "duration_weeks": 1,
+    a = c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+        "label": "A", "order_idx": 0, "duration_weeks": 1,
     }).json()["id"]
+    b = c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+        "label": "B", "order_idx": 1, "duration_weeks": 1,
+    }).json()["id"]
+    # Duplicate WITH a missing id — both checks would fire; duplicate
+    # wins and the user sees the actionable error.
     r = c.post(f"/routines/{rid}/phases/reorder", headers=_h(tok),
-               json={"phase_ids": [pid, pid]})
+               json={"phase_ids": [a, a]})
     assert r.status_code == 400
+    assert "duplicates" in r.text
+    # Sanity: the set-equality error still fires when there's no dup.
+    r2 = c.post(f"/routines/{rid}/phases/reorder", headers=_h(tok),
+                json={"phase_ids": [a]})
+    assert r2.status_code == 400
+    assert "every phase id" in r2.text
+    _ = b  # keeps the lint quiet — b is created to make the set mismatch real
 
 
 def test_reorder_phases_cross_user_blocked(client, seeded_globals):
