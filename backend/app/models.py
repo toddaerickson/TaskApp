@@ -346,6 +346,38 @@ class RoutineResponse(BaseModel):
     current_phase_id: Optional[int] = None
 
 
+# Portable JSON format for routine import/export. Uses `slug` instead of
+# `exercise_id` so a routine authored against one user's library survives
+# import into another user's library — as long as the seeded slugs match.
+# `phase_idx` is a 0-based pointer into `phases[]`; null = applies in
+# every phase. Resolved server-side to a real phase_id after the phases
+# are created.
+class RoutineImportPhase(BaseModel):
+    label: str
+    duration_weeks: int = Field(ge=1, le=520)
+    notes: Optional[str] = None
+
+class RoutineImportExercise(BaseModel):
+    slug: str
+    phase_idx: Optional[int] = None
+    target_sets: Optional[int] = 1
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    target_duration_sec: Optional[int] = None
+    rest_sec: Optional[int] = 60
+    tempo: Optional[str] = None
+    keystone: Optional[bool] = False
+    notes: Optional[str] = None
+
+class RoutineImportRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    goal: Optional[str] = "general"
+    notes: Optional[str] = None
+    phase_start_date: Optional[str] = None  # "YYYY-MM-DD"; null = flat
+    phases: list[RoutineImportPhase] = []
+    exercises: list[RoutineImportExercise] = []
+
+
 class SessionSetCreate(BaseModel):
     exercise_id: int
     set_number: Optional[int] = None  # server-assigned when omitted

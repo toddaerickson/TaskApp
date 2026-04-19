@@ -478,6 +478,15 @@ export async function createRoutine(payload: RoutineCreatePayload) {
   return data;
 }
 
+/** Import a routine from the portable JSON template. Server validates
+ *  slugs, phase_idx ranges, and measurement compatibility — same checks
+ *  the client runs in routineImport.parseAndValidate, but trustworthy
+ *  even if the client was bypassed. */
+export async function importRoutine(payload: unknown) {
+  const { data } = await api.post('/routines/import', payload);
+  return data;
+}
+
 export async function deleteRoutine(id: number) {
   await api.delete(`/routines/${id}`);
 }
