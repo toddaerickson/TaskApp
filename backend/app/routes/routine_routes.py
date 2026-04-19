@@ -318,6 +318,13 @@ def add_exercise(routine_id: int, req: RoutineExerciseCreate, user_id: int = Dep
         return row
 
 
+_ROUTINE_EXERCISE_UPDATE_COLUMNS = {
+    "sort_order", "target_sets", "target_reps", "target_weight",
+    "target_duration_sec", "rest_sec", "tempo", "keystone", "notes",
+    "phase_id", "updated_at",
+}
+
+
 @router.put("/exercises/{routine_exercise_id}", response_model=RoutineExerciseResponse)
 def update_routine_exercise(
     routine_exercise_id: int,
@@ -327,7 +334,7 @@ def update_routine_exercise(
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT re.id, re.updated_at FROM routine_exercises re
+            SELECT re.id, re.routine_id, re.updated_at FROM routine_exercises re
             JOIN routines r ON r.id = re.routine_id
             WHERE re.id = ? AND r.user_id = ?
         """, (routine_exercise_id, user_id))
@@ -336,6 +343,21 @@ def update_routine_exercise(
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
+        # phase_id must belong to this routine (null always allowed — it
+        # means "applies in every phase"). Without this check, a client
+        # could point phase_id at a phase in a different routine (their
+        # own or, if they guessed the id, someone else's) — not a data
+        # leak since the reference is write-only, but an integrity bug
+        # that would surface as silently-hidden exercises (phase_id
+        # never matches the active phase id) and as dangling FKs when
+        # the referenced phase is later deleted.
+        if "phase_id" in fields and fields["phase_id"] is not None:
+            cur.execute(
+                "SELECT 1 FROM routine_phases WHERE id = ? AND routine_id = ?",
+                (fields["phase_id"], row["routine_id"]),
+            )
+            if not cur.fetchone():
+                raise HTTPException(400, "phase_id does not belong to this routine")
         if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
             cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
             current = cur.fetchone()
@@ -351,6 +373,10 @@ def update_routine_exercise(
             )
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
+        # Allow-list the columns that can be updated. See the matching
+        # note on _PHASE_UPDATE_COLUMNS — protects the dynamic UPDATE
+        # from future Pydantic configs that let extra fields through.
+        fields = {k: v for k, v in fields.items() if k in _ROUTINE_EXERCISE_UPDATE_COLUMNS}
         if fields:
             fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
@@ -544,6 +570,9 @@ def create_phase(
         return cur.fetchone()
 
 
+_PHASE_UPDATE_COLUMNS = {"label", "order_idx", "duration_weeks", "notes"}
+
+
 @router.put("/{routine_id}/phases/{phase_id}", response_model=PhaseResponse)
 def update_phase(
     routine_id: int,
@@ -554,7 +583,15 @@ def update_phase(
     with get_db() as conn:
         cur = conn.cursor()
         _own_phase_or_404(cur, routine_id, phase_id, user_id)
-        fields = req.model_dump(exclude_unset=True)
+        # Allow-list the columns that can be updated so the dynamic
+        # UPDATE can never interpolate a column name that wasn't
+        # hand-approved here — a future change to PhaseUpdate (say,
+        # model_config=ConfigDict(extra="allow")) can't open a SQLi
+        # surface without a matching edit to this set.
+        fields = {
+            k: v for k, v in req.model_dump(exclude_unset=True).items()
+            if k in _PHASE_UPDATE_COLUMNS
+        }
         if "duration_weeks" in fields and (fields["duration_weeks"] or 0) < 1:
             raise HTTPException(400, "duration_weeks must be >= 1")
         if "order_idx" in fields:

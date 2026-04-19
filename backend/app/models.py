@@ -9,6 +9,22 @@ from datetime import date, time, datetime
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _validate_iso_date_opt(v: Optional[str]) -> Optional[str]:
+    """ISO-8601 date validator shared by any Pydantic field that stores a
+    date as a string (phase_start_date, scheduling hints, etc.). Empty
+    string or None → None (clears the field). Any other value must parse
+    via date.fromisoformat, otherwise the field raises ValueError so the
+    caller gets a 422 instead of silently storing "not-a-date" and then
+    failing at render time."""
+    if v is None or v == "":
+        return None
+    try:
+        date.fromisoformat(v)
+    except ValueError as e:
+        raise ValueError(f"must be an ISO date (YYYY-MM-DD): {e}")
+    return v
+
+
 # --- Auth ---
 class RegisterRequest(BaseModel):
     email: str
@@ -327,6 +343,11 @@ class RoutineUpdate(BaseModel):
     # client's last GET. Omit to opt out (silent last-write-wins).
     expected_updated_at: Optional[datetime] = None
 
+    @field_validator("phase_start_date")
+    @classmethod
+    def _v_phase_start_date(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_iso_date_opt(v)
+
 class RoutineResponse(BaseModel):
     id: int
     user_id: int
@@ -374,8 +395,18 @@ class RoutineImportRequest(BaseModel):
     goal: Optional[str] = "general"
     notes: Optional[str] = None
     phase_start_date: Optional[str] = None  # "YYYY-MM-DD"; null = flat
-    phases: list[RoutineImportPhase] = []
-    exercises: list[RoutineImportExercise] = []
+    # Caps are well above realistic authoring (a Curovate protocol tops out
+    # at 4-6 phases and ~30 exercises). They exist to keep a malicious or
+    # confused client from building a `slug IN (?,?...)` lookup that
+    # exceeds SQLite's 32,766 parameter cap — the request would 500 mid-
+    # transaction and take a handler worker with it.
+    phases: list[RoutineImportPhase] = Field(default_factory=list, max_length=20)
+    exercises: list[RoutineImportExercise] = Field(default_factory=list, max_length=200)
+
+    @field_validator("phase_start_date")
+    @classmethod
+    def _v_phase_start_date(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_iso_date_opt(v)
 
 
 class SessionSetCreate(BaseModel):
