@@ -10,13 +10,13 @@ allowed, but the ratchet count here has to be bumped deliberately.
 """
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
+from seed_workouts import IMAGES
+
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "seed_data" / "exercise_snapshot.json"
-SEED_WORKOUTS = ROOT / "seed_workouts.py"
 
 # Bump this (downward) as images are added to the snapshot. Raising it
 # requires explaining why in the PR description. Current known-unsourced:
@@ -26,19 +26,6 @@ MAX_IMAGELESS = 2
 
 def _load_snapshot() -> dict:
     return json.loads(SNAPSHOT.read_text())
-
-
-def _load_images_dict() -> dict[str, list[str]]:
-    """Return seed_workouts.IMAGES without importing the module (the
-    module side-effects the DB on import)."""
-    tree = ast.parse(SEED_WORKOUTS.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "IMAGES" for t in node.targets
-        ):
-            base = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises"
-            return eval(ast.unparse(node.value), {"_BASE": base})  # noqa: S307
-    raise AssertionError("IMAGES dict not found in seed_workouts.py")
 
 
 def test_snapshot_every_exercise_has_slug_and_name():
@@ -61,19 +48,26 @@ def test_snapshot_image_coverage_not_regressed():
 
 
 def test_snapshot_matches_seed_workouts_images_dict():
-    """Every slug in seed_workouts.IMAGES that also exists in the
-    snapshot should have non-empty images — the IMAGES dict is the
-    hardcoded source of truth the JSON is supposed to be baked from.
-    Drift between them means someone added a URL and forgot to
-    regenerate the snapshot."""
+    """Every slug in seed_workouts.IMAGES must be present in the snapshot
+    AND have non-empty images. The IMAGES dict is the source of truth the
+    JSON is supposed to be baked from; either kind of drift means someone
+    added an exercise (or URLs) without rerunning
+    `scripts/snapshot_exercises.py`.
+
+    The earlier shape of this test silently skipped slugs that weren't in
+    the snapshot — exactly the case it claimed to catch. Don't add that
+    skip back without a very good reason."""
     snap = _load_snapshot()
-    images_dict = _load_images_dict()
     snap_slugs = {e["slug"]: e for e in snap["exercises"]}
-    for slug, urls in images_dict.items():
-        if slug not in snap_slugs or not urls:
+    for slug, urls in IMAGES.items():
+        if not urls:
             continue
-        ex = snap_slugs[slug]
-        assert ex.get("images"), (
-            f"snapshot[{slug}].images is empty but seed_workouts.IMAGES has {len(urls)} URL(s); "
-            f"snapshot needs regenerating"
+        assert slug in snap_slugs, (
+            f"seed_workouts.IMAGES has {len(urls)} URL(s) for '{slug}' but "
+            f"the snapshot doesn't contain that slug at all; snapshot "
+            f"needs regenerating (run scripts/snapshot_exercises.py)"
+        )
+        assert snap_slugs[slug].get("images"), (
+            f"snapshot[{slug}].images is empty but seed_workouts.IMAGES "
+            f"has {len(urls)} URL(s); snapshot needs regenerating"
         )
