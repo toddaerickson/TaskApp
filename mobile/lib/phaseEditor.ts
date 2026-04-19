@@ -1,7 +1,10 @@
 /**
- * Pure-function helpers backing the phase editor UI. Kept separate from
- * the component so jest can cover them without the RN runtime (same split
- * as `routineImport.ts` and `reminders.ts`).
+ * Phase WRITE helpers backing the phase editor UI: validation, swap,
+ * reorder id-list computation, and the count used by the delete-phase
+ * confirm dialog. Kept separate from the component so jest can cover
+ * them without the RN runtime (same split as `routineImport.ts` and
+ * `reminders.ts`), and separate from `phases.ts` so the read-side
+ * (banner + filter) doesn't pull in editor-only logic.
  */
 import type { Routine, RoutinePhase } from './stores';
 
