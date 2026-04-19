@@ -704,6 +704,17 @@ def reorder_phases(
                     "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
                     (new_idx, phase_id, routine_id),
                 )
+                # Concurrent-delete guard: validator's SELECT saw this
+                # phase, but it may have been deleted by another request
+                # before this UPDATE. rowcount=0 means the row is gone;
+                # 409 to roll back the whole transaction (get_db rolls
+                # on exception) so the caller sees the pre-reorder state
+                # on reload rather than a silently-truncated list.
+                if cur.rowcount == 0:
+                    raise HTTPException(
+                        409,
+                        f"phase_id {phase_id} was deleted during reorder; reload and retry",
+                    )
         cur.execute(
             "SELECT * FROM routine_phases WHERE routine_id = ? "
             "ORDER BY order_idx ASC, id ASC",
