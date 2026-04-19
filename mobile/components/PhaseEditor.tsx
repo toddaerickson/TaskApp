@@ -1,14 +1,12 @@
 /**
  * Phase manager rendered inside RoutineHeaderEdit on the routine detail
  * screen. Adds, edits, reorders, and deletes phases via the REST API
- * shipped in #32. Zero backend changes in this PR — the component is
- * a pure consumer of existing CRUD.
+ * shipped in #32.
  *
- * Reorder uses a 3-step swap because the server enforces
- * UNIQUE(routine_id, order_idx) and would 409 on a naive PUT that
- * collides with a sibling. The middle step parks the moving row at a
- * negative, guaranteed-unique index, then each target position is
- * claimed in turn.
+ * Reorder POSTs the new id order to /phases/reorder and the server
+ * applies the permutation in a single transaction. The earlier
+ * 3-PUT client-side dance was not atomic — a network drop between
+ * calls left a phase parked at a negative order_idx permanently.
  */
 import { colors } from '@/lib/colors';
 import { useState } from 'react';
@@ -19,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Routine, RoutinePhase } from '@/lib/stores';
 import * as api from '@/lib/api';
 import {
-  validateDurationWeeks, countExercisesInPhase,
+  validateDurationWeeks, countExercisesInPhase, reorderPhaseIds,
 } from '@/lib/phaseEditor';
 
 function confirm(title: string, message: string): Promise<boolean> {
@@ -69,15 +67,14 @@ export function PhaseEditor({ routine, onChanged }: Props) {
     if (to < 0 || to >= phases.length || busy) return;
     setBusy(true);
     try {
-      const moving = phases[from];
-      const displaced = phases[to];
-      // 3-step swap to skirt the UNIQUE(routine_id, order_idx) constraint:
-      // park the moving row at a negative, guaranteed-unique index first,
-      // free up its slot for the displaced row, then land in the target.
-      await api.updatePhase(routine.id, moving.id, { order_idx: -moving.id });
-      await api.updatePhase(routine.id, displaced.id, { order_idx: from });
-      await api.updatePhase(routine.id, moving.id, { order_idx: to });
+      await api.reorderPhases(routine.id, reorderPhaseIds(phases, from, to));
       onChanged();
+    } catch (e) {
+      // Reload to re-sync the UI with whatever the server actually has;
+      // the transaction means either the whole move applied or none of
+      // it did, so the refetched state is never corrupted.
+      onChanged();
+      throw e;
     } finally { setBusy(false); }
   };
 
