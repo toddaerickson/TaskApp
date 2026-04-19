@@ -678,15 +678,27 @@ def reorder_phases(
         # assigns the final 0..N-1 positions. UNIQUE(routine_id, order_idx)
         # holds across both passes because negatives and non-negatives
         # never collide.
-        cur.execute(
-            "UPDATE routine_phases SET order_idx = -id WHERE routine_id = ?",
-            (routine_id,),
-        )
-        for new_idx, phase_id in enumerate(req.phase_ids):
+        #
+        # Pass 1 is scoped to req.phase_ids (not WHERE routine_id alone)
+        # specifically to handle a concurrent insert: if another request
+        # adds a new phase between the validator's SELECT above and this
+        # UPDATE, an unscoped Pass 1 would park that phase at -id and
+        # Pass 2 wouldn't restore it (the loop only knows the validated
+        # ids). Scoping leaves the new phase alone with the order_idx
+        # the inserting request assigned.
+        if req.phase_ids:
+            placeholders = ",".join("?" * len(req.phase_ids))
             cur.execute(
-                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
-                (new_idx, phase_id, routine_id),
+                f"UPDATE routine_phases "
+                f"SET order_idx = -id "
+                f"WHERE routine_id = ? AND id IN ({placeholders})",
+                (routine_id, *req.phase_ids),
             )
+            for new_idx, phase_id in enumerate(req.phase_ids):
+                cur.execute(
+                    "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                    (new_idx, phase_id, routine_id),
+                )
         cur.execute(
             "SELECT * FROM routine_phases WHERE routine_id = ? "
             "ORDER BY order_idx ASC, id ASC",
