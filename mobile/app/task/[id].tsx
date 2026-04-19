@@ -113,7 +113,7 @@ export default function TaskDetailScreen() {
   return (
     <ScrollView style={[styles.container, isNarrow && styles.containerNarrow]}>
       <Text style={styles.label}>Task</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} />
+      <TextInput style={styles.input} value={title} onChangeText={setTitle} accessibilityLabel="Task title" />
 
       <Text style={styles.label}>Folder</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
@@ -167,7 +167,7 @@ export default function TaskDetailScreen() {
       )}
 
       <Text style={styles.label}>Note</Text>
-      <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={note} onChangeText={setNote} multiline placeholderTextColor="#999" />
+      <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={note} onChangeText={setNote} multiline placeholderTextColor={colors.textMuted} accessibilityLabel="Task note" />
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Changes'}</Text>

@@ -3,6 +3,7 @@ import axiosRetry from 'axios-retry';
 import { Platform } from 'react-native';
 import { emitSessionExpired } from './sessionExpiry';
 import { newRequestId } from './requestId';
+import { reportError } from './errorReporter';
 
 // EXPO_PUBLIC_ env vars are inlined at build time by Metro. Override for
 // production by setting EXPO_PUBLIC_API_URL in the host's build env
@@ -94,6 +95,22 @@ api.interceptors.response.use(
         }
       } catch { /* best-effort cleanup */ }
       emitSessionExpired();
+    }
+    // Telemetry: only 5xx and network errors are worth forwarding. 4xx
+    // tends to be user-input driven (409 conflicts, 422 validation) and
+    // would create noise. requestId is echoed by the server via the
+    // X-Request-Id header on the response; pair it with the Sentry event.
+    const isServerOrNetwork = !status || status >= 500;
+    if (isServerOrNetwork && !isAuthEndpoint) {
+      const rid =
+        (error?.response?.headers?.['x-request-id'] as string | undefined) ||
+        (error?.config?.headers?.['X-Request-Id'] as string | undefined);
+      reportError(error, {
+        requestId: rid,
+        status,
+        route: url,
+        tags: { method: (error?.config?.method || 'get').toUpperCase() },
+      });
     }
     return Promise.reject(error);
   },
@@ -314,8 +331,14 @@ export interface RoutineExerciseCreatePayload {
   tempo?: string | null;
   keystone?: boolean;
   notes?: string | null;
+  /** null = "all phases" (every phase the routine has). Server-side
+   *  default for rows created before the phase editor shipped. */
+  phase_id?: number | null;
 }
-export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>>;
+export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>> & {
+  /** Same optimistic-concurrency story as RoutineUpdatePayload. */
+  expected_updated_at?: string;
+};
 
 export interface RoutineCreatePayload {
   name: string;
@@ -326,7 +349,15 @@ export interface RoutineCreatePayload {
   reminder_days?: string | null;
   exercises?: RoutineExerciseCreatePayload[];
 }
-export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>>;
+export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {
+  /** ISO date "YYYY-MM-DD". Sets phase 0's start date so the server can
+   *  resolve current_phase_id. Send null to un-phase. */
+  phase_start_date?: string | null;
+  /** Optimistic concurrency: ISO timestamp of the routine when the client
+   *  last read it. Server returns 409 if the row has moved past it. Omit
+   *  to opt out (silent last-write-wins). */
+  expected_updated_at?: string;
+};
 
 export interface SessionUpdatePayload {
   ended_at?: string | null;
@@ -422,8 +453,22 @@ export async function searchExerciseImages(exerciseId: number, q?: string, n = 6
 
 // --- Workouts: Routines ---
 export async function getRoutines() {
-  const { data } = await api.get('/routines');
-  return data;
+  // Backend caps each page at `limit` (default 50, max 200) with cursor-based
+  // pagination on `(sort_order, id)`. Loop until a short page comes back so
+  // callers never silently lose rows past the first page — this codebase has
+  // no "load more" UI yet and almost every screen treats the list as total.
+  const PAGE = 200;
+  const all: any[] = [];
+  let cursor: number | undefined;
+  for (let i = 0; i < 20; i++) {
+    const { data } = await api.get('/routines', {
+      params: cursor === undefined ? { limit: PAGE } : { limit: PAGE, cursor },
+    });
+    all.push(...data);
+    if (data.length < PAGE) break;
+    cursor = data[data.length - 1].id;
+  }
+  return all;
 }
 
 export async function getRoutine(id: number) {
@@ -433,6 +478,15 @@ export async function getRoutine(id: number) {
 
 export async function createRoutine(payload: RoutineCreatePayload) {
   const { data } = await api.post('/routines', payload);
+  return data;
+}
+
+/** Import a routine from the portable JSON template. Server validates
+ *  slugs, phase_idx ranges, and measurement compatibility — same checks
+ *  the client runs in routineImport.parseAndValidate, but trustworthy
+ *  even if the client was bypassed. */
+export async function importRoutine(payload: unknown) {
+  const { data } = await api.post('/routines/import', payload);
   return data;
 }
 
@@ -449,6 +503,35 @@ export async function removeExerciseFromRoutine(routineExerciseId: number) {
   await api.delete(`/routines/exercises/${routineExerciseId}`);
 }
 
+// ---- Phases (Curovate-style progression) ----------------------------------
+// A routine with zero phases behaves as it always has. Creating phases
+// doesn't flip the routine into "phased mode" until `phase_start_date`
+// is set via updateRoutine(id, { phase_start_date: "YYYY-MM-DD" }).
+
+export interface RoutinePhasePayload {
+  label: string;
+  order_idx: number;
+  duration_weeks: number;
+  notes?: string | null;
+}
+export type RoutinePhaseUpdatePayload = Partial<RoutinePhasePayload>;
+
+export async function createPhase(routineId: number, payload: RoutinePhasePayload) {
+  const { data } = await api.post(`/routines/${routineId}/phases`, payload);
+  return data;
+}
+
+export async function updatePhase(
+  routineId: number, phaseId: number, payload: RoutinePhaseUpdatePayload,
+) {
+  const { data } = await api.put(`/routines/${routineId}/phases/${phaseId}`, payload);
+  return data;
+}
+
+export async function deletePhase(routineId: number, phaseId: number) {
+  await api.delete(`/routines/${routineId}/phases/${phaseId}`);
+}
+
 // --- Workouts: Sessions ---
 export async function startSession(routineId?: number, notes?: string) {
   const { data } = await api.post('/sessions', { routine_id: routineId, notes });
@@ -460,7 +543,7 @@ export async function getSession(id: number) {
   return data;
 }
 
-export async function listSessions(params?: { limit?: number; routine_id?: number }) {
+export async function listSessions(params?: { limit?: number; cursor?: number; routine_id?: number }) {
   const { data } = await api.get('/sessions', { params });
   return data;
 }

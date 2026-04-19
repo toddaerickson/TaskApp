@@ -248,7 +248,8 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     caption TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    content_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS routines (
@@ -262,7 +263,8 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,
     reminder_days TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS routine_exercises (
@@ -277,8 +279,21 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     rest_sec INTEGER DEFAULT 60,
     tempo TEXT,
     keystone BOOLEAN DEFAULT 0,
-    notes TEXT
+    notes TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS routine_phases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    order_idx INTEGER NOT NULL,
+    duration_weeks INTEGER NOT NULL CHECK (duration_weeks > 0),
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (routine_id, order_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_routine_phases_routine ON routine_phases(routine_id, order_idx);
 
 CREATE TABLE IF NOT EXISTS workout_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -352,6 +367,11 @@ CREATE INDEX IF NOT EXISTS idx_session_sets_session ON session_sets(session_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user ON symptom_logs(user_id, logged_at);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
 CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
+-- Dedup guard: an exercise can only hold one image per content hash. Partial
+-- index so existing NULL-hashed rows (pre-feature) don't trip the constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercise_images_hash
+    ON exercise_images(exercise_id, content_hash)
+    WHERE content_hash IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_global_slug ON exercises(slug) WHERE user_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_user_slug ON exercises(user_id, slug) WHERE user_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_session_sets_key ON session_sets(session_id, exercise_id, set_number);
@@ -381,6 +401,31 @@ def init_db():
         _ensure_columns(cur, "routines", [
             ("reminder_time", "TEXT"),
             ("reminder_days", "TEXT"),
+            # Phase 7.4: optimistic-concurrency token. Existing rows get
+            # a NULL which the route treats as "unversioned" — clients
+            # that didn't pass expected_updated_at still succeed. New
+            # writes populate it from now() in the UPDATE statements.
+            ("updated_at", "TEXT"),
+            # Phased routines: ISO date string (YYYY-MM-DD) marking when
+            # phase 0 started. NULL = routine is not phased and behaves
+            # as a flat list. Not a DATE type because SQLite stores dates
+            # as TEXT; PG will implicitly cast on read.
+            ("phase_start_date", "TEXT"),
+        ])
+        _ensure_columns(cur, "routine_exercises", [
+            ("updated_at", "TEXT"),
+            # Phased routines: FK into routine_phases. NULL = RE applies
+            # in every phase (warmups, cooldowns). FK isn't enforced here
+            # because ALTER TABLE ADD COLUMN on SQLite can't add an FK
+            # constraint after the fact — the hydration code checks that
+            # phase_id references a real phase; orphaned values are
+            # ignored safely.
+            ("phase_id", "INTEGER"),
+        ])
+        _ensure_columns(cur, "exercise_images", [
+            # Phase 6.3: content hash for dedup. Existing rows get NULL and
+            # the partial unique index skips them; new inserts supply a hash.
+            ("content_hash", "TEXT"),
         ])
 
 

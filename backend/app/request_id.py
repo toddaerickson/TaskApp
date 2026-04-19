@@ -49,6 +49,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         rid = incoming if incoming and len(incoming) <= 64 else _new_id()
         token = _request_id_ctx.set(rid)
         request.state.request_id = rid
+        # Tag Sentry events captured inside this request with the same id
+        # so a crash in Sentry is pairable with the server log line and
+        # the mobile client's X-Request-Id. Import locally so the rest of
+        # the app doesn't require sentry-sdk at module-load time.
+        try:
+            from app.sentry_setup import tag_request_id
+            tag_request_id(rid)
+        except Exception:
+            pass
         try:
             response = await call_next(request)
         finally:

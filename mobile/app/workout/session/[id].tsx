@@ -7,6 +7,7 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise, WorkoutSession, SessionSet } from '@/lib/stores';
+import { filterExercisesForPhase } from '@/lib/phases';
 import * as api from '@/lib/api';
 import { beep } from '@/lib/timer';
 import { formatTime, severityColor as sevColor } from '@/lib/format';
@@ -231,7 +232,14 @@ export default function ActiveSessionScreen() {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
-  const totalSets = routine.exercises.reduce((sum, re) => sum + (re.target_sets ?? 1), 0);
+  // Mirror the detail screen: if the routine is phased, only exercises
+  // assigned to the active phase (or unassigned, meaning "every phase")
+  // apply to this session. Flat routines behave exactly as before.
+  const visibleExercises = filterExercisesForPhase(
+    routine.exercises,
+    routine.current_phase_id ?? null,
+  );
+  const totalSets = visibleExercises.reduce((sum, re) => sum + (re.target_sets ?? 1), 0);
   const doneSets = session.sets.length;
   const pct = totalSets > 0 ? Math.min(100, (doneSets / totalSets) * 100) : 0;
 
@@ -328,7 +336,7 @@ export default function ActiveSessionScreen() {
       )}
 
       <ScrollView contentContainerStyle={{ paddingBottom: 200 }}>
-        {routine.exercises.map((re, idx) => (
+        {visibleExercises.map((re, idx) => (
           <ExerciseBlock
             key={re.id}
             re={re}
@@ -339,7 +347,7 @@ export default function ActiveSessionScreen() {
             prIds={prIds}
             onActivate={() => setActiveIdx(idx)}
             onLog={(payload) => handleLogSet(re, payload)}
-            onAdvance={() => setActiveIdx(Math.min(routine.exercises.length - 1, idx + 1))}
+            onAdvance={() => setActiveIdx(Math.min(visibleExercises.length - 1, idx + 1))}
             onRestRequest={rest.start}
             restActive={rest.active}
           />
@@ -411,6 +419,7 @@ export default function ActiveSessionScreen() {
             </View>
             <TextInput
               placeholder="custom (e.g. left_achilles)"
+              accessibilityLabel="Custom body part"
               value={symptomCustom}
               onChangeText={setSymptomCustom}
               style={styles.modalInput}
@@ -434,6 +443,7 @@ export default function ActiveSessionScreen() {
             <Text style={styles.modalLabel}>Notes</Text>
             <TextInput
               placeholder="e.g. sharp at toe-off during set 2"
+              accessibilityLabel="Symptom notes"
               value={symptomNotes}
               onChangeText={setSymptomNotes}
               multiline
@@ -689,6 +699,7 @@ function LabeledInput({ label, value, onChange }: {
         keyboardType="numeric"
         style={styles.input}
         placeholder="—"
+        accessibilityLabel={label}
       />
     </View>
   );
@@ -698,7 +709,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   progressBar: { height: 4, backgroundColor: '#e0e0e0' },
   progressFill: { height: 4, backgroundColor: colors.success },
-  progressText: { fontSize: 11, color: '#888' },
+  progressText: { fontSize: 11, color: colors.textMuted },
   progressRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 6,
@@ -728,7 +739,7 @@ const styles = StyleSheet.create({
   },
   modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#222' },
-  modalLabel: { fontSize: 12, color: '#888', fontWeight: '600', marginTop: 14, marginBottom: 6 },
+  modalLabel: { fontSize: 12, color: colors.textMuted, fontWeight: '600', marginTop: 14, marginBottom: 6 },
   modalInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
     fontSize: 14, marginTop: 6, backgroundColor: '#fff',
@@ -768,7 +779,7 @@ const styles = StyleSheet.create({
     color: '#fff', textAlign: 'center', lineHeight: 30, fontWeight: '700',
   },
   exHeadName: { fontSize: 15, fontWeight: '600', color: '#222' },
-  exHeadTarget: { fontSize: 12, color: '#888', marginTop: 1 },
+  exHeadTarget: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
 
   activeImage: { width: '100%', height: 160, borderRadius: 6, marginTop: 12, backgroundColor: '#eee' },
 
@@ -789,7 +800,7 @@ const styles = StyleSheet.create({
   setPending: { fontSize: 13, color: '#bbb' },
 
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  inputLabel: { fontSize: 11, color: '#888', marginBottom: 2 },
+  inputLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 2 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 14 },
 
   logBtn: {

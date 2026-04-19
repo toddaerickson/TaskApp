@@ -21,14 +21,30 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
   task: Task; onPress: () => void; onStar: () => void; onComplete: () => void;
 }) {
   return (
-    <Pressable style={styles.taskRow} onPress={onPress}>
-      <Pressable onPress={onComplete} style={styles.checkBox}>
+    <Pressable
+      style={styles.taskRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open task: ${task.title}`}
+    >
+      <Pressable
+        onPress={onComplete}
+        style={styles.checkBox}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: task.completed }}
+        accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+      >
         <Ionicons
           name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
           size={22} color={task.completed ? colors.success : '#ccc'}
         />
       </Pressable>
-      <Pressable onPress={onStar} style={{ marginRight: 8 }}>
+      <Pressable
+        onPress={onStar}
+        style={{ marginRight: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
+      >
         <Ionicons
           name={task.starred ? 'star' : 'star-outline'}
           size={18} color={task.starred ? colors.accent : '#ccc'}
@@ -108,8 +124,7 @@ export default function FoldersScreen() {
       {/* Left panel: folder list */}
       {showSidebar && (
       <View style={[styles.sidebar, isNarrow && styles.sidebarNarrow]}>
-        <Text style={styles.sidebarTitle}>Folders</Text>
-
+        {/* No "Folders" title — the tab bar already labels this screen. */}
         <Pressable
           style={[styles.folderRow, selectedFolderId === null && styles.folderRowActive]}
           onPress={() => handleSelectFolder(null)}
@@ -147,20 +162,26 @@ export default function FoldersScreen() {
             <TextInput
               style={styles.addInput}
               placeholder="Folder name"
+              accessibilityLabel="New folder name"
               value={newName}
               onChangeText={setNewName}
               autoFocus
               onSubmitEditing={handleAdd}
             />
-            <Pressable onPress={handleAdd}>
+            <Pressable onPress={handleAdd} accessibilityRole="button" accessibilityLabel="Create folder">
               <Ionicons name="checkmark-circle" size={24} color={colors.success} />
             </Pressable>
-            <Pressable onPress={() => setAdding(false)}>
+            <Pressable onPress={() => setAdding(false)} accessibilityRole="button" accessibilityLabel="Cancel folder creation">
               <Ionicons name="close-circle" size={24} color={colors.danger} />
             </Pressable>
           </View>
         ) : (
-          <Pressable style={styles.addButton} onPress={() => setAdding(true)}>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => setAdding(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add a new folder"
+          >
             <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
             <Text style={styles.addText}>Add Folder</Text>
           </Pressable>
@@ -173,7 +194,12 @@ export default function FoldersScreen() {
       <View style={[styles.main, isNarrow && styles.mainNarrow]}>
         <View style={styles.mainHeader}>
           {isNarrow && (
-            <Pressable onPress={() => setShowTasksPane(false)} style={styles.backBtn}>
+            <Pressable
+              onPress={() => setShowTasksPane(false)}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Back to folder list"
+            >
               <Ionicons name="chevron-back" size={22} color={colors.primary} />
             </Pressable>
           )}
@@ -238,10 +264,6 @@ const styles = StyleSheet.create({
   sidebarNarrow: { width: '100%', flex: 1, borderRightWidth: 0 },
   mainNarrow: { width: '100%' },
   backBtn: { padding: 4, marginRight: 4, cursor: 'pointer' as any },
-  sidebarTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
-    letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8,
-  },
   folderRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16,
     gap: 10, cursor: 'pointer' as any,
@@ -283,7 +305,7 @@ const styles = StyleSheet.create({
   checkBox: { marginRight: 8 },
   taskContent: { flex: 1 },
   taskTitle: { fontSize: 14, color: '#333' },
-  completedText: { textDecorationLine: 'line-through', color: '#999' },
+  completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskMeta: { flexDirection: 'row', gap: 6, marginTop: 2, flexWrap: 'wrap' },
   tagBadge: { fontSize: 11, color: colors.violet, backgroundColor: '#f3e8ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
   dueDateText: { fontSize: 11, color: colors.warning },
@@ -291,7 +313,7 @@ const styles = StyleSheet.create({
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8 },
+  emptyText: { color: colors.textMuted, marginTop: 8 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
   emptyCta: {

@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
 from pydantic import BaseModel
@@ -6,6 +8,8 @@ from typing import Optional
 from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
+    PhaseCreate, PhaseUpdate, PhaseResponse,
+    RoutineImportRequest,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
@@ -21,6 +25,43 @@ class RoutineExerciseUpdate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = None
     notes: Optional[str] = None
+    # Null = unassign (applies in every phase). Pydantic's exclude_unset
+    # distinguishes "field omitted" from "field sent as null" — so clients
+    # need to explicitly send phase_id: null to clear it.
+    phase_id: Optional[int] = None
+    # See RoutineUpdate.expected_updated_at — same story for per-exercise rows.
+    expected_updated_at: Optional[datetime] = None
+
+
+def _parse_ts(v) -> Optional[datetime]:
+    """Coerce a DB timestamp (SQLite TEXT or PG datetime) into a timezone-
+    aware datetime for comparison. SQLite stores 'YYYY-MM-DD HH:MM:SS' UTC;
+    Postgres returns a proper datetime already. NULL (legacy rows without
+    updated_at) becomes None and opts the row out of the conflict check."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    if isinstance(v, str):
+        s = v.replace("T", " ").rstrip("Z")
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return None
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return None
+
+
+def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool:
+    """Row has moved past the client's snapshot. NULL current (legacy) opts
+    out. NULL expected (client didn't send one) also opts out — this is an
+    opt-in check so existing callers aren't broken. Compare at second
+    granularity because SQLite's datetime('now') truncates to seconds;
+    a round-trip through Pydantic that preserves microseconds would
+    otherwise trip a false positive."""
+    if expected is None or current is None:
+        return False
+    return current.replace(microsecond=0) > expected.replace(microsecond=0)
 
 
 class RoutineReorderRequest(BaseModel):
@@ -105,15 +146,131 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
         return _hydrate_routine(cur, cur.fetchone())
 
 
+@router.post("/import", response_model=RoutineResponse)
+def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current_user_id)):
+    """Create a routine from a portable JSON template. Resolves slugs to
+    exercise ids (rejecting unknown slugs), creates phases in declaration
+    order, then routine_exercises with phase_idx → phase_id remapping.
+    All-or-nothing: a single bad slug or out-of-range phase_idx 400s
+    before any rows are written, so the user never lands with a half-
+    imported routine."""
+    if not req.exercises:
+        raise HTTPException(400, "Routine must include at least one exercise")
+
+    slugs = [ex.slug for ex in req.exercises]
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        # Resolve slugs in one query. NULL user_id = global library; we
+        # also allow the importing user's own custom exercises.
+        placeholders = ",".join("?" for _ in slugs)
+        cur.execute(
+            f"SELECT id, slug, measurement FROM exercises "
+            f"WHERE slug IN ({placeholders}) "
+            f"AND (user_id IS NULL OR user_id = ?)",
+            tuple(slugs) + (user_id,),
+        )
+        slug_to_row = {r["slug"]: r for r in cur.fetchall()}
+        missing = [s for s in slugs if s not in slug_to_row]
+        if missing:
+            raise HTTPException(
+                400, f"Unknown exercise slug(s): {', '.join(sorted(set(missing)))}"
+            )
+
+        # Validate phase_idx + measurement compatibility before writing.
+        n_phases = len(req.phases)
+        for i, ex in enumerate(req.exercises):
+            if ex.phase_idx is not None and not (0 <= ex.phase_idx < n_phases):
+                raise HTTPException(
+                    400, f"exercises[{i}].phase_idx={ex.phase_idx} out of range "
+                         f"(have {n_phases} phase(s))"
+                )
+            row = slug_to_row[ex.slug]
+            measurement = row["measurement"]
+            has_reps = ex.target_reps is not None
+            has_dur = ex.target_duration_sec is not None
+            if measurement == "duration" and not has_dur:
+                raise HTTPException(
+                    400, f"'{ex.slug}' is a duration exercise — set target_duration_sec"
+                )
+            if measurement in ("reps", "reps_weight") and not has_reps:
+                raise HTTPException(
+                    400, f"'{ex.slug}' is a reps exercise — set target_reps"
+                )
+
+        # Insert routine + phases + exercises in one transaction (get_db
+        # commits on success, rolls back on exception). phase_start_date
+        # is null when the import omits it — the routine stays "flat".
+        cur.execute(
+            """INSERT INTO routines
+               (user_id, name, goal, notes, sort_order, phase_start_date)
+               VALUES (?, ?, ?, ?, 0, ?)""",
+            (user_id, req.name, req.goal or "general", req.notes,
+             req.phase_start_date),
+        )
+        rid = cur.lastrowid
+
+        # Phases first so routine_exercises can FK to them.
+        idx_to_phase_id: dict[int, int] = {}
+        for idx, ph in enumerate(req.phases):
+            cur.execute(
+                "INSERT INTO routine_phases "
+                "(routine_id, label, order_idx, duration_weeks, notes) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (rid, ph.label, idx, ph.duration_weeks, ph.notes),
+            )
+            idx_to_phase_id[idx] = cur.lastrowid
+
+        for idx, ex in enumerate(req.exercises):
+            phase_id = idx_to_phase_id.get(ex.phase_idx) if ex.phase_idx is not None else None
+            cur.execute(
+                """INSERT INTO routine_exercises
+                (routine_id, exercise_id, sort_order, target_sets, target_reps,
+                 target_weight, target_duration_sec, rest_sec, tempo, keystone,
+                 notes, phase_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (rid, slug_to_row[ex.slug]["id"], idx,
+                 ex.target_sets, ex.target_reps, ex.target_weight,
+                 ex.target_duration_sec, ex.rest_sec, ex.tempo,
+                 bool(ex.keystone), ex.notes, phase_id),
+            )
+
+        cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
+        return _hydrate_routine(cur, cur.fetchone())
+
+
 @router.put("/{routine_id}", response_model=RoutineResponse)
 def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?", (routine_id, user_id))
-        if not cur.fetchone():
+        cur.execute(
+            "SELECT updated_at FROM routines WHERE id = ? AND user_id = ?",
+            (routine_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Routine not found")
-        fields = {k: v for k, v in req.model_dump(exclude_unset=True).items()}
+
+        # Optimistic concurrency: if the client sent expected_updated_at
+        # and the row has moved past it, 409 with the current row embedded
+        # so the client can reconcile in one round-trip.
+        fields = req.model_dump(exclude_unset=True)
+        expected = fields.pop("expected_updated_at", None)
+        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+            cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
+            current = _hydrate_routine(cur, cur.fetchone())
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "conflict",
+                    "detail": "Routine changed since you loaded it.",
+                    "current": jsonable_encoder(current),
+                },
+            )
+
         if fields:
+            # Always bump updated_at alongside the caller's fields.
+            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE routines SET {sets} WHERE id = ?",
                         tuple(list(fields.values()) + [routine_id]))
@@ -166,16 +323,32 @@ def update_routine_exercise(
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT re.id FROM routine_exercises re
+            SELECT re.id, re.updated_at FROM routine_exercises re
             JOIN routines r ON r.id = re.routine_id
             WHERE re.id = ? AND r.user_id = ?
         """, (routine_exercise_id, user_id))
-        if not cur.fetchone():
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
+        expected = fields.pop("expected_updated_at", None)
+        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+            cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
+            current = cur.fetchone()
+            current["keystone"] = bool(current["keystone"])
+            current["exercise"] = _load_exercise(cur, current["exercise_id"])
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "conflict",
+                    "detail": "Exercise changed since you loaded it.",
+                    "current": jsonable_encoder(current),
+                },
+            )
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
         if fields:
+            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(
                 f"UPDATE routine_exercises SET {sets} WHERE id = ?",
@@ -291,4 +464,127 @@ def remove_exercise(routine_exercise_id: int, user_id: int = Depends(get_current
         if not cur.fetchone():
             raise HTTPException(404, "Not found")
         cur.execute("DELETE FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
+    return {"ok": True}
+
+
+# --- Phases (Curovate-style progression) ---
+#
+# A routine without phase rows behaves exactly as before. Creating the
+# first phase doesn't auto-assign any existing exercises — the client
+# walks through them in the editor and calls PUT /routines/exercises/:id
+# with a phase_id. Setting phase_start_date via PUT /routines/:id flips
+# the routine into "phased mode" (current_phase_id becomes non-null in
+# responses). That two-step is deliberate: a routine can accumulate
+# draft phases without visibly switching modes until it's ready.
+
+def _own_routine_or_404(cur, routine_id: int, user_id: int) -> None:
+    cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
+                (routine_id, user_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "Routine not found")
+
+
+def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> dict:
+    cur.execute("""
+        SELECT p.* FROM routine_phases p
+        JOIN routines r ON r.id = p.routine_id
+        WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?
+    """, (phase_id, routine_id, user_id))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Phase not found")
+    return row
+
+
+@router.get("/{routine_id}/phases", response_model=list[PhaseResponse])
+def list_phases(routine_id: int, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_routine_or_404(cur, routine_id, user_id)
+        cur.execute(
+            "SELECT * FROM routine_phases WHERE routine_id = ? "
+            "ORDER BY order_idx ASC, id ASC",
+            (routine_id,),
+        )
+        return cur.fetchall()
+
+
+@router.post("/{routine_id}/phases", response_model=PhaseResponse)
+def create_phase(
+    routine_id: int,
+    req: PhaseCreate,
+    user_id: int = Depends(get_current_user_id),
+):
+    if req.duration_weeks < 1:
+        raise HTTPException(400, "duration_weeks must be >= 1")
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_routine_or_404(cur, routine_id, user_id)
+        # Order_idx collision surfaces as a 409 from the UNIQUE constraint.
+        # We do a pre-check so the error is actionable rather than an opaque
+        # IntegrityError; the race is harmless because the user resolves it
+        # with a different index anyway.
+        cur.execute(
+            "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ?",
+            (routine_id, req.order_idx),
+        )
+        if cur.fetchone():
+            raise HTTPException(409, "order_idx already used for this routine")
+        cur.execute(
+            "INSERT INTO routine_phases (routine_id, label, order_idx, duration_weeks, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (routine_id, req.label, req.order_idx, req.duration_weeks, req.notes),
+        )
+        pid = cur.lastrowid
+        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (pid,))
+        return cur.fetchone()
+
+
+@router.put("/{routine_id}/phases/{phase_id}", response_model=PhaseResponse)
+def update_phase(
+    routine_id: int,
+    phase_id: int,
+    req: PhaseUpdate,
+    user_id: int = Depends(get_current_user_id),
+):
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_phase_or_404(cur, routine_id, phase_id, user_id)
+        fields = req.model_dump(exclude_unset=True)
+        if "duration_weeks" in fields and (fields["duration_weeks"] or 0) < 1:
+            raise HTTPException(400, "duration_weeks must be >= 1")
+        if "order_idx" in fields:
+            cur.execute(
+                "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ? AND id != ?",
+                (routine_id, fields["order_idx"], phase_id),
+            )
+            if cur.fetchone():
+                raise HTTPException(409, "order_idx already used for this routine")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            cur.execute(
+                f"UPDATE routine_phases SET {sets} WHERE id = ?",
+                tuple(list(fields.values()) + [phase_id]),
+            )
+        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (phase_id,))
+        return cur.fetchone()
+
+
+@router.delete("/{routine_id}/phases/{phase_id}")
+def delete_phase(
+    routine_id: int,
+    phase_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Delete a phase. Any routine_exercises pinned to it fall back to
+    NULL (apply-in-every-phase) rather than being deleted — the user's
+    exercise work stays even if they tear down the progression."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_phase_or_404(cur, routine_id, phase_id, user_id)
+        cur.execute(
+            "UPDATE routine_exercises SET phase_id = NULL WHERE phase_id = ?",
+            (phase_id,),
+        )
+        cur.execute("DELETE FROM routine_phases WHERE id = ?", (phase_id,))
     return {"ok": True}

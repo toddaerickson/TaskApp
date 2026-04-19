@@ -271,11 +271,37 @@ class RoutineExerciseCreate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = False
     notes: Optional[str] = None
+    # Null means the exercise applies in every phase (e.g. a warmup the
+    # user runs on every session regardless of progression).
+    phase_id: Optional[int] = None
 
 class RoutineExerciseResponse(RoutineExerciseCreate):
     id: int
     routine_id: int
+    updated_at: Optional[datetime] = None
     exercise: Optional[ExerciseResponse] = None
+
+
+class PhaseCreate(BaseModel):
+    label: str
+    order_idx: int
+    duration_weeks: int
+    notes: Optional[str] = None
+
+class PhaseUpdate(BaseModel):
+    label: Optional[str] = None
+    order_idx: Optional[int] = None
+    duration_weeks: Optional[int] = None
+    notes: Optional[str] = None
+
+class PhaseResponse(BaseModel):
+    id: int
+    routine_id: int
+    label: str
+    order_idx: int
+    duration_weeks: int
+    notes: Optional[str] = None
+
 
 class RoutineCreate(BaseModel):
     name: str
@@ -293,6 +319,13 @@ class RoutineUpdate(BaseModel):
     sort_order: Optional[int] = None
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
+    # ISO date "YYYY-MM-DD". Marks when phase 0 of a phased routine
+    # begins. Null = routine is not phased.
+    phase_start_date: Optional[str] = None
+    # Optimistic concurrency (Phase 7.4). When present, server returns 409
+    # if the row's current updated_at has moved past this value since the
+    # client's last GET. Omit to opt out (silent last-write-wins).
+    expected_updated_at: Optional[datetime] = None
 
 class RoutineResponse(BaseModel):
     id: int
@@ -303,8 +336,46 @@ class RoutineResponse(BaseModel):
     sort_order: int
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
+    phase_start_date: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
     exercises: list[RoutineExerciseResponse] = []
+    phases: list[PhaseResponse] = []
+    # Server-resolved current phase based on phase_start_date + durations.
+    # Null when the routine has no phases or phase_start_date is null.
+    current_phase_id: Optional[int] = None
+
+
+# Portable JSON format for routine import/export. Uses `slug` instead of
+# `exercise_id` so a routine authored against one user's library survives
+# import into another user's library — as long as the seeded slugs match.
+# `phase_idx` is a 0-based pointer into `phases[]`; null = applies in
+# every phase. Resolved server-side to a real phase_id after the phases
+# are created.
+class RoutineImportPhase(BaseModel):
+    label: str
+    duration_weeks: int = Field(ge=1, le=520)
+    notes: Optional[str] = None
+
+class RoutineImportExercise(BaseModel):
+    slug: str
+    phase_idx: Optional[int] = None
+    target_sets: Optional[int] = 1
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    target_duration_sec: Optional[int] = None
+    rest_sec: Optional[int] = 60
+    tempo: Optional[str] = None
+    keystone: Optional[bool] = False
+    notes: Optional[str] = None
+
+class RoutineImportRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    goal: Optional[str] = "general"
+    notes: Optional[str] = None
+    phase_start_date: Optional[str] = None  # "YYYY-MM-DD"; null = flat
+    phases: list[RoutineImportPhase] = []
+    exercises: list[RoutineImportExercise] = []
 
 
 class SessionSetCreate(BaseModel):

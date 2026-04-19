@@ -219,6 +219,8 @@ export default function TasksScreen() {
         <Pressable
           style={[styles.filterChip, filters.starred === true && styles.filterChipActive]}
           onPress={() => setFilters({ starred: filters.starred ? undefined : true })}
+          accessibilityRole="button"
+          accessibilityLabel={filters.starred ? 'Remove starred filter' : 'Filter to starred tasks'}
         >
           <Ionicons name="star" size={14} color={filters.starred ? '#fff' : '#666'} />
         </Pressable>
@@ -332,8 +334,16 @@ export default function TasksScreen() {
                   key={task.id}
                   style={({ pressed }) => [styles.cardRow, pressed && { backgroundColor: '#f0f4ff' }]}
                   onPress={() => router.push(`/task/${task.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open task: ${task.title}`}
                 >
-                  <Pressable onPress={() => complete(task.id)} style={styles.cardCheck}>
+                  <Pressable
+                    onPress={() => complete(task.id)}
+                    style={styles.cardCheck}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: task.completed }}
+                    accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                  >
                     <Ionicons
                       name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
                       size={22} color={task.completed ? colors.success : '#ccc'}
@@ -358,7 +368,12 @@ export default function TasksScreen() {
                       )}
                     </View>
                   </View>
-                  <Pressable onPress={() => toggleStar(task.id, task.starred)} style={styles.cardStar}>
+                  <Pressable
+                    onPress={() => toggleStar(task.id, task.starred)}
+                    style={styles.cardStar}
+                    accessibilityRole="button"
+                    accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
+                  >
                     <Ionicons
                       name={task.starred ? 'star' : 'star-outline'}
                       size={18} color={task.starred ? colors.accent : '#ddd'}
@@ -370,9 +385,16 @@ export default function TasksScreen() {
                   key={task.id}
                   style={({ pressed }) => [styles.dataRow, pressed && { backgroundColor: '#f0f4ff' }]}
                   onPress={() => router.push(`/task/${task.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open task: ${task.title}`}
                 >
                   <View style={styles.actionCell}>
-                    <Pressable onPress={() => complete(task.id)}>
+                    <Pressable
+                      onPress={() => complete(task.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: task.completed }}
+                      accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                    >
                       <Ionicons
                         name={task.completed ? 'checkmark-circle' : 'ellipse-outline'}
                         size={20} color={task.completed ? colors.success : '#ccc'}
@@ -415,7 +437,11 @@ export default function TasksScreen() {
                   </View>
 
                   <View style={[styles.cell, { flex: 0.4, alignItems: 'center' }]}>
-                    <Pressable onPress={() => toggleStar(task.id, task.starred)}>
+                    <Pressable
+                      onPress={() => toggleStar(task.id, task.starred)}
+                      accessibilityRole="button"
+                      accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
+                    >
                       <Ionicons
                         name={task.starred ? 'star' : 'star-outline'}
                         size={16} color={task.starred ? colors.accent : '#ddd'}
@@ -457,7 +483,7 @@ const styles = StyleSheet.create({
   filterText: { fontSize: 12, color: '#666' },
   filterTextActive: { fontSize: 12, color: '#fff' },
   sortInfo: { flex: 1, marginLeft: 4 },
-  sortInfoText: { fontSize: 10, color: '#888', fontStyle: 'italic' },
+  sortInfoText: { fontSize: 10, color: colors.textMuted, fontStyle: 'italic' },
   newTaskBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
@@ -522,14 +548,14 @@ const styles = StyleSheet.create({
   cell: { paddingHorizontal: 6, justifyContent: 'center' },
   cellText: { fontSize: 13, color: '#444' },
   titleText: { fontWeight: '500' },
-  completedText: { textDecorationLine: 'line-through', color: '#999' },
+  completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   startDateText: { color: colors.success },
   dueDateText: { color: colors.warning },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8 },
+  emptyText: { color: colors.textMuted, marginTop: 8 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', fontSize: 13, textAlign: 'center', marginTop: 6, maxWidth: 280 },
   emptyCta: {

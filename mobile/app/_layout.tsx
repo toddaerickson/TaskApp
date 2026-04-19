@@ -6,12 +6,25 @@ import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
 import { isRecentlyUnlocked } from '@/lib/pin';
 import { onSessionExpired } from '@/lib/sessionExpiry';
+import { reportError } from '@/lib/errorReporter';
+import { initSentry, sentryWrap } from '@/lib/sentry';
+
+// Fire Sentry init at module load so it's live before any component
+// mounts — an error during the first render would otherwise escape. No-op
+// when EXPO_PUBLIC_SENTRY_DSN is unset, so dev Expo Go runs stay quiet.
+initSentry();
 
 // Expo-router picks up a named `ErrorBoundary` export from a layout and
 // renders it in place of the route tree when any descendant throws.
 // Without this, an uncaught error blanks the whole app.
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   const router = useRouter();
+  // Forward the uncaught render error to our telemetry shim. Covers the
+  // gap between the axios interceptor (network/5xx only) and runtime
+  // errors in component trees.
+  useEffect(() => {
+    reportError(error, { route: 'ErrorBoundary' });
+  }, [error]);
   return (
     <ScrollView contentContainerStyle={errStyles.container}>
       <Text style={errStyles.title}>Something went wrong</Text>
@@ -44,10 +57,10 @@ const errStyles = StyleSheet.create({
   primaryText: { color: '#fff', fontWeight: '700' },
   secondaryBtn: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12 },
   secondaryText: { color: '#444', fontWeight: '600' },
-  stack: { marginTop: 24, fontSize: 11, color: '#888', fontFamily: 'monospace' as any },
+  stack: { marginTop: 24, fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' as any },
 });
 
-export default function RootLayout() {
+function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
@@ -142,3 +155,7 @@ const sessionStyles = StyleSheet.create({
   },
   btnText: { color: '#fff', fontWeight: '700' },
 });
+
+// Wrap so Sentry can pick up navigation breadcrumbs + auto-instrument the
+// component tree. Pass-through when Sentry isn't initialized.
+export default sentryWrap(RootLayout);

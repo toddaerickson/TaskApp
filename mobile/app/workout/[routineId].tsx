@@ -1,13 +1,42 @@
 import { colors } from "@/lib/colors";
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput,
+  View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise } from '@/lib/stores';
+import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
+import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
+import { PhaseEditor } from '@/components/PhaseEditor';
+import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 import * as api from '@/lib/api';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
+
+/** Two-choice conflict prompt. Resolves with the user's decision rather
+ *  than blocking state. Web uses confirm() because there's no native
+ *  modal affordance we share; iOS/Android get a proper destructive
+ *  Alert.alert with distinct labels. */
+function askConflict(label: string): Promise<'overwrite' | 'reload'> {
+  return new Promise((resolve) => {
+    const msg = `The ${label} changed since you loaded it. Overwrite your changes would replace the newer version. Reload discards yours.`;
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      const overwrite = window.confirm(`${msg}\n\nOK = Overwrite anyway. Cancel = Discard & reload.`);
+      resolve(overwrite ? 'overwrite' : 'reload');
+    } else {
+      Alert.alert(`This ${label} changed`, msg, [
+        { text: 'Discard & reload', style: 'cancel', onPress: () => resolve('reload') },
+        { text: 'Overwrite anyway', style: 'destructive', onPress: () => resolve('overwrite') },
+      ]);
+    }
+  });
+}
+
+function isConflict(err: unknown): err is { response: { status: 409 } } {
+  const e = err as { response?: { status?: number } };
+  return e?.response?.status === 409;
+}
 
 export default function RoutineDetailScreen() {
   const { routineId } = useLocalSearchParams<{ routineId: string }>();
@@ -67,8 +96,19 @@ export default function RoutineDetailScreen() {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
+  // Phase-aware view. On a flat routine (no phases or no start date) this
+  // reduces to routine.exercises and activePhase is null — the banner
+  // isn't rendered and nothing about the old behavior changes.
+  const activePhase = getActivePhaseInfo(routine);
+  // In edit mode we show every exercise — otherwise the user couldn't see
+  // or reassign an exercise that belongs to a different (non-active)
+  // phase. Run mode keeps the phase filter for the banner-matched view.
+  const visibleExercises = editMode
+    ? routine.exercises
+    : filterExercisesForPhase(routine.exercises, routine.current_phase_id ?? null);
+
   const totalMins = Math.round(
-    routine.exercises.reduce((sum, re) => {
+    visibleExercises.reduce((sum, re) => {
       const work = (re.target_duration_sec ?? 30) * (re.target_sets ?? 1);
       const rest = (re.rest_sec ?? 30) * Math.max(0, (re.target_sets ?? 1) - 1);
       return sum + work + rest;
@@ -83,17 +123,25 @@ export default function RoutineDetailScreen() {
           headerRight: () => (
             <Pressable
               onPress={() => setEditMode(!editMode)}
-              // Explicit 44×44 target; the earlier 22px icon sat in a
-              // ~30px box which is below WCAG minimum.
-              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}
+              // Labeled pill replaces the previous icon-only pencil. Users
+              // who tapped a "Quick start" template and landed here couldn't
+              // find where to customize the routine — the unlabeled 22px
+              // icon on the colored header didn't read as a button. 44×44
+              // minimum tap target is met via padding + hitSlop.
+              style={({ pressed }) => [
+                styles.headerEditBtn,
+                editMode && styles.headerEditBtnActive,
+                pressed && { opacity: 0.7 },
+              ]}
               accessibilityRole="button"
-              accessibilityLabel={editMode ? 'Exit edit mode' : 'Edit routine'}
+              accessibilityLabel={editMode ? 'Done editing routine' : 'Edit routine'}
               hitSlop={8}
             >
               <Ionicons
                 name={editMode ? 'checkmark' : 'create-outline'}
-                size={22} color="#fff"
+                size={16} color="#fff"
               />
+              <Text style={styles.headerEditText}>{editMode ? 'Done' : 'Edit'}</Text>
             </Pressable>
           ),
         }}
@@ -105,8 +153,22 @@ export default function RoutineDetailScreen() {
           <View style={styles.header}>
             <Text style={styles.title}>{routine.name}</Text>
             <Text style={styles.meta}>
-              {routine.exercises.length} exercises · ~{totalMins} min · {routine.goal}
+              {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
             </Text>
+            {activePhase && (
+              <View style={styles.phaseBanner}>
+                <Ionicons name="flag" size={13} color={colors.primary} />
+                <Text style={styles.phaseBannerText}>
+                  Phase {activePhase.position}/{activePhase.total}: {activePhase.phase.label}
+                  {' · '}
+                  <Text style={styles.phaseBannerDays}>
+                    {activePhase.daysLeft === 0
+                      ? 'final day'
+                      : `${activePhase.daysLeft} day${activePhase.daysLeft === 1 ? '' : 's'} left`}
+                  </Text>
+                </Text>
+              </View>
+            )}
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color={colors.warning} />
@@ -119,7 +181,7 @@ export default function RoutineDetailScreen() {
           </View>
         )}
 
-        {routine.exercises.map((re, idx) => {
+        {visibleExercises.map((re, idx) => {
           const ex = re.exercise;
           if (!ex) return null;
           return (
@@ -137,6 +199,16 @@ export default function RoutineDetailScreen() {
                     )}
                   </View>
                   <InlineDoseRow re={re} readOnly={editMode} onSaved={reload} />
+                  {editMode && (routine.phases?.length ?? 0) > 0 && (
+                    <View style={{ marginTop: 6 }}>
+                      <ExercisePhaseChip
+                        routineExerciseId={re.id}
+                        currentPhaseId={re.phase_id ?? null}
+                        phases={routine.phases ?? []}
+                        onChanged={reload}
+                      />
+                    </View>
+                  )}
                   {(() => {
                     const sg = suggestions.find((s) => s.routine_exercise_id === re.id);
                     if (!sg || !sg.reason || sg.reason.startsWith('No prior')) return null;
@@ -157,20 +229,35 @@ export default function RoutineDetailScreen() {
                 </View>
                 {editMode && (
                   <View style={styles.editControls}>
-                    <Pressable onPress={() => moveExercise(idx, -1)} disabled={idx === 0} style={styles.ctrlBtn}>
+                    <Pressable
+                      onPress={() => moveExercise(idx, -1)}
+                      disabled={idx === 0}
+                      style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move ${re.exercise?.name ?? 'exercise'} up`}
+                      accessibilityState={{ disabled: idx === 0 }}
+                    >
                       <Ionicons name="chevron-up" size={18} color={idx === 0 ? '#ccc' : colors.primary} />
                     </Pressable>
                     <Pressable
                       onPress={() => moveExercise(idx, 1)}
                       disabled={idx === routine.exercises.length - 1}
                       style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move ${re.exercise?.name ?? 'exercise'} down`}
+                      accessibilityState={{ disabled: idx === routine.exercises.length - 1 }}
                     >
                       <Ionicons
                         name="chevron-down" size={18}
                         color={idx === routine.exercises.length - 1 ? '#ccc' : colors.primary}
                       />
                     </Pressable>
-                    <Pressable onPress={() => deleteRoutineExercise(re.id)} style={styles.ctrlBtn}>
+                    <Pressable
+                      onPress={() => deleteRoutineExercise(re.id)}
+                      style={styles.ctrlBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${re.exercise?.name ?? 'exercise'} from routine`}
+                    >
                       <Ionicons name="trash-outline" size={18} color={colors.danger} />
                     </Pressable>
                   </View>
@@ -221,67 +308,73 @@ export default function RoutineDetailScreen() {
   );
 }
 
-const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-
-function parseDays(csv: string | null | undefined): Set<string> {
-  if (!csv) return new Set();
-  const norm = csv.toLowerCase().trim();
-  if (norm === 'daily') return new Set(DAYS);
-  return new Set(norm.split(',').map((s) => s.trim()).filter((s) => (DAYS as readonly string[]).includes(s)));
-}
-
-function daysCsv(set: Set<string>): string | null {
-  if (set.size === 0) return null;
-  if (set.size === 7) return 'daily';
-  return DAYS.filter((d) => set.has(d)).join(',');
-}
-
 function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: () => void }) {
   const [name, setName] = useState(routine.name);
   const [notes, setNotes] = useState(routine.notes || '');
   const [time, setTime] = useState(routine.reminder_time || '');
-  const [days, setDays] = useState<Set<string>>(parseDays(routine.reminder_days));
+  const [days, setDays] = useState<Set<DayCode>>(parseDays(routine.reminder_days));
+  const [startDate, setStartDate] = useState(routine.phase_start_date || '');
   const [busy, setBusy] = useState(false);
 
   const dirty = name !== routine.name
     || notes !== (routine.notes || '')
     || time !== (routine.reminder_time || '')
-    || daysCsv(days) !== (routine.reminder_days || null);
+    || daysCsv(days) !== (routine.reminder_days || null)
+    || (startDate || null) !== (routine.phase_start_date || null);
 
-  const toggleDay = (d: string) => {
+  const toggleDay = (d: DayCode) => {
     const next = new Set(days);
     if (next.has(d)) next.delete(d); else next.add(d);
     setDays(next);
   };
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     setBusy(true);
     try {
-      await api.updateRoutine(routine.id, {
+      const body: api.RoutineUpdatePayload = {
         name, notes,
         reminder_time: time.trim() || null,
         reminder_days: time.trim() ? daysCsv(days) : null,
-      });
+        phase_start_date: startDate.trim() || null,
+      };
+      // Pass the token we read with the routine. Omit when `overwrite`
+      // is true so the server drops the check — this is the "overwrite
+      // anyway" branch of the conflict modal.
+      if (!overwrite && routine.updated_at) body.expected_updated_at = routine.updated_at;
+      await api.updateRoutine(routine.id, body);
       onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('routine');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
     } finally { setBusy(false); }
   };
 
   return (
     <View style={styles.header}>
       <Text style={styles.fieldLabel}>Routine name</Text>
-      <TextInput value={name} onChangeText={setName} style={styles.fieldInput} />
+      <TextInput value={name} onChangeText={setName} style={styles.fieldInput} accessibilityLabel="Routine name" />
       <Text style={styles.fieldLabel}>Notes</Text>
       <TextInput
         value={notes}
         onChangeText={setNotes}
         multiline
         style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
+        accessibilityLabel="Routine notes"
       />
       <Text style={styles.fieldLabel}>Reminder time (HH:MM, blank = off)</Text>
       <TextInput
         value={time}
         onChangeText={setTime}
         placeholder="07:00"
+        accessibilityLabel="Reminder time, HH colon MM format"
         autoCapitalize="none"
         style={styles.fieldInput}
       />
@@ -307,14 +400,28 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
           </View>
         </>
       )}
+      <Text style={styles.fieldLabel}>Phase start date (YYYY-MM-DD, blank = not phased)</Text>
+      <TextInput
+        value={startDate}
+        onChangeText={setStartDate}
+        placeholder="2026-04-20"
+        accessibilityLabel="Phase start date in ISO YYYY-MM-DD format"
+        autoCapitalize="none"
+        style={styles.fieldInput}
+      />
       <Pressable
         style={[styles.saveBtn, (!dirty || busy) && { opacity: 0.5 }]}
-        onPress={save}
+        onPress={() => save()}
         disabled={!dirty || busy}
       >
         <Ionicons name="save-outline" size={14} color="#fff" />
         <Text style={styles.saveText}>{busy ? 'Saving…' : dirty ? 'Save' : 'No changes'}</Text>
       </Pressable>
+      {/* Phase editor lives below the main save button because its
+          operations hit the phase CRUD endpoints directly (each add /
+          edit / reorder / delete is its own round trip), so it doesn't
+          participate in the routine-level Save flow above. */}
+      <PhaseEditor routine={routine} onChanged={onSaved} />
     </View>
   );
 }
@@ -329,10 +436,10 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
   const [keystone, setKeystone] = useState(!!re.keystone);
   const [busy, setBusy] = useState(false);
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     setBusy(true);
     try {
-      await api.updateRoutineExercise(re.id, {
+      const body: api.RoutineExerciseUpdatePayload = {
         target_sets: sets ? Number(sets) : null,
         target_reps: reps ? Number(reps) : null,
         target_duration_sec: dur ? Number(dur) : null,
@@ -340,8 +447,21 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
         tempo: tempo || null,
         notes: notes || null,
         keystone,
-      });
+      };
+      if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
+      await api.updateRoutineExercise(re.id, body);
       onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('exercise');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
     } finally { setBusy(false); }
   };
 
@@ -374,10 +494,11 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
         onChangeText={setNotes}
         multiline
         style={[styles.fieldInput, { minHeight: 40, textAlignVertical: 'top' }]}
+        accessibilityLabel="Exercise notes"
       />
       <Pressable
         style={[styles.saveBtn, busy && { opacity: 0.5 }]}
-        onPress={save}
+        onPress={() => save()}
         disabled={busy}
       >
         <Ionicons name="save-outline" size={14} color="#fff" />
@@ -398,6 +519,7 @@ function EditField({ label, value, onChange, numeric }: {
         onChangeText={onChange}
         keyboardType={numeric ? 'numeric' : 'default'}
         style={styles.fieldInput}
+        accessibilityLabel={label}
       />
     </View>
   );
@@ -477,7 +599,7 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
   const [rest, setRest] = useState(String(re.rest_sec ?? ''));
   const [busy, setBusy] = useState(false);
 
-  const save = async () => {
+  const save = async (overwrite = false) => {
     setBusy(true);
     try {
       const body: api.RoutineExerciseUpdatePayload = {};
@@ -494,8 +616,20 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
       } else if (kind === 'rest') {
         body.rest_sec = rest ? Number(rest) : null;
       }
+      if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
       await api.updateRoutineExercise(re.id, body);
       onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('exercise');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
     } finally { setBusy(false); }
   };
 
@@ -520,7 +654,7 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
         <Pressable
           style={[styles.saveBtn, { flex: 1 }, busy && { opacity: 0.5 }]}
-          onPress={save}
+          onPress={() => save()}
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel="Save"
@@ -546,8 +680,29 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
-  meta: { fontSize: 13, color: '#888', marginTop: 4 },
+  meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  headerEditBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    // 44×44 via explicit minHeight + horizontal padding. The visual pill
+    // is shorter than the tap target — the outline/fill is the "button".
+    minHeight: 44, minWidth: 44,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    borderRadius: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)',
+  },
+  headerEditBtnActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  headerEditText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
+  phaseBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10,
+    backgroundColor: '#eef4ff',
+    borderLeftWidth: 3, borderLeftColor: colors.primary,
+    borderRadius: 6,
+  },
+  phaseBannerText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  phaseBannerDays: { color: colors.primary, fontWeight: '400' },
 
   exCard: {
     backgroundColor: '#fff', margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,
@@ -639,7 +794,7 @@ const styles = StyleSheet.create({
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   fieldInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     fontSize: 13, backgroundColor: '#fafafa',

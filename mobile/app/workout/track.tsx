@@ -95,6 +95,7 @@ export default function TrackScreen() {
           </View>
           <TextInput
             placeholder="…or type custom (e.g. left_achilles)"
+            accessibilityLabel="Custom body part"
             value={customPart}
             onChangeText={setCustomPart}
             style={styles.input}
@@ -121,6 +122,7 @@ export default function TrackScreen() {
           <Text style={styles.label}>Notes</Text>
           <TextInput
             placeholder="What did it feel like? When?"
+            accessibilityLabel="Symptom notes"
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -229,7 +231,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#222', marginBottom: 12 },
-  label: { fontSize: 12, color: '#888', marginTop: 12, marginBottom: 6, fontWeight: '600' },
+  label: { fontSize: 12, color: colors.textMuted, marginTop: 12, marginBottom: 6, fontWeight: '600' },
 
   partRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   partChip: {
@@ -261,7 +263,7 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontWeight: '700' },
 
   sectionTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    fontSize: 13, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
   },
   empty: { textAlign: 'center', color: '#aaa', padding: 20 },
@@ -297,6 +299,6 @@ const styles = StyleSheet.create({
   },
   sevPillText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   logNotes: { fontSize: 13, color: '#444' },
-  logTime: { fontSize: 11, color: '#999', marginTop: 2 },
-  moreText: { fontSize: 12, color: '#999', textAlign: 'center', marginTop: 8 },
+  logTime: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  moreText: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 8 },
 });

@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import type { ImageCandidate } from '@/lib/api';
+import { RoutineImportCard } from '@/components/RoutineImportCard';
 
 const SAMPLE = `# Paste one row per URL: slug<TAB>url
 # Or multiple URLs per slug on one row: slug<TAB>url1<TAB>url2
@@ -165,6 +166,10 @@ export default function AdminScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Image Admin' }} />
       <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
+        {/* Routine import — top of admin so it's the first thing seen
+            after a user lands here from the workouts tab. */}
+        <RoutineImportCard exercises={exercises} />
+
         {/* Paste panel */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Bulk paste URLs</Text>
@@ -174,6 +179,7 @@ export default function AdminScreen() {
           <TextInput
             style={styles.pasteBox}
             placeholder={SAMPLE}
+            accessibilityLabel="Bulk image URLs paste area"
             placeholderTextColor="#bbb"
             value={paste}
             onChangeText={setPaste}
@@ -493,15 +499,15 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
       {expanded && (
         <View style={styles.editPanel}>
           <Text style={styles.fieldLabel}>Name</Text>
-          <TextInput value={name} onChangeText={setName} style={styles.fieldInput} />
+          <TextInput value={name} onChangeText={setName} style={styles.fieldInput} accessibilityLabel="Exercise name" />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Primary muscle</Text>
-              <TextInput value={primaryMuscle} onChangeText={setPrimaryMuscle} style={styles.fieldInput} />
+              <TextInput value={primaryMuscle} onChangeText={setPrimaryMuscle} style={styles.fieldInput} accessibilityLabel="Primary muscle" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Equipment</Text>
-              <TextInput value={equipment} onChangeText={setEquipment} style={styles.fieldInput} />
+              <TextInput value={equipment} onChangeText={setEquipment} style={styles.fieldInput} accessibilityLabel="Equipment" />
             </View>
           </View>
           <Text style={styles.fieldLabel}>Instructions</Text>
@@ -510,6 +516,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
             onChangeText={setInstructions}
             multiline
             style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
+            accessibilityLabel="Instructions"
           />
           <Text style={styles.fieldLabel}>Cue</Text>
           <TextInput
@@ -517,6 +524,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
             onChangeText={setCue}
             multiline
             style={[styles.fieldInput, { minHeight: 40, textAlignVertical: 'top' }]}
+            accessibilityLabel="Cue"
           />
           <Pressable
             style={[styles.saveEditBtn, (!dirty || busy) && { opacity: 0.5 }]}
@@ -551,6 +559,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
         <TextInput
           style={styles.addImgInput}
           placeholder="Paste image URL…"
+          accessibilityLabel={`New image URL for ${exercise.name}`}
           value={url}
           onChangeText={setUrl}
           autoCapitalize="none"
@@ -561,6 +570,8 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
           style={[styles.addImgBtn, (!url.trim() || busy) && { opacity: 0.5 }]}
           onPress={handleAdd}
           disabled={!url.trim() || busy}
+          accessibilityRole="button"
+          accessibilityLabel="Add image URL"
         >
           <Ionicons name="add" size={18} color="#fff" />
         </Pressable>
@@ -598,6 +609,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
                 onChangeText={setSearchQ}
                 style={styles.searchInput}
                 placeholder="Search query"
+                accessibilityLabel="Image search query"
                 autoCapitalize="none"
                 onSubmitEditing={() => runSearch(searchQ)}
               />
@@ -605,6 +617,8 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
                 style={styles.searchGoBtn}
                 onPress={() => runSearch(searchQ)}
                 disabled={searching}
+                accessibilityRole="button"
+                accessibilityLabel="Run image search"
               >
                 <Ionicons name="search" size={16} color="#fff" />
               </Pressable>
@@ -687,7 +701,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#222' },
-  hint: { fontSize: 12, color: '#888', marginTop: 4, marginBottom: 10 },
+  hint: { fontSize: 12, color: colors.textMuted, marginTop: 4, marginBottom: 10 },
   pasteBox: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
     fontSize: 13, minHeight: 120, textAlignVertical: 'top',
@@ -727,7 +741,7 @@ const styles = StyleSheet.create({
   resultText: { marginTop: 10, fontSize: 13, color: colors.success },
 
   sectionTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase',
+    fontSize: 13, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingVertical: 8,
   },
 
@@ -753,7 +767,7 @@ const styles = StyleSheet.create({
   emptyResults: {
     alignItems: 'center', paddingVertical: 30, gap: 8,
   },
-  emptyResultsText: { color: '#999', fontSize: 13 },
+  emptyResultsText: { color: colors.textMuted, fontSize: 13 },
 
 
   exRow: {
@@ -762,7 +776,7 @@ const styles = StyleSheet.create({
   },
   exHeader: { flexDirection: 'row', alignItems: 'center' },
   exName: { fontSize: 14, fontWeight: '600', color: '#222' },
-  exSlug: { fontSize: 11, color: '#999', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  exSlug: { fontSize: 11, color: colors.textMuted, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
   exCount: {
     fontSize: 11, color: '#666', backgroundColor: '#eee',
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
@@ -819,7 +833,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
-  modalEmpty: { textAlign: 'center', color: '#999', padding: 30 },
+  modalEmpty: { textAlign: 'center', color: colors.textMuted, padding: 30 },
   candidateGrid: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
   },
@@ -854,7 +868,7 @@ const styles = StyleSheet.create({
     marginTop: 10, paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  fieldLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginTop: 8, marginBottom: 4 },
+  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 8, marginBottom: 4 },
   fieldInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     fontSize: 13, backgroundColor: '#fafafa',

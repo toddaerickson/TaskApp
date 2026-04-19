@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     caption TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    content_hash TEXT
 );
 
 -- Routines: a saved workout template (e.g. "Ankle Mobility AM")
@@ -123,7 +124,8 @@ CREATE TABLE IF NOT EXISTS routines (
     sort_order INTEGER DEFAULT 0,
     reminder_time TEXT,          -- "HH:MM" local time; NULL = off
     reminder_days TEXT,          -- CSV of "mon,tue,..." or "daily"; NULL = daily when time set
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS routine_exercises (
@@ -138,8 +140,32 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     rest_sec INTEGER DEFAULT 60,
     tempo TEXT,
     keystone BOOLEAN DEFAULT FALSE,
-    notes TEXT
+    notes TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Phases: Curovate-style progression. A routine with no rows here is
+-- "flat" (no phases) and behaves as it always has — every routine_exercise
+-- applies. A routine with ≥1 phase row progresses through them in
+-- `order_idx` order; each phase lasts `duration_weeks`. The "current"
+-- phase at time T = the phase whose [offset, offset+duration) contains
+-- (T - routines.phase_start_date) / 7d. `phase_start_date` lives on
+-- `routines` and is added via ALTER (see database.py init_db).
+--
+-- `routine_exercises.phase_id` (also added via ALTER) is nullable:
+--   NULL => the RE applies in every phase (e.g. a warmup stretch)
+--   set  => the RE only surfaces when that phase is active
+CREATE TABLE IF NOT EXISTS routine_phases (
+    id SERIAL PRIMARY KEY,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    order_idx INTEGER NOT NULL,
+    duration_weeks INTEGER NOT NULL CHECK (duration_weeks > 0),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (routine_id, order_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_routine_phases_routine ON routine_phases(routine_id, order_idx);
 
 -- Sessions: a logged workout
 CREATE TABLE IF NOT EXISTS workout_sessions (
@@ -213,6 +239,12 @@ CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at, remin
 CREATE INDEX IF NOT EXISTS idx_exercises_user_id ON exercises(user_id);
 CREATE INDEX IF NOT EXISTS idx_exercises_category ON exercises(category);
 CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise_id);
+-- Dedup guard: one image per (exercise, content_hash). Partial index so
+-- pre-feature NULL-hashed rows don't trip the constraint; new inserts
+-- always supply a hash.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercise_images_hash
+    ON exercise_images(exercise_id, content_hash)
+    WHERE content_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_routines_user_id ON routines(user_id);
 CREATE INDEX IF NOT EXISTS idx_routine_ex_routine ON routine_exercises(routine_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON workout_sessions(user_id, started_at);

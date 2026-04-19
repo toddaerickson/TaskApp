@@ -1,16 +1,21 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput,
+  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput, ScrollView, Platform, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useWorkoutStore, WorkoutSession } from '@/lib/stores';
+import { useWorkoutStore, WorkoutSession, Exercise, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
+import ReminderSheet from '@/components/ReminderSheet';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
+import {
+  WORKOUT_TEMPLATES, WorkoutTemplate, estimateMinutes,
+} from '@/lib/workoutTemplates';
+import { formatReminder } from '@/lib/reminders';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: colors.warning, strength: colors.primary, mobility: colors.success,
@@ -39,6 +44,14 @@ export default function WorkoutsScreen() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Per-template "creating…" flag so taps during the round-trip disable
+  // that card without blanking the whole strip. Keyed on template.id.
+  const [instantiating, setInstantiating] = useState<string | null>(null);
+
+  // Reminder sheet: null when closed, the target routine when open. Kept
+  // here (not per-card) so exactly one sheet can be open at a time.
+  const [reminderTarget, setReminderTarget] = useState<Routine | null>(null);
+
   useEffect(() => {
     loadRoutines();
     api.listSessions({ limit: 10 })
@@ -64,6 +77,67 @@ export default function WorkoutsScreen() {
     setCreateOpen(true);
   };
 
+  // Instantiate a pre-built template. Resolves each slug to an exercise
+  // id via the user's library, then POSTs a single routine-create with
+  // the exercises inline. If the library is empty (unseeded user) we
+  // abort with a friendly message instead of creating an empty routine.
+  const startFromTemplate = async (template: WorkoutTemplate) => {
+    if (instantiating) return;
+    setInstantiating(template.id);
+    try {
+      const exercises: Exercise[] = await api.getExercises();
+      const bySlug = new Map<string, Exercise>();
+      for (const ex of exercises) {
+        if (ex.slug) bySlug.set(ex.slug, ex);
+      }
+      const resolved = template.exercises
+        .map((te, idx) => {
+          const ex = bySlug.get(te.slug);
+          if (!ex) return null;
+          return {
+            exercise_id: ex.id,
+            sort_order: idx,
+            target_sets: te.target_sets ?? null,
+            target_reps: te.target_reps ?? null,
+            target_duration_sec: te.target_duration_sec ?? null,
+            rest_sec: te.rest_sec ?? null,
+            keystone: Boolean(te.keystone),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      if (resolved.length === 0) {
+        const msg = 'Your exercise library is empty. Run `seed_workouts.py` on the backend to load the starter set, then try again.';
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('No exercises yet', msg);
+        return;
+      }
+
+      const missing = template.exercises.length - resolved.length;
+      if (missing > 0) {
+        // Non-fatal: some users may have deleted a seeded exercise. Still
+        // create the routine with what we could resolve so the user is
+        // unblocked; log the drop so it's visible in dev.
+        console.warn('[workouts] template %s missing %d of %d exercises',
+          template.id, missing, template.exercises.length);
+      }
+
+      const routine = await api.createRoutine({
+        name: template.name,
+        goal: template.goal,
+        exercises: resolved,
+      });
+      await loadRoutines();
+      router.push(`/workout/${routine.id}`);
+    } catch (e) {
+      const msg = describeApiError(e, 'Could not create routine from template.');
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Template failed', msg);
+    } finally {
+      setInstantiating(null);
+    }
+  };
+
   const submitCreate = async () => {
     const name = newName.trim();
     if (!name) { setCreateError('Name is required.'); return; }
@@ -86,33 +160,93 @@ export default function WorkoutsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Tab bar below already labels this as "Workouts"; skip the big title
+          to free vertical space. The primary action (New routine) stays
+          prominent; secondary tools are collapsed into icon-only buttons
+          so they don't out-shout the create/choose flow. */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Workouts</Text>
-          <Text style={styles.headerSub}>{routines.length} routine{routines.length === 1 ? '' : 's'}</Text>
-        </View>
-        <View style={styles.headerActions}>
+        <View style={styles.headerLeft}>
           <Pressable style={styles.newBtn} onPress={openCreate} accessibilityRole="button" accessibilityLabel="New routine">
             <Ionicons name="add" size={16} color="#fff" />
-            <Text style={styles.newBtnText}>Routine</Text>
+            <Text style={styles.newBtnText}>New routine</Text>
           </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/progress')}>
-            <Ionicons name="stats-chart-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Progress</Text>
-          </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/admin')}>
-            <Ionicons name="images-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Admin</Text>
-          </Pressable>
-          <Pressable style={styles.trackBtn} onPress={() => router.push('/workout/track')}>
-            <Ionicons name="pulse-outline" size={16} color={colors.primary} />
-            <Text style={styles.trackBtnText}>Track</Text>
-          </Pressable>
-          <View style={styles.streakBox}>
-            <Ionicons name="flame" size={18} color={colors.warning} />
-            <Text style={styles.streakText}>{streak} day{streak === 1 ? '' : 's'}</Text>
-          </View>
+          <Text style={styles.headerCount}>
+            {routines.length} routine{routines.length === 1 ? '' : 's'}
+          </Text>
         </View>
+        <View style={styles.headerRight}>
+          <View style={styles.streakBox}>
+            <Ionicons name="flame" size={14} color={colors.warning} />
+            <Text style={styles.streakText}>{streak}</Text>
+          </View>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/progress')}
+            accessibilityRole="button"
+            accessibilityLabel="Progress"
+          >
+            <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/admin')}
+            accessibilityRole="button"
+            accessibilityLabel="Exercise image admin"
+          >
+            <Ionicons name="images-outline" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => router.push('/workout/track')}
+            accessibilityRole="button"
+            accessibilityLabel="Track symptoms"
+          >
+            <Ionicons name="pulse-outline" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Quick-start template strip. Solves the blank-page problem: tap
+          a card to create a pre-built routine in one round-trip and land
+          on its detail screen ready to edit or run. Horizontal scroll so
+          a 4th/5th card can fit without breaking the page rhythm. */}
+      <View style={styles.templateSection}>
+        <Text style={styles.sectionLabel}>Quick start</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.templateRow}
+        >
+          {WORKOUT_TEMPLATES.map((t) => {
+            const mins = estimateMinutes(t);
+            const busy = instantiating === t.id;
+            return (
+              <Pressable
+                key={t.id}
+                style={[
+                  styles.templateCard,
+                  { borderLeftColor: GOAL_COLORS[t.goal] || '#999' },
+                  busy && { opacity: 0.5 },
+                ]}
+                onPress={() => startFromTemplate(t)}
+                disabled={Boolean(instantiating)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start ${t.name}, ${t.exercises.length} exercises, about ${mins} minute${mins === 1 ? '' : 's'}`}
+                accessibilityState={{ busy, disabled: Boolean(instantiating) && !busy }}
+              >
+                <Ionicons
+                  name={t.icon as any}
+                  size={22}
+                  color={GOAL_COLORS[t.goal] || '#666'}
+                />
+                <Text style={styles.templateName} numberOfLines={2}>{t.name}</Text>
+                <Text style={styles.templateMeta}>
+                  {t.exercises.length} ex · {mins} min
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {isLoading ? (
@@ -126,10 +260,14 @@ export default function WorkoutsScreen() {
           contentContainerStyle={{ padding: 12 }}
           renderItem={({ item }) => {
             const lastSession = recent.find((s) => s.routine_id === item.id);
+            const reminderLabel = formatReminder(item.reminder_time, item.reminder_days);
+            const scheduled = Boolean(reminderLabel);
             return (
               <Pressable
                 style={styles.card}
                 onPress={() => router.push(`/workout/${item.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open routine ${item.name}`}
               >
                 <View style={[styles.goalDot, { backgroundColor: GOAL_COLORS[item.goal] || '#999' }]} />
                 <View style={{ flex: 1 }}>
@@ -138,8 +276,34 @@ export default function WorkoutsScreen() {
                     {item.exercises.length} exercises · {item.goal}
                     {lastSession && ` · last ${formatRel(lastSession.started_at)}`}
                   </Text>
+                  {reminderLabel && (
+                    <View style={styles.reminderRow}>
+                      <Ionicons name="alarm" size={12} color={colors.warning} />
+                      <Text style={styles.reminderText} numberOfLines={1}>{reminderLabel}</Text>
+                    </View>
+                  )}
                   {item.notes ? <Text style={styles.cardNotes} numberOfLines={2}>{item.notes}</Text> : null}
                 </View>
+                <Pressable
+                  // Swallow the tap so it doesn't bubble to the card's
+                  // onPress (which would navigate instead of opening
+                  // the sheet).
+                  onPress={(e) => { e.stopPropagation(); setReminderTarget(item); }}
+                  style={styles.alarmBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    scheduled
+                      ? `Edit reminder for ${item.name}: ${reminderLabel}`
+                      : `Set reminder for ${item.name}`
+                  }
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={scheduled ? 'alarm' : 'alarm-outline'}
+                    size={20}
+                    color={scheduled ? colors.warning : '#999'}
+                  />
+                </Pressable>
                 <Ionicons name="chevron-forward" size={20} color="#bbb" />
               </Pressable>
             );
@@ -190,6 +354,7 @@ export default function WorkoutsScreen() {
               value={newName}
               onChangeText={setNewName}
               placeholder="e.g. Morning mobility"
+              accessibilityLabel="Routine name"
               placeholderTextColor="#bbb"
               style={styles.modalInput}
               autoFocus
@@ -238,6 +403,14 @@ export default function WorkoutsScreen() {
           </View>
         </View>
       </Modal>
+
+      {reminderTarget && (
+        <ReminderSheet
+          routine={reminderTarget}
+          onClose={() => setReminderTarget(null)}
+          onSaved={loadRoutines}
+        />
+      )}
     </View>
   );
 }
@@ -259,33 +432,48 @@ function computeStreak(sessions: WorkoutSession[]): number {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: {
-    // Wrap so the action chips drop to a second row on narrow screens
-    // instead of overflowing horizontally and clipping "Track".
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
     alignItems: 'center', rowGap: 8,
-    padding: 16, backgroundColor: '#fff',
+    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#eee',
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#333' },
-  headerSub: { fontSize: 12, color: '#999', marginTop: 2 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerCount: { fontSize: 12, color: colors.textMuted },
   streakBox: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#fff5e6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#fff5e6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
   },
-  streakText: { fontWeight: '700', color: colors.warning },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  streakText: { fontWeight: '700', color: colors.warning, fontSize: 12 },
   newBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
     backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
   newBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  trackBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+  iconBtn: {
+    padding: 6, borderRadius: 8,
     backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
   },
-  trackBtnText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+
+  templateSection: { paddingTop: 10, paddingBottom: 4, backgroundColor: '#fff' },
+  sectionLabel: {
+    fontSize: 11, color: colors.textMuted, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8,
+    paddingHorizontal: 16, marginBottom: 6,
+  },
+  templateRow: { paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
+  templateCard: {
+    // 160×96 minimum — comfortably above the 44×44 tap-target floor.
+    width: 160, minHeight: 96,
+    backgroundColor: '#f5f6fa', borderRadius: 10,
+    borderLeftWidth: 3,
+    padding: 12,
+    justifyContent: 'space-between',
+    cursor: 'pointer' as any,
+  },
+  templateName: { fontSize: 13, fontWeight: '700', color: '#222', marginTop: 8 },
+  templateMeta: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
 
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -295,11 +483,19 @@ const styles = StyleSheet.create({
   },
   goalDot: { width: 8, height: 40, borderRadius: 4 },
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#222' },
-  cardMeta: { fontSize: 12, color: '#888', marginTop: 2 },
+  cardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  reminderText: { fontSize: 12, color: colors.warning, fontWeight: '600' },
+  alarmBtn: {
+    // 44×44 tap target above the WCAG minimum, separate from the
+    // card-level press that navigates to detail.
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: '#999', marginTop: 8, fontSize: 16 },
+  emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 16 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
   emptyHint: { color: '#8a94a6', marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 300 },
   emptyCta: {
