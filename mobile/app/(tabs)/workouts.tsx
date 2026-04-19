@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useWorkoutStore, WorkoutSession, Exercise } from '@/lib/stores';
+import { useWorkoutStore, WorkoutSession, Exercise, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
+import ReminderSheet from '@/components/ReminderSheet';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
@@ -14,6 +15,7 @@ import { syncRoutineReminders } from '@/lib/routineReminders';
 import {
   WORKOUT_TEMPLATES, WorkoutTemplate, estimateMinutes,
 } from '@/lib/workoutTemplates';
+import { formatReminder } from '@/lib/reminders';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: colors.warning, strength: colors.primary, mobility: colors.success,
@@ -45,6 +47,10 @@ export default function WorkoutsScreen() {
   // Per-template "creating…" flag so taps during the round-trip disable
   // that card without blanking the whole strip. Keyed on template.id.
   const [instantiating, setInstantiating] = useState<string | null>(null);
+
+  // Reminder sheet: null when closed, the target routine when open. Kept
+  // here (not per-card) so exactly one sheet can be open at a time.
+  const [reminderTarget, setReminderTarget] = useState<Routine | null>(null);
 
   useEffect(() => {
     loadRoutines();
@@ -254,10 +260,14 @@ export default function WorkoutsScreen() {
           contentContainerStyle={{ padding: 12 }}
           renderItem={({ item }) => {
             const lastSession = recent.find((s) => s.routine_id === item.id);
+            const reminderLabel = formatReminder(item.reminder_time, item.reminder_days);
+            const scheduled = Boolean(reminderLabel);
             return (
               <Pressable
                 style={styles.card}
                 onPress={() => router.push(`/workout/${item.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open routine ${item.name}`}
               >
                 <View style={[styles.goalDot, { backgroundColor: GOAL_COLORS[item.goal] || '#999' }]} />
                 <View style={{ flex: 1 }}>
@@ -266,8 +276,34 @@ export default function WorkoutsScreen() {
                     {item.exercises.length} exercises · {item.goal}
                     {lastSession && ` · last ${formatRel(lastSession.started_at)}`}
                   </Text>
+                  {reminderLabel && (
+                    <View style={styles.reminderRow}>
+                      <Ionicons name="alarm" size={12} color={colors.warning} />
+                      <Text style={styles.reminderText} numberOfLines={1}>{reminderLabel}</Text>
+                    </View>
+                  )}
                   {item.notes ? <Text style={styles.cardNotes} numberOfLines={2}>{item.notes}</Text> : null}
                 </View>
+                <Pressable
+                  // Swallow the tap so it doesn't bubble to the card's
+                  // onPress (which would navigate instead of opening
+                  // the sheet).
+                  onPress={(e) => { e.stopPropagation(); setReminderTarget(item); }}
+                  style={styles.alarmBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    scheduled
+                      ? `Edit reminder for ${item.name}: ${reminderLabel}`
+                      : `Set reminder for ${item.name}`
+                  }
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={scheduled ? 'alarm' : 'alarm-outline'}
+                    size={20}
+                    color={scheduled ? colors.warning : '#999'}
+                  />
+                </Pressable>
                 <Ionicons name="chevron-forward" size={20} color="#bbb" />
               </Pressable>
             );
@@ -367,6 +403,14 @@ export default function WorkoutsScreen() {
           </View>
         </View>
       </Modal>
+
+      {reminderTarget && (
+        <ReminderSheet
+          routine={reminderTarget}
+          onClose={() => setReminderTarget(null)}
+          onSaved={loadRoutines}
+        />
+      )}
     </View>
   );
 }
@@ -441,6 +485,14 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '600', color: '#222' },
   cardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  reminderText: { fontSize: 12, color: colors.warning, fontWeight: '600' },
+  alarmBtn: {
+    // 44×44 tap target above the WCAG minimum, separate from the
+    // card-level press that navigates to detail.
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
 
   empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
   emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 16 },
