@@ -283,6 +283,18 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS routine_phases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    order_idx INTEGER NOT NULL,
+    duration_weeks INTEGER NOT NULL CHECK (duration_weeks > 0),
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (routine_id, order_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_routine_phases_routine ON routine_phases(routine_id, order_idx);
+
 CREATE TABLE IF NOT EXISTS workout_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -394,9 +406,21 @@ def init_db():
             # that didn't pass expected_updated_at still succeed. New
             # writes populate it from now() in the UPDATE statements.
             ("updated_at", "TEXT"),
+            # Phased routines: ISO date string (YYYY-MM-DD) marking when
+            # phase 0 started. NULL = routine is not phased and behaves
+            # as a flat list. Not a DATE type because SQLite stores dates
+            # as TEXT; PG will implicitly cast on read.
+            ("phase_start_date", "TEXT"),
         ])
         _ensure_columns(cur, "routine_exercises", [
             ("updated_at", "TEXT"),
+            # Phased routines: FK into routine_phases. NULL = RE applies
+            # in every phase (warmups, cooldowns). FK isn't enforced here
+            # because ALTER TABLE ADD COLUMN on SQLite can't add an FK
+            # constraint after the fact — the hydration code checks that
+            # phase_id references a real phase; orphaned values are
+            # ignored safely.
+            ("phase_id", "INTEGER"),
         ])
         _ensure_columns(cur, "exercise_images", [
             # Phase 6.3: content hash for dedup. Existing rows get NULL and

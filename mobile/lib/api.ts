@@ -347,6 +347,9 @@ export interface RoutineCreatePayload {
   exercises?: RoutineExerciseCreatePayload[];
 }
 export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {
+  /** ISO date "YYYY-MM-DD". Sets phase 0's start date so the server can
+   *  resolve current_phase_id. Send null to un-phase. */
+  phase_start_date?: string | null;
   /** Optimistic concurrency: ISO timestamp of the routine when the client
    *  last read it. Server returns 409 if the row has moved past it. Omit
    *  to opt out (silent last-write-wins). */
@@ -486,6 +489,35 @@ export async function addExerciseToRoutine(routineId: number, payload: RoutineEx
 
 export async function removeExerciseFromRoutine(routineExerciseId: number) {
   await api.delete(`/routines/exercises/${routineExerciseId}`);
+}
+
+// ---- Phases (Curovate-style progression) ----------------------------------
+// A routine with zero phases behaves as it always has. Creating phases
+// doesn't flip the routine into "phased mode" until `phase_start_date`
+// is set via updateRoutine(id, { phase_start_date: "YYYY-MM-DD" }).
+
+export interface RoutinePhasePayload {
+  label: string;
+  order_idx: number;
+  duration_weeks: number;
+  notes?: string | null;
+}
+export type RoutinePhaseUpdatePayload = Partial<RoutinePhasePayload>;
+
+export async function createPhase(routineId: number, payload: RoutinePhasePayload) {
+  const { data } = await api.post(`/routines/${routineId}/phases`, payload);
+  return data;
+}
+
+export async function updatePhase(
+  routineId: number, phaseId: number, payload: RoutinePhaseUpdatePayload,
+) {
+  const { data } = await api.put(`/routines/${routineId}/phases/${phaseId}`, payload);
+  return data;
+}
+
+export async function deletePhase(routineId: number, phaseId: number) {
+  await api.delete(`/routines/${routineId}/phases/${phaseId}`);
 }
 
 // --- Workouts: Sessions ---

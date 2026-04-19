@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-rou
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise } from '@/lib/stores';
 import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
+import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
 
 /** Two-choice conflict prompt. Resolves with the user's decision rather
  *  than blocking state. Web uses confirm() because there's no native
@@ -92,8 +93,17 @@ export default function RoutineDetailScreen() {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
+  // Phase-aware view. On a flat routine (no phases or no start date) this
+  // reduces to routine.exercises and activePhase is null — the banner
+  // isn't rendered and nothing about the old behavior changes.
+  const activePhase = getActivePhaseInfo(routine);
+  const visibleExercises = filterExercisesForPhase(
+    routine.exercises,
+    routine.current_phase_id ?? null,
+  );
+
   const totalMins = Math.round(
-    routine.exercises.reduce((sum, re) => {
+    visibleExercises.reduce((sum, re) => {
       const work = (re.target_duration_sec ?? 30) * (re.target_sets ?? 1);
       const rest = (re.rest_sec ?? 30) * Math.max(0, (re.target_sets ?? 1) - 1);
       return sum + work + rest;
@@ -138,8 +148,22 @@ export default function RoutineDetailScreen() {
           <View style={styles.header}>
             <Text style={styles.title}>{routine.name}</Text>
             <Text style={styles.meta}>
-              {routine.exercises.length} exercises · ~{totalMins} min · {routine.goal}
+              {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
             </Text>
+            {activePhase && (
+              <View style={styles.phaseBanner}>
+                <Ionicons name="flag" size={13} color={colors.primary} />
+                <Text style={styles.phaseBannerText}>
+                  Phase {activePhase.position}/{activePhase.total}: {activePhase.phase.label}
+                  {' · '}
+                  <Text style={styles.phaseBannerDays}>
+                    {activePhase.daysLeft === 0
+                      ? 'final day'
+                      : `${activePhase.daysLeft} day${activePhase.daysLeft === 1 ? '' : 's'} left`}
+                  </Text>
+                </Text>
+              </View>
+            )}
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color={colors.warning} />
@@ -152,7 +176,7 @@ export default function RoutineDetailScreen() {
           </View>
         )}
 
-        {routine.exercises.map((re, idx) => {
+        {visibleExercises.map((re, idx) => {
           const ex = re.exercise;
           if (!ex) return null;
           return (
@@ -506,6 +530,15 @@ const styles = StyleSheet.create({
   headerEditBtnActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
   headerEditText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
+  phaseBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10,
+    backgroundColor: '#eef4ff',
+    borderLeftWidth: 3, borderLeftColor: colors.primary,
+    borderRadius: 6,
+  },
+  phaseBannerText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  phaseBannerDays: { color: colors.primary, fontWeight: '400' },
 
   exCard: {
     backgroundColor: '#fff', margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,

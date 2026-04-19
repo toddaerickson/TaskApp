@@ -144,6 +144,29 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Phases: Curovate-style progression. A routine with no rows here is
+-- "flat" (no phases) and behaves as it always has — every routine_exercise
+-- applies. A routine with ≥1 phase row progresses through them in
+-- `order_idx` order; each phase lasts `duration_weeks`. The "current"
+-- phase at time T = the phase whose [offset, offset+duration) contains
+-- (T - routines.phase_start_date) / 7d. `phase_start_date` lives on
+-- `routines` and is added via ALTER (see database.py init_db).
+--
+-- `routine_exercises.phase_id` (also added via ALTER) is nullable:
+--   NULL => the RE applies in every phase (e.g. a warmup stretch)
+--   set  => the RE only surfaces when that phase is active
+CREATE TABLE IF NOT EXISTS routine_phases (
+    id SERIAL PRIMARY KEY,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    order_idx INTEGER NOT NULL,
+    duration_weeks INTEGER NOT NULL CHECK (duration_weeks > 0),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (routine_id, order_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_routine_phases_routine ON routine_phases(routine_id, order_idx);
+
 -- Sessions: a logged workout
 CREATE TABLE IF NOT EXISTS workout_sessions (
     id SERIAL PRIMARY KEY,
