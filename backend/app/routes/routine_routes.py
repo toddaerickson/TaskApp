@@ -8,6 +8,7 @@ from typing import Optional
 from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
+    PhaseCreate, PhaseUpdate, PhaseResponse,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
@@ -23,6 +24,10 @@ class RoutineExerciseUpdate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = None
     notes: Optional[str] = None
+    # Null = unassign (applies in every phase). Pydantic's exclude_unset
+    # distinguishes "field omitted" from "field sent as null" — so clients
+    # need to explicitly send phase_id: null to clear it.
+    phase_id: Optional[int] = None
     # See RoutineUpdate.expected_updated_at — same story for per-exercise rows.
     expected_updated_at: Optional[datetime] = None
 
@@ -365,4 +370,127 @@ def remove_exercise(routine_exercise_id: int, user_id: int = Depends(get_current
         if not cur.fetchone():
             raise HTTPException(404, "Not found")
         cur.execute("DELETE FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
+    return {"ok": True}
+
+
+# --- Phases (Curovate-style progression) ---
+#
+# A routine without phase rows behaves exactly as before. Creating the
+# first phase doesn't auto-assign any existing exercises — the client
+# walks through them in the editor and calls PUT /routines/exercises/:id
+# with a phase_id. Setting phase_start_date via PUT /routines/:id flips
+# the routine into "phased mode" (current_phase_id becomes non-null in
+# responses). That two-step is deliberate: a routine can accumulate
+# draft phases without visibly switching modes until it's ready.
+
+def _own_routine_or_404(cur, routine_id: int, user_id: int) -> None:
+    cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
+                (routine_id, user_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "Routine not found")
+
+
+def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> dict:
+    cur.execute("""
+        SELECT p.* FROM routine_phases p
+        JOIN routines r ON r.id = p.routine_id
+        WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?
+    """, (phase_id, routine_id, user_id))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Phase not found")
+    return row
+
+
+@router.get("/{routine_id}/phases", response_model=list[PhaseResponse])
+def list_phases(routine_id: int, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_routine_or_404(cur, routine_id, user_id)
+        cur.execute(
+            "SELECT * FROM routine_phases WHERE routine_id = ? "
+            "ORDER BY order_idx ASC, id ASC",
+            (routine_id,),
+        )
+        return cur.fetchall()
+
+
+@router.post("/{routine_id}/phases", response_model=PhaseResponse)
+def create_phase(
+    routine_id: int,
+    req: PhaseCreate,
+    user_id: int = Depends(get_current_user_id),
+):
+    if req.duration_weeks < 1:
+        raise HTTPException(400, "duration_weeks must be >= 1")
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_routine_or_404(cur, routine_id, user_id)
+        # Order_idx collision surfaces as a 409 from the UNIQUE constraint.
+        # We do a pre-check so the error is actionable rather than an opaque
+        # IntegrityError; the race is harmless because the user resolves it
+        # with a different index anyway.
+        cur.execute(
+            "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ?",
+            (routine_id, req.order_idx),
+        )
+        if cur.fetchone():
+            raise HTTPException(409, "order_idx already used for this routine")
+        cur.execute(
+            "INSERT INTO routine_phases (routine_id, label, order_idx, duration_weeks, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (routine_id, req.label, req.order_idx, req.duration_weeks, req.notes),
+        )
+        pid = cur.lastrowid
+        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (pid,))
+        return cur.fetchone()
+
+
+@router.put("/{routine_id}/phases/{phase_id}", response_model=PhaseResponse)
+def update_phase(
+    routine_id: int,
+    phase_id: int,
+    req: PhaseUpdate,
+    user_id: int = Depends(get_current_user_id),
+):
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_phase_or_404(cur, routine_id, phase_id, user_id)
+        fields = req.model_dump(exclude_unset=True)
+        if "duration_weeks" in fields and (fields["duration_weeks"] or 0) < 1:
+            raise HTTPException(400, "duration_weeks must be >= 1")
+        if "order_idx" in fields:
+            cur.execute(
+                "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ? AND id != ?",
+                (routine_id, fields["order_idx"], phase_id),
+            )
+            if cur.fetchone():
+                raise HTTPException(409, "order_idx already used for this routine")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            cur.execute(
+                f"UPDATE routine_phases SET {sets} WHERE id = ?",
+                tuple(list(fields.values()) + [phase_id]),
+            )
+        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (phase_id,))
+        return cur.fetchone()
+
+
+@router.delete("/{routine_id}/phases/{phase_id}")
+def delete_phase(
+    routine_id: int,
+    phase_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Delete a phase. Any routine_exercises pinned to it fall back to
+    NULL (apply-in-every-phase) rather than being deleted — the user's
+    exercise work stays even if they tear down the progression."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        _own_phase_or_404(cur, routine_id, phase_id, user_id)
+        cur.execute(
+            "UPDATE routine_exercises SET phase_id = NULL WHERE phase_id = ?",
+            (phase_id,),
+        )
+        cur.execute("DELETE FROM routine_phases WHERE id = ?", (phase_id,))
     return {"ok": True}
