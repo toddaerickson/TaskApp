@@ -1,5 +1,5 @@
 import { colors } from "@/lib/colors";
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
 } from 'react-native';
@@ -10,6 +10,8 @@ import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
 import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
 import { PhaseEditor } from '@/components/PhaseEditor';
 import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
+import * as api from '@/lib/api';
+import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
 /** Two-choice conflict prompt. Resolves with the user's decision rather
  *  than blocking state. Web uses confirm() because there's no native
@@ -35,7 +37,6 @@ function isConflict(err: unknown): err is { response: { status: 409 } } {
   const e = err as { response?: { status?: number } };
   return e?.response?.status === 409;
 }
-import * as api from '@/lib/api';
 
 export default function RoutineDetailScreen() {
   const { routineId } = useLocalSearchParams<{ routineId: string }>();
@@ -197,7 +198,7 @@ export default function RoutineDetailScreen() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.exTarget}>{formatTarget(re)}</Text>
+                  <InlineDoseRow re={re} readOnly={editMode} onSaved={reload} />
                   {editMode && (routine.phases?.length ?? 0) > 0 && (
                     <View style={{ marginTop: 6 }}>
                       <ExercisePhaseChip
@@ -532,15 +533,153 @@ function formatSuggest(sg: api.RoutineSuggestion): string {
   return parts.join(' ') || '—';
 }
 
-function formatTarget(re: RoutineExercise): string {
-  const parts: string[] = [];
-  if (re.target_sets) parts.push(`${re.target_sets}×`);
-  if (re.target_reps) parts[parts.length - 1] += `${re.target_reps}`;
-  else if (re.target_duration_sec) parts[parts.length - 1] += `${re.target_duration_sec}s`;
-  if (re.target_weight) parts.push(`@${re.target_weight}lb`);
-  if (re.tempo) parts.push(`tempo ${re.tempo}`);
-  if (re.rest_sec) parts.push(`rest ${re.rest_sec}s`);
-  return parts.join(' · ');
+function InlineDoseRow({ re, readOnly, onSaved }: {
+  re: RoutineExercise; readOnly: boolean; onSaved: () => void;
+}) {
+  const tokens = tokenizeDose(re);
+  const [editing, setEditing] = useState<DoseTokenKind | null>(null);
+
+  if (tokens.length === 0) {
+    // Nothing seeded yet. Give the user a way in without forcing edit mode.
+    if (readOnly) return null;
+    return (
+      <Pressable
+        style={styles.doseAdd}
+        onPress={() => setEditing('work')}
+        accessibilityRole="button"
+        accessibilityLabel="Set dose"
+        accessibilityHint="Opens inline editor for sets, reps, and duration"
+      >
+        <Ionicons name="add" size={12} color={colors.primary} />
+        <Text style={styles.doseAddText}>Set dose</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <>
+      <View style={styles.doseRow}>
+        {tokens.map((t, i) => (
+          <Fragment key={`${t.kind}-${i}`}>
+            {i > 0 && <Text style={styles.doseSep}>·</Text>}
+            {readOnly ? (
+              <Text style={styles.doseText}>{t.label}</Text>
+            ) : (
+              <Pressable
+                onPress={() => setEditing(t.kind)}
+                style={({ pressed }) => [styles.doseChip, pressed && styles.doseChipPressed]}
+                hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${t.kind}: ${t.label}`}
+                accessibilityHint="Opens inline editor for this value"
+              >
+                <Text style={styles.doseChipText}>{t.label}</Text>
+              </Pressable>
+            )}
+          </Fragment>
+        ))}
+      </View>
+      {editing && (
+        <InlineDoseEditor
+          kind={editing}
+          re={re}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); onSaved(); }}
+        />
+      )}
+    </>
+  );
+}
+
+function InlineDoseEditor({ kind, re, onClose, onSaved }: {
+  kind: DoseTokenKind;
+  re: RoutineExercise;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [sets, setSets] = useState(String(re.target_sets ?? ''));
+  const [reps, setReps] = useState(String(re.target_reps ?? ''));
+  const [dur, setDur] = useState(String(re.target_duration_sec ?? ''));
+  const [weight, setWeight] = useState(String(re.target_weight ?? ''));
+  const [tempo, setTempo] = useState(re.tempo ?? '');
+  const [rest, setRest] = useState(String(re.rest_sec ?? ''));
+  const [busy, setBusy] = useState(false);
+
+  const save = async (overwrite = false) => {
+    setBusy(true);
+    try {
+      const body: api.RoutineExerciseUpdatePayload = {};
+      if (kind === 'work') {
+        body.target_sets = sets ? Number(sets) : null;
+        // Reps and duration are mutually exclusive at display time. Let
+        // the user decide which to fill; blank → null clears the field.
+        body.target_reps = reps ? Number(reps) : null;
+        body.target_duration_sec = dur ? Number(dur) : null;
+      } else if (kind === 'weight') {
+        body.target_weight = weight ? Number(weight) : null;
+      } else if (kind === 'tempo') {
+        body.tempo = tempo || null;
+      } else if (kind === 'rest') {
+        body.rest_sec = rest ? Number(rest) : null;
+      }
+      if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
+      await api.updateRoutineExercise(re.id, body);
+      onSaved();
+    } catch (e) {
+      if (isConflict(e)) {
+        const choice = await askConflict('exercise');
+        if (choice === 'reload') {
+          onSaved();
+        } else {
+          await save(true);
+        }
+      } else {
+        throw e;
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <View style={styles.inlinePanel}>
+      {kind === 'work' && (
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <EditField label="Sets" value={sets} onChange={setSets} numeric />
+          <EditField label="Reps" value={reps} onChange={setReps} numeric />
+          <EditField label="Seconds" value={dur} onChange={setDur} numeric />
+        </View>
+      )}
+      {kind === 'weight' && (
+        <EditField label="Weight (lb)" value={weight} onChange={setWeight} numeric />
+      )}
+      {kind === 'tempo' && (
+        <EditField label="Tempo (e.g. 3-1-3)" value={tempo} onChange={setTempo} />
+      )}
+      {kind === 'rest' && (
+        <EditField label="Rest (s)" value={rest} onChange={setRest} numeric />
+      )}
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+        <Pressable
+          style={[styles.saveBtn, { flex: 1 }, busy && { opacity: 0.5 }]}
+          onPress={() => save()}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+        >
+          <Ionicons name="checkmark" size={14} color="#fff" />
+          <Text style={styles.saveText}>{busy ? 'Saving…' : 'Save'}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.cancelBtn, { flex: 1 }]}
+          onPress={onClose}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+        >
+          <Text style={styles.cancelText}>Cancel</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -583,6 +722,38 @@ const styles = StyleSheet.create({
   },
   exName: { fontSize: 16, fontWeight: '600', color: '#222' },
   exTarget: { fontSize: 12, color: colors.primary, marginTop: 2, fontWeight: '600' },
+  doseRow: {
+    flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',
+    gap: 4, marginTop: 2,
+  },
+  doseSep: { fontSize: 12, color: '#bbb' },
+  doseText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  // WCAG 2.2 target size: the chip is ~22px tall, so we extend the tap
+  // area with hitSlop on the Pressable rather than inflating the chip.
+  doseChip: {
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    backgroundColor: '#eef2fb', cursor: 'pointer' as any,
+  },
+  doseChipPressed: { backgroundColor: '#dce4f4' },
+  doseChipText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  doseAdd: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary,
+    borderStyle: 'dashed', cursor: 'pointer' as any,
+  },
+  doseAddText: { fontSize: 11, color: colors.primary, fontWeight: '600' },
+  inlinePanel: {
+    marginTop: 8, paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
+  },
+  cancelBtn: {
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#f0f0f0', borderRadius: 6, padding: 8,
+    cursor: 'pointer' as any,
+  },
+  cancelText: { color: '#555', fontSize: 12, fontWeight: '600' },
   suggestBox: {
     flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
     backgroundColor: '#e8f5e9', paddingHorizontal: 8, paddingVertical: 4,
