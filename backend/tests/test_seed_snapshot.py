@@ -64,8 +64,11 @@ def test_snapshot_matches_seed_workouts_images_dict():
             continue
         assert slug in snap_slugs, (
             f"seed_workouts.IMAGES has {len(urls)} URL(s) for '{slug}' but "
-            f"the snapshot doesn't contain that slug at all; snapshot "
-            f"needs regenerating (run scripts/snapshot_exercises.py)"
+            f"the snapshot doesn't contain that slug at all. Either (a) "
+            f"regenerate the snapshot (run scripts/snapshot_exercises.py) "
+            f"if '{slug}' is a new exercise that hasn't been baked in yet, "
+            f"or (b) drop '{slug}' from seed_workouts.IMAGES if it was "
+            f"intentionally removed from the catalog."
         )
         assert snap_slugs[slug].get("images"), (
             f"snapshot[{slug}].images is empty but seed_workouts.IMAGES "

@@ -378,6 +378,57 @@ def test_reorder_pass1_scoping_prevents_concurrent_add_corruption(auth_client, s
     )
 
 
+def test_reorder_pass2_detects_concurrent_phase_delete(auth_client, seeded_globals):
+    """Race-safety: a phase deleted between the validator's SELECT and
+    Pass 2's UPDATE loop must surface a 409, not silently return a
+    truncated phase list.
+
+    Single-threaded tests can't interleave a real concurrent DELETE,
+    so we exercise Pass 2's rowcount invariant directly: create three
+    phases, delete one via raw SQL (simulating the concurrent-delete
+    window), then run the bulk UPDATE against the pre-delete id list
+    and assert the rowcount guard fires on the deleted id.
+    """
+    c, tok, _ = auth_client
+    rid = c.post("/routines", headers=_h(tok), json={"name": "R"}).json()["id"]
+    ids = [
+        c.post(f"/routines/{rid}/phases", headers=_h(tok), json={
+            "label": f"P{i}", "order_idx": i, "duration_weeks": 1,
+        }).json()["id"]
+        for i in range(3)
+    ]
+    racer_deleted = ids[1]
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        # Concurrent-delete simulator.
+        cur.execute(
+            "DELETE FROM routine_phases WHERE id = ?", (racer_deleted,),
+        )
+        # Pass 1 scoped to the pre-delete id list (mirrors the route).
+        placeholders = ",".join("?" * len(ids))
+        cur.execute(
+            f"UPDATE routine_phases SET order_idx = -id "
+            f"WHERE routine_id = ? AND id IN ({placeholders})",
+            (rid, *ids),
+        )
+        # Pass 2: loop over the pre-delete list; the deleted id must
+        # produce rowcount == 0 (the route's guard 409s at this point).
+        zero_hits: list[int] = []
+        for new_idx, pid in enumerate(ids):
+            cur.execute(
+                "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
+                (new_idx, pid, rid),
+            )
+            if cur.rowcount == 0:
+                zero_hits.append(pid)
+
+    assert zero_hits == [racer_deleted], (
+        f"expected rowcount=0 only on the concurrently-deleted phase "
+        f"({racer_deleted}); got {zero_hits}"
+    )
+
+
 def test_update_routine_exercise_rejects_foreign_phase_id(auth_client, seeded_globals):
     """phase_id on a routine_exercise must belong to the same routine.
     Pointing at another routine's phase (even if the user owns both)
