@@ -258,6 +258,15 @@ CREATE INDEX IF NOT EXISTS idx_exercise_images_ex_id ON exercise_images(exercise
 -- Dedup guard: one image per (exercise, content_hash). Partial index so
 -- pre-feature NULL-hashed rows don't trip the constraint; new inserts
 -- always supply a hash.
+--
+-- The ADD COLUMN IF NOT EXISTS below is here (not in _ensure_columns in
+-- database.py) because init_db() runs the full schema file before
+-- _ensure_columns. Databases created before the content_hash feature
+-- shipped would fail the CREATE UNIQUE INDEX on a missing column;
+-- guarding the column inline keeps the file self-contained and safe
+-- to re-run on every deploy. Postgres-only; SQLite uses SQLITE_SCHEMA
+-- in database.py which already includes content_hash in its CREATE.
+ALTER TABLE exercise_images ADD COLUMN IF NOT EXISTS content_hash TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exercise_images_hash
     ON exercise_images(exercise_id, content_hash)
     WHERE content_hash IS NOT NULL;
