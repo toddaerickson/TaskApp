@@ -4,7 +4,7 @@ from app.auth import get_current_user_id
 from app.models import (
     SessionCreate, SessionUpdate, SessionResponse,
     SessionSetCreate, SessionSetResponse, SessionSetUpdate,
-    SymptomLogCreate, SymptomLogResponse,
+    SymptomLogCreate, SymptomLogResponse, SymptomLogUpdate,
     ExerciseBest,
 )
 from app.hydrate import hydrate_sessions_full
@@ -365,3 +365,47 @@ def list_symptoms(
         params.append(limit)
         cur.execute(sql, tuple(params))
         return cur.fetchall()
+
+
+# Allow-list for PATCH /symptoms/{id}. Mirrors the route-update pattern used
+# for routines/sessions so a future Pydantic field addition can't silently
+# leak into dynamic SQL.
+_SYMPTOM_UPDATE_COLUMNS = {"body_part", "severity", "notes"}
+
+
+@router.patch("/symptoms/{log_id}", response_model=SymptomLogResponse)
+def update_symptom(log_id: int, req: SymptomLogUpdate, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM symptom_logs WHERE id = ? AND user_id = ?", (log_id, user_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "Symptom log not found")
+
+        patch = req.model_dump(exclude_unset=True)
+        updates, params = [], []
+        for k, v in patch.items():
+            if k not in _SYMPTOM_UPDATE_COLUMNS:
+                continue
+            updates.append(f"{k} = ?")
+            params.append(v)
+        if not updates:
+            raise HTTPException(400, "No fields to update")
+
+        params.extend([log_id, user_id])
+        cur.execute(
+            f"UPDATE symptom_logs SET {', '.join(updates)} WHERE id = ? AND user_id = ?",
+            params,
+        )
+        cur.execute("SELECT * FROM symptom_logs WHERE id = ?", (log_id,))
+        return cur.fetchone()
+
+
+@router.delete("/symptoms/{log_id}")
+def delete_symptom(log_id: int, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM symptom_logs WHERE id = ? AND user_id = ?", (log_id, user_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "Symptom log not found")
+        cur.execute("DELETE FROM symptom_logs WHERE id = ? AND user_id = ?", (log_id, user_id))
+    return {"ok": True}

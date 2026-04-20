@@ -105,6 +105,17 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionHeader}>Workout Data</Text>
 
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => router.push('/workout/exercises')}
+        accessibilityRole="button"
+        accessibilityLabel="Exercise library: edit or delete user-created exercises"
+      >
+        <Ionicons name="barbell-outline" size={22} color={colors.primary} />
+        <Text style={styles.rowText}>Exercise library</Text>
+        <Ionicons name="chevron-forward" size={18} color="#bbb" />
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.row} onPress={handleExport} disabled={exporting}>
         <Ionicons name="download-outline" size={22} color={colors.primary} />
         <Text style={styles.rowText}>Export workouts as JSON</Text>

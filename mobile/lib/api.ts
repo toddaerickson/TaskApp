@@ -398,6 +398,10 @@ export async function updateExercise(id: number, updates: ExerciseUpdatePayload)
   return data;
 }
 
+export async function deleteExercise(id: number) {
+  await api.delete(`/exercises/${id}`);
+}
+
 export async function updateRoutine(id: number, updates: RoutineUpdatePayload) {
   const { data } = await api.put(`/routines/${id}`, updates);
   return data;
@@ -645,4 +649,16 @@ export async function logSymptom(payload: {
 export async function listSymptoms(params?: { body_part?: string; limit?: number }) {
   const { data } = await api.get('/symptoms', { params });
   return data;
+}
+
+export async function updateSymptom(
+  id: number,
+  patch: { body_part?: string; severity?: number; notes?: string | null },
+) {
+  const { data } = await api.patch(`/symptoms/${id}`, patch);
+  return data;
+}
+
+export async function deleteSymptom(id: number) {
+  await api.delete(`/symptoms/${id}`);
 }
