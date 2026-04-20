@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore } from '@/lib/stores';
 import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
+import TaskReminderEditor from '@/components/TaskReminderEditor';
 import * as api from '@/lib/api';
 
 const PRIORITIES = [
@@ -293,6 +294,15 @@ export default function CreateTaskScreen() {
             // text. colors.textMuted (#595959) is darkened for body-text
             // a11y — too close to real input to be a placeholder.
             placeholderTextColor="#bbb"
+          />
+
+          {/* Pre-save stub: renders a "save first" hint because the
+              task has no id yet. Once created the detail screen has
+              the real editor. */}
+          <TaskReminderEditor
+            taskId={null}
+            reminders={[]}
+            onChanged={() => {}}
           />
         </View>
       )}

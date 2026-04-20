@@ -143,6 +143,11 @@ export async function createFolder(name: string, sortOrder?: number) {
   return data;
 }
 
+export async function updateFolder(id: number, patch: { name?: string; sort_order?: number }) {
+  const { data } = await api.put(`/folders/${id}`, patch);
+  return data;
+}
+
 export async function deleteFolder(id: number) {
   await api.delete(`/folders/${id}`);
 }
