@@ -59,7 +59,7 @@ export default function RegisterScreen() {
           accessibilityLabel="Display name, optional"
           value={name}
           onChangeText={setName}
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor="#bbb"
         />
         <TextInput
           style={styles.input}
@@ -69,7 +69,7 @@ export default function RegisterScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor="#bbb"
         />
         <TextInput
           style={styles.input}
@@ -78,7 +78,7 @@ export default function RegisterScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor="#bbb"
         />
 
         <Pressable
