@@ -8,13 +8,41 @@ import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '@/lib/api';
 import type { Exercise, WorkoutSession } from '@/lib/stores';
-import { aggregateByExercise, weeklyCounts, ExerciseStat } from '@/lib/progress';
+import {
+  aggregateByExercise, weeklyCounts,
+  metricSeries, availableMetrics, filterByRange,
+  ExerciseStat, StatPoint, Metric,
+} from '@/lib/progress';
+
+const RANGE_OPTIONS: { days: number; label: string }[] = [
+  { days: 30, label: '30d' },
+  { days: 90, label: '90d' },
+  { days: 180, label: '180d' },
+  { days: 365, label: '1y' },
+  { days: 0, label: 'All' },
+];
+
+const METRIC_LABELS: Record<Metric, string> = {
+  reps: 'Reps',
+  weight: 'Weight',
+  duration: 'Duration',
+  pain: 'Pain',
+};
+
+const METRIC_UNITS: Record<Metric, string> = {
+  reps: '',
+  weight: '',
+  duration: 's',
+  pain: '/10',
+};
 
 export default function ProgressScreen() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedExId, setSelectedExId] = useState<number | null>(null);
+  const [rangeDays, setRangeDays] = useState(90);
+  const [selectedMetric, setSelectedMetric] = useState<Metric | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -36,6 +64,33 @@ export default function ProgressScreen() {
   useEffect(() => {
     if (selectedExId === null && stats.length > 0) setSelectedExId(stats[0].exercise_id);
   }, [stats]);
+
+  // Which metrics have data for the currently-selected exercise. Hides
+  // toggle chips that would render an empty chart.
+  const metricsForExercise = useMemo(
+    () => (selectedExId ? availableMetrics(sessions, selectedExId) : []),
+    [sessions, selectedExId],
+  );
+
+  // Default-select the first available metric when the user changes
+  // exercise, or when the current metric isn't valid for the new one.
+  useEffect(() => {
+    if (metricsForExercise.length === 0) {
+      setSelectedMetric(null);
+      return;
+    }
+    if (!selectedMetric || !metricsForExercise.includes(selectedMetric)) {
+      setSelectedMetric(metricsForExercise[0]);
+    }
+  }, [metricsForExercise, selectedMetric]);
+
+  // Build the series the chart renders from: per-metric daily maxes
+  // (or pain mins), then truncated to the selected date range.
+  const chartSeries = useMemo(() => {
+    if (!selectedExId || !selectedMetric) return [];
+    const full = metricSeries(sessions, selectedExId, selectedMetric);
+    return filterByRange(full, rangeDays);
+  }, [sessions, selectedExId, selectedMetric, rangeDays]);
 
   const selectedStat = stats.find((s) => s.exercise_id === selectedExId);
 
@@ -72,12 +127,15 @@ export default function ProgressScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle} accessibilityRole="header">Per-exercise trend</Text>
-        <Text style={styles.cardSub}>Best per-day result</Text>
+        <Text style={styles.cardSub}>
+          {selectedMetric ? `Best ${METRIC_LABELS[selectedMetric].toLowerCase()} per day` : 'Best per-day result'}
+        </Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.pickerRow}
           accessibilityRole="tablist"
+          accessibilityLabel="Exercise picker"
         >
           {stats.map((s) => {
             const active = s.exercise_id === selectedExId;
@@ -102,7 +160,69 @@ export default function ProgressScreen() {
             );
           })}
         </ScrollView>
-        {selectedStat && <LineChart stat={selectedStat} height={200} />}
+
+        {/* Metric toggle — only shows metrics that have data for the
+            currently-selected exercise. Hidden entirely when only one
+            metric applies (e.g. a bodyweight-reps-only routine). */}
+        {metricsForExercise.length > 1 && (
+          <View
+            style={styles.metricRow}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Chart metric"
+          >
+            {metricsForExercise.map((m) => {
+              const active = selectedMetric === m;
+              return (
+                <Pressable
+                  key={m}
+                  style={[styles.metricChip, active && styles.metricChipActive]}
+                  onPress={() => setSelectedMetric(m)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={METRIC_LABELS[m]}
+                >
+                  <Text style={[styles.metricChipText, active && styles.metricChipTextActive]}>
+                    {METRIC_LABELS[m]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Date-range toggle. 0 days = "All". */}
+        <View
+          style={styles.metricRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Date range"
+        >
+          {RANGE_OPTIONS.map((r) => {
+            const active = rangeDays === r.days;
+            return (
+              <Pressable
+                key={r.days}
+                style={[styles.rangeChip, active && styles.rangeChipActive]}
+                onPress={() => setRangeDays(r.days)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={r.label === '1y' ? '1 year' : r.label === 'All' ? 'All time' : `${r.days} days`}
+              >
+                <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {selectedStat && selectedMetric && (
+          <LineChart
+            points={chartSeries}
+            height={200}
+            unit={METRIC_UNITS[selectedMetric]}
+            label={`${selectedStat.name} · ${METRIC_LABELS[selectedMetric]}`}
+          />
+        )}
       </View>
     </ScrollView>
   );
@@ -179,52 +299,66 @@ function BarChart({ data, height }: { data: { label: string; count: number }[]; 
   );
 }
 
-function LineChart({ stat, height }: { stat: ExerciseStat; height: number }) {
+function LineChart({
+  points, height, unit, label,
+}: {
+  points: StatPoint[];
+  height: number;
+  unit: string;
+  label: string;
+}) {
   const { width: winW } = useWindowDimensions();
   const w = Math.min(winW - 56, 600);
   const padL = 36, padR = 12, padB = 28, padT = 10;
   const chartW = w - padL - padR;
   const chartH = height - padT - padB;
 
-  const pts = stat.points;
-  if (pts.length === 0) {
-    return <Text style={{ textAlign: 'center', color: colors.textMuted, padding: 20 }}>No data.</Text>;
+  if (points.length === 0) {
+    return <Text style={{ textAlign: 'center', color: colors.textMuted, padding: 20 }}>No data in this range.</Text>;
   }
-  if (pts.length === 1) {
+  if (points.length === 1) {
     return (
       <Text style={{ textAlign: 'center', color: '#666', padding: 20 }}>
-        Only one session so far — do another to see a trend.
+        Only one data point in this range — log another to see a trend.
       </Text>
     );
   }
 
-  const values = pts.map((p) => p.value);
+  const values = points.map((p) => p.value);
   const minV = Math.min(...values);
   const maxV = Math.max(...values);
   const range = Math.max(1, maxV - minV);
 
-  const x = (i: number) => padL + (i / Math.max(1, pts.length - 1)) * chartW;
+  const x = (i: number) => padL + (i / Math.max(1, points.length - 1)) * chartW;
   const y = (v: number) => padT + chartH * (1 - (v - minV) / range);
 
-  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ');
-  const unit = stat.measurement === 'duration' ? 's'
-    : stat.measurement === 'distance' ? 'm' : '';
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ');
 
   return (
-    <Svg width={w} height={height} accessibilityLabel={`Trend chart for ${stat.name}`}>
+    <Svg width={w} height={height} accessibilityLabel={`Trend chart for ${label}`}>
       <Line x1={padL} x2={w - padR} y1={padT} y2={padT} stroke="#eee" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH / 2} y2={padT + chartH / 2} stroke="#f5f5f5" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH} y2={padT + chartH} stroke="#eee" />
       <SvgText x={4} y={padT + 4} fontSize={10} fill="#999">{maxV}{unit}</SvgText>
       <SvgText x={4} y={padT + chartH + 4} fontSize={10} fill="#999">{minV}{unit}</SvgText>
       <Path d={pathD} stroke={colors.primary} strokeWidth={2} fill="none" />
-      {pts.map((p, i) => (
-        <Circle key={i} cx={x(i)} cy={y(p.value)} r={3} fill={colors.primary} />
+      {points.map((p, i) => (
+        // Larger + highlighted circle on PR days. A filled accent ring
+        // makes the record visible at a glance without a legend.
+        p.pr ? (
+          <Circle
+            key={`pr${i}`}
+            cx={x(i)} cy={y(p.value)} r={5}
+            fill={colors.accent} stroke="#fff" strokeWidth={1.5}
+          />
+        ) : (
+          <Circle key={i} cx={x(i)} cy={y(p.value)} r={3} fill={colors.primary} />
+        )
       ))}
       {/* X-axis: first + last date */}
-      <SvgText x={padL} y={height - 8} fontSize={9} fill="#999">{pts[0].date.slice(5)}</SvgText>
+      <SvgText x={padL} y={height - 8} fontSize={9} fill="#999">{points[0].date.slice(5)}</SvgText>
       <SvgText x={w - padR} y={height - 8} fontSize={9} fill="#999" textAnchor="end">
-        {pts[pts.length - 1].date.slice(5)}
+        {points[points.length - 1].date.slice(5)}
       </SvgText>
     </Svg>
   );
@@ -264,4 +398,25 @@ const styles = StyleSheet.create({
   chipCountActive: { backgroundColor: 'rgba(255,255,255,0.25)' },
   chipCountText: { fontSize: 10, color: '#666' },
   chipCountTextActive: { color: '#fff', fontWeight: '700' },
+
+  metricRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    marginTop: 8,
+  },
+  metricChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#e3e7ee',
+    cursor: 'pointer' as any,
+  },
+  metricChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  metricChipText: { fontSize: 12, color: '#444' },
+  metricChipTextActive: { color: '#fff', fontWeight: '700' },
+  rangeChip: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#eee',
+    cursor: 'pointer' as any,
+  },
+  rangeChipActive: { backgroundColor: '#eef4ff', borderColor: colors.primary },
+  rangeChipText: { fontSize: 11, color: '#666' },
+  rangeChipTextActive: { color: colors.primary, fontWeight: '700' },
 });
