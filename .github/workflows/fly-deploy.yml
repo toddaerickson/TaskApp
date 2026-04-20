@@ -1,0 +1,36 @@
+name: Deploy backend to Fly.io
+
+# Auto-deploy the FastAPI backend to Fly whenever backend code lands on
+# master. The frontend is on Vercel (separate auto-deploy) so we don't
+# trigger on mobile-only changes. `workflow_dispatch` lets you force a
+# manual redeploy from the Actions tab without a code change.
+#
+# One-time setup: create a FLY_API_TOKEN secret in
+#   Settings → Secrets and variables → Actions
+# Token source:
+#   fly tokens create deploy -x 999999h  (on a machine with flyctl)
+# or via the Fly dashboard → Account → Access Tokens.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/fly-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    concurrency:
+      group: fly-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        working-directory: backend
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
