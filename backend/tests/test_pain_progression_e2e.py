@@ -145,6 +145,76 @@ def test_patch_set_backfills_pain_score(client, seeded_globals):
     assert r.json()["duration_sec"] == 30  # untouched
 
 
+def test_patch_set_can_correct_performance_fields(client, seeded_globals):
+    """The tap-row-to-edit sheet sends PATCH with reps / weight / etc.
+    when the user fixes a mis-typed set. Allow-list was expanded for
+    this flow; verify each field round-trips and leaves the others
+    untouched.
+    """
+    tok = client.post(
+        "/auth/register",
+        json={"email": "edit1@x.com", "password": "pw1234567!"},
+    ).json()["access_token"]
+
+    routine = client.post(
+        "/routines", headers=_h(tok),
+        json={
+            "name": "R",
+            "exercises": [{
+                "exercise_id": seeded_globals["bridge"],
+                "target_sets": 3, "target_reps": 10,
+            }],
+        },
+    ).json()
+    sess = client.post("/sessions", headers=_h(tok),
+                      json={"routine_id": routine["id"]}).json()
+    ex_id = routine["exercises"][0]["exercise_id"]
+    set_row = client.post(
+        f"/sessions/{sess['id']}/sets",
+        headers=_h(tok),
+        json={"exercise_id": ex_id, "reps": 8, "weight": 50.0, "rpe": 7},
+    ).json()
+
+    # User realizes they typed 8 reps but did 10 — correct it.
+    r = client.patch(
+        f"/sessions/sets/{set_row['id']}",
+        headers=_h(tok),
+        json={"reps": 10},
+    )
+    assert r.status_code == 200, r.text
+    fixed = r.json()
+    assert fixed["reps"] == 10
+    # Untouched fields preserved.
+    assert fixed["weight"] == 50.0
+    assert fixed["rpe"] == 7
+
+    # Multi-field edit (weight + rpe at once).
+    r2 = client.patch(
+        f"/sessions/sets/{set_row['id']}",
+        headers=_h(tok),
+        json={"weight": 55.0, "rpe": 8, "notes": "bumped 5 lb"},
+    )
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["weight"] == 55.0
+    assert body["rpe"] == 8
+    assert body["notes"] == "bumped 5 lb"
+    assert body["reps"] == 10  # still the corrected value
+
+    # Structural fields are not in the allow-list — even if sent, must
+    # not clobber. Pydantic filters unknowns by default; verify via
+    # round-trip.
+    r3 = client.patch(
+        f"/sessions/sets/{set_row['id']}",
+        headers=_h(tok),
+        json={"reps": 11, "set_number": 99, "session_id": 99999},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["reps"] == 11
+    assert r3.json()["set_number"] == set_row["set_number"]  # unchanged
+    assert r3.json()["session_id"] == sess["id"]  # unchanged
+
+
 def test_patch_set_on_strength_session_drops_pain_score(client, seeded_globals):
     """Same PATCH shape but the parent session is tracks_symptoms=false:
     the value is silently dropped (mirrors the POST log_set behavior)."""

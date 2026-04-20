@@ -284,12 +284,21 @@ export interface Routine {
 export interface SessionSet {
   id: number; session_id: number; exercise_id: number; set_number: number;
   reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
-  rpe?: number; completed: boolean; notes?: string;
+  rpe?: number;
+  /** Pain rating 0-10, nullable. Populated only when the parent session
+   *  has tracks_symptoms=true (see PR #47). Strength sessions leave it
+   *  undefined and the progression dispatcher falls through to RPE. */
+  pain_score?: number | null;
+  completed: boolean; notes?: string;
 }
 export interface WorkoutSession {
   id: number; user_id: number; routine_id: number | null;
   started_at: string; ended_at: string | null; rpe?: number;
-  mood?: number; notes?: string; sets: SessionSet[];
+  mood?: number; notes?: string;
+  /** Session-time snapshot of the starting routine's tracks_symptoms.
+   *  Gates pain UX throughout the session screen. See PR #47. */
+  tracks_symptoms?: boolean;
+  sets: SessionSet[];
 }
 
 interface WorkoutState {

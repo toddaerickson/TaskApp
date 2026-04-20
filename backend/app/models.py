@@ -436,8 +436,19 @@ class SessionSetResponse(SessionSetCreate):
     session_id: int
 
 class SessionSetUpdate(BaseModel):
-    """PATCH-able fields on a logged set. Used by the pain chip after the
-    final set to backfill pain_score without re-sending the whole set."""
+    """PATCH-able fields on a logged set. Original caller was the pain
+    chip (pain_score backfill); extended with the numeric performance
+    fields when the tap-row-to-edit UX landed so users can correct a
+    mis-typed rep count without deleting and re-logging.
+
+    Structural fields (set_number, session_id, exercise_id) are
+    intentionally excluded — mutating them would break the session
+    timeline and PR computations."""
+    reps: Optional[int] = None
+    weight: Optional[float] = None
+    duration_sec: Optional[int] = None
+    distance_m: Optional[float] = None
+    rpe: Optional[int] = Field(default=None, ge=1, le=10)
     pain_score: Optional[int] = Field(default=None, ge=0, le=10)
     notes: Optional[str] = None
 

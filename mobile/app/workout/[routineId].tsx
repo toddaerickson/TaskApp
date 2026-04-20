@@ -11,6 +11,7 @@ import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
 import { PhaseEditor } from '@/components/PhaseEditor';
 import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 import { ExercisePickerModal } from '@/components/ExercisePickerModal';
+import { EditField } from '@/components/EditField';
 import * as api from '@/lib/api';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
@@ -594,22 +595,10 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
   );
 }
 
-function EditField({ label, value, onChange, numeric }: {
-  label: string; value: string; onChange: (v: string) => void; numeric?: boolean;
-}) {
-  return (
-    <View style={{ flex: 1 }}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        keyboardType={numeric ? 'numeric' : 'default'}
-        style={styles.fieldInput}
-        accessibilityLabel={label}
-      />
-    </View>
-  );
-}
+// EditField was extracted to components/EditField.tsx — see the import
+// at the top of this file. The local copy is gone; the shared one has
+// identical shape plus an optional `placeholder` prop for new call
+// sites.
 
 function formatSuggest(sg: api.RoutineSuggestion): string {
   const parts: string[] = [];

@@ -8,6 +8,7 @@ import { isRecentlyUnlocked } from '@/lib/pin';
 import { onSessionExpired } from '@/lib/sessionExpiry';
 import { reportError } from '@/lib/errorReporter';
 import { initSentry, sentryWrap } from '@/lib/sentry';
+import { UndoSnackbarProvider } from '@/components/UndoSnackbar';
 
 // Fire Sentry init at module load so it's live before any component
 // mounts — an error during the first render would otherwise escape. No-op
@@ -109,7 +110,7 @@ function RootLayout() {
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
   return (
-    <>
+    <UndoSnackbarProvider>
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary }, headerTintColor: '#fff' }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -134,7 +135,7 @@ function RootLayout() {
           </View>
         </View>
       </Modal>
-    </>
+    </UndoSnackbarProvider>
   );
 }
 

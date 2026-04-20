@@ -582,9 +582,29 @@ export async function logSet(sessionId: number, payload: {
   /** Omit to have the server auto-assign the next set_number atomically. */
   set_number?: number;
   reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
-  rpe?: number; completed?: boolean; notes?: string;
+  rpe?: number; pain_score?: number; completed?: boolean; notes?: string;
 }) {
   const { data } = await api.post(`/sessions/${sessionId}/sets`, payload);
+  return data;
+}
+
+/**
+ * Backfill / correct a previously-logged set. Used by the tap-row-to-edit
+ * sheet when the user fixes a mis-typed rep/weight, and by the pain chip
+ * for post-hoc pain_score. Structural fields (set_number, session_id,
+ * exercise_id) are not in the server's allow-list so sending them is a
+ * no-op — omit from the payload for clarity. Pass null to clear a field.
+ */
+export async function patchSet(setId: number, payload: {
+  reps?: number | null;
+  weight?: number | null;
+  duration_sec?: number | null;
+  distance_m?: number | null;
+  rpe?: number | null;
+  pain_score?: number | null;
+  notes?: string | null;
+}) {
+  const { data } = await api.patch(`/sessions/sets/${setId}`, payload);
   return data;
 }
 

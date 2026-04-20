@@ -1,5 +1,7 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useRef, useState } from 'react';
+import { SessionSetEditSheet } from '@/components/SessionSetEditSheet';
+import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
   TextInput, Image, Platform, Alert, Modal,
@@ -34,6 +36,9 @@ export default function ActiveSessionScreen() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [rpe, setRpe] = useState<number | null>(null);
   const [finishing, setFinishing] = useState(false);
+  // Tap a logged set → sheet opens; null when no editor is open.
+  const [editingSet, setEditingSet] = useState<SessionSet | null>(null);
+  const undo = useUndoSnackbar();
   const [symptomOpen, setSymptomOpen] = useState(false);
   const [symptomPart, setSymptomPart] = useState('right_big_toe');
   const [symptomCustom, setSymptomCustom] = useState('');
@@ -98,6 +103,36 @@ export default function ActiveSessionScreen() {
     } catch (e) {
       showError('Sync failed', describeApiError(e, 'Could not refresh session.'));
     }
+  };
+
+  /** Optimistic set delete via the undo snackbar.
+   *
+   *  Drops the row from local state immediately, then fires a 5-second
+   *  snackbar. The actual DELETE hits the server only when the snackbar
+   *  times out — a user who taps Undo within the window gets their row
+   *  back with zero round-trips. If the timeout DELETE fails we reload
+   *  so the row reappears in its real state (rare; network blip).
+   */
+  const handleDeleteSet = (target: SessionSet) => {
+    setSession((prev) => (
+      prev ? { ...prev, sets: prev.sets.filter((s) => s.id !== target.id) } : prev
+    ));
+    undo.show({
+      message: `Set ${target.set_number} deleted`,
+      // Undo = put the row back. setSession adds it back at the end;
+      // the session screen groups by exercise + sorts by set_number
+      // at render time so ordering restores correctly.
+      onUndo: () => setSession((prev) => (
+        prev ? { ...prev, sets: [...prev.sets, target] } : prev
+      )),
+      // Timeout = commit the DELETE. If it fails we reload so the UI
+      // matches server truth rather than leaving a ghost-deleted row.
+      onTimeout: () => {
+        api.deleteSet(target.id).catch(() => {
+          reload();
+        });
+      },
+    });
   };
 
   const logInFlight = useRef(false);
@@ -350,6 +385,7 @@ export default function ActiveSessionScreen() {
             onAdvance={() => setActiveIdx(Math.min(visibleExercises.length - 1, idx + 1))}
             onRestRequest={rest.start}
             restActive={rest.active}
+            onEditSet={setEditingSet}
           />
         ))}
 
@@ -460,6 +496,20 @@ export default function ActiveSessionScreen() {
           </View>
         </View>
       </Modal>
+
+      {editingSet && (
+        <SessionSetEditSheet
+          set={editingSet}
+          measurement={
+            routine?.exercises.find((re) => re.exercise_id === editingSet.exercise_id)?.exercise?.measurement
+              ?? 'reps'
+          }
+          tracksSymptoms={Boolean(session.tracks_symptoms)}
+          onClose={() => setEditingSet(null)}
+          onSaved={() => { reload(); }}
+          onDeleted={handleDeleteSet}
+        />
+      )}
     </View>
   );
 }
@@ -471,7 +521,7 @@ const SYMPTOM_PARTS = [
 
 function ExerciseBlock({
   re, idx, isActive, sets, suggestion, prIds, onActivate, onLog, onAdvance,
-  onRestRequest, restActive,
+  onRestRequest, restActive, onEditSet,
 }: {
   re: RoutineExercise;
   idx: number;
@@ -484,6 +534,10 @@ function ExerciseBlock({
   onAdvance: () => void;
   onRestRequest: (seconds: number) => void;
   restActive: boolean;
+  /** Tap-row-to-edit handler. Undefined = rows render non-tappable
+   *  (parent screen's responsibility — e.g., a read-only finished
+   *  session view). */
+  onEditSet?: (set: SessionSet) => void;
 }) {
   const ex = re.exercise!;
   const targetSets = re.target_sets ?? 1;
@@ -616,26 +670,46 @@ function ExerciseBlock({
             {Array.from({ length: targetSets }).map((_, i) => {
               const s = sets[i];
               const isPR = !!(s && prIds.has(s.id));
-              return (
-                <View key={i} style={[styles.setRow, s && styles.setRowDone, isPR && styles.setRowPR]}>
-                  <Text style={styles.setNum}>Set {i + 1}</Text>
-                  {s ? (
-                    <View style={styles.setRightCol}>
-                      {isPR && (
-                        <View style={styles.prBadge} accessibilityLabel="New personal record">
-                          <Ionicons name="trophy" size={11} color="#fff" />
-                          <Text style={styles.prBadgeText}>PR</Text>
-                        </View>
-                      )}
-                      <Text style={styles.setDone}>
-                        {s.reps ? `${s.reps} reps` : s.duration_sec ? `${s.duration_sec}s` : '—'}
-                        {s.weight ? ` @${s.weight}` : ''}
-                      </Text>
-                    </View>
-                  ) : (
+              // Logged sets are tappable — whole row opens the edit
+              // sheet (no pencil icon; the row itself is the affordance).
+              // Pending placeholders stay as inert text.
+              if (!s) {
+                return (
+                  <View key={i} style={styles.setRow}>
+                    <Text style={styles.setNum}>Set {i + 1}</Text>
                     <Text style={styles.setPending}>pending</Text>
-                  )}
-                </View>
+                  </View>
+                );
+              }
+              return (
+                <Pressable
+                  key={i}
+                  style={({ pressed }) => [
+                    styles.setRow, styles.setRowDone,
+                    isPR && styles.setRowPR,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  onPress={() => onEditSet?.(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    `Edit set ${i + 1}: ${s.reps ? `${s.reps} reps` :
+                      s.duration_sec ? `${s.duration_sec} seconds` : 'no result'}`
+                  }
+                >
+                  <Text style={styles.setNum}>Set {i + 1}</Text>
+                  <View style={styles.setRightCol}>
+                    {isPR && (
+                      <View style={styles.prBadge} accessibilityLabel="New personal record">
+                        <Ionicons name="trophy" size={11} color="#fff" />
+                        <Text style={styles.prBadgeText}>PR</Text>
+                      </View>
+                    )}
+                    <Text style={styles.setDone}>
+                      {s.reps ? `${s.reps} reps` : s.duration_sec ? `${s.duration_sec}s` : '—'}
+                      {s.weight ? ` @${s.weight}` : ''}
+                    </Text>
+                  </View>
+                </Pressable>
               );
             })}
           </View>
