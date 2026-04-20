@@ -167,7 +167,17 @@ export default function TaskDetailScreen() {
       )}
 
       <Text style={styles.label}>Note</Text>
-      <TextInput style={[styles.input, { height: 100, textAlignVertical: 'top' }]} value={note} onChangeText={setNote} multiline placeholderTextColor={colors.textMuted} accessibilityLabel="Task note" />
+      <TextInput
+        style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+        value={note}
+        onChangeText={setNote}
+        multiline
+        placeholder="Add notes…"
+        // Light gray so the hint doesn't read as real pre-filled text.
+        // See task/create.tsx for the same fix.
+        placeholderTextColor="#bbb"
+        accessibilityLabel="Task note"
+      />
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
