@@ -277,6 +277,11 @@ export interface Routine {
   /** Server-resolved id of the phase active today (derived from
    *  phase_start_date + cumulative durations). Null when not phased. */
   current_phase_id?: number | null;
+  /** When true, sessions started from this routine snapshot the flag and
+   *  get pain-monitored progression + the per-set pain chip + symptom
+   *  logger. Flipping it only affects *future* sessions; in-progress
+   *  sessions keep the value they were started with. See PR #47. */
+  tracks_symptoms?: boolean;
   /** Optimistic concurrency token — send back in expected_updated_at on save. */
   updated_at?: string | null;
   exercises: RoutineExercise[];

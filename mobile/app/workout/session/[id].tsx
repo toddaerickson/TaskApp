@@ -314,12 +314,23 @@ export default function ActiveSessionScreen() {
               </Text>
             </Pressable>
           )}
-          <Pressable style={styles.symptomBtn} onPress={() => setSymptomOpen(true)}>
-            <Ionicons name="pulse-outline" size={14} color={colors.warning} />
-            <Text style={styles.symptomBtnText}>
-              Log symptom{symptomCount > 0 ? ` (${symptomCount})` : ''}
-            </Text>
-          </Pressable>
+          {/* Only rehab sessions get the symptom logger. Strength
+              sessions (the default) never see the button — cleaner UI
+              and no stray symptom rows on non-rehab workouts. See
+              PR #47 for the snapshot semantics. */}
+          {session.tracks_symptoms && (
+            <Pressable
+              style={styles.symptomBtn}
+              onPress={() => setSymptomOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Log symptom${symptomCount > 0 ? `, ${symptomCount} already logged` : ''}`}
+            >
+              <Ionicons name="pulse-outline" size={14} color={colors.warning} />
+              <Text style={styles.symptomBtnText}>
+                Log symptom{symptomCount > 0 ? ` (${symptomCount})` : ''}
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
 

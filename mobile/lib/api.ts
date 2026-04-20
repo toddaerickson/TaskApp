@@ -347,6 +347,10 @@ export interface RoutineCreatePayload {
   sort_order?: number;
   reminder_time?: string | null;
   reminder_days?: string | null;
+  /** When true, new sessions snapshot the flag at POST time and render
+   *  the symptom logger + per-set pain chip + pain-monitored progression.
+   *  Default false keeps strength routines untouched. */
+  tracks_symptoms?: boolean;
   exercises?: RoutineExerciseCreatePayload[];
 }
 export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {

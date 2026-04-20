@@ -401,13 +401,18 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   const [time, setTime] = useState(routine.reminder_time || '');
   const [days, setDays] = useState<Set<DayCode>>(parseDays(routine.reminder_days));
   const [startDate, setStartDate] = useState(routine.phase_start_date || '');
+  // Per-routine rehab flag. Sessions started from this routine snapshot
+  // the value at POST time (see PR #47) — flipping it in-flight doesn't
+  // mutate running sessions. Future sessions honor the new state.
+  const [tracksSymptoms, setTracksSymptoms] = useState(!!routine.tracks_symptoms);
   const [busy, setBusy] = useState(false);
 
   const dirty = name !== routine.name
     || notes !== (routine.notes || '')
     || time !== (routine.reminder_time || '')
     || daysCsv(days) !== (routine.reminder_days || null)
-    || (startDate || null) !== (routine.phase_start_date || null);
+    || (startDate || null) !== (routine.phase_start_date || null)
+    || tracksSymptoms !== !!routine.tracks_symptoms;
 
   const toggleDay = (d: DayCode) => {
     const next = new Set(days);
@@ -423,6 +428,7 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         reminder_time: time.trim() || null,
         reminder_days: time.trim() ? daysCsv(days) : null,
         phase_start_date: startDate.trim() || null,
+        tracks_symptoms: tracksSymptoms,
       };
       // Pass the token we read with the routine. Omit when `overwrite`
       // is true so the server drops the check — this is the "overwrite
@@ -496,6 +502,34 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         autoCapitalize="none"
         style={styles.fieldInput}
       />
+      {/* Rehab-mode switch. Two-state Pressable chip (matches the
+          day-of-week chips above) rather than a native Switch to stay
+          platform-consistent and skip a new dep. The save body
+          includes tracks_symptoms in every PUT so the server picks
+          up either flip. */}
+      <Text style={styles.fieldLabel}>Rehab routine</Text>
+      <Pressable
+        onPress={() => setTracksSymptoms((v) => !v)}
+        style={[styles.rehabToggle, tracksSymptoms && styles.rehabToggleOn]}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: tracksSymptoms }}
+        accessibilityLabel="Track pain and symptoms in this routine"
+        accessibilityHint="When on, sessions started from this routine show the symptom logger and Silbernagel-style advance/hold/back-off suggestions"
+      >
+        <Ionicons
+          name={tracksSymptoms ? 'checkmark-circle' : 'ellipse-outline'}
+          size={18}
+          color={tracksSymptoms ? '#fff' : colors.textMuted}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.rehabToggleText, tracksSymptoms && styles.rehabToggleTextOn]}>
+            {tracksSymptoms ? 'Tracking pain and symptoms' : 'Track pain and symptoms'}
+          </Text>
+          <Text style={[styles.rehabToggleHint, tracksSymptoms && styles.rehabToggleHintOn]}>
+            Pain chip per set · pain-monitored advance/hold/back-off
+          </Text>
+        </View>
+      </Pressable>
       <Pressable
         style={[styles.saveBtn, (!dirty || busy) && { opacity: 0.5 }]}
         onPress={() => save()}
@@ -935,4 +969,19 @@ const styles = StyleSheet.create({
   dayChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   dayChipText: { fontSize: 12, color: '#555', textTransform: 'uppercase' },
   dayChipTextOn: { color: '#fff', fontWeight: '700' },
+  rehabToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: '#ddd',
+    backgroundColor: '#fafafa',
+    cursor: 'pointer' as any,
+  },
+  rehabToggleOn: {
+    backgroundColor: colors.warning,
+    borderColor: colors.warning,
+  },
+  rehabToggleText: { fontSize: 14, fontWeight: '700', color: '#333' },
+  rehabToggleTextOn: { color: '#fff' },
+  rehabToggleHint: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  rehabToggleHintOn: { color: 'rgba(255,255,255,0.85)' },
 });
