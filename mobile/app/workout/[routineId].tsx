@@ -5,11 +5,12 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Routine, RoutineExercise } from '@/lib/stores';
+import { Routine, RoutineExercise, Exercise } from '@/lib/stores';
 import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
 import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
 import { PhaseEditor } from '@/components/PhaseEditor';
 import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
+import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import * as api from '@/lib/api';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
@@ -38,12 +39,31 @@ function isConflict(err: unknown): err is { response: { status: 409 } } {
   return e?.response?.status === 409;
 }
 
+/** Yes/no confirm dialog for destructive actions. Mirrors the shape in
+ *  PhaseEditor.tsx — same web-vs-native split — kept inline here
+ *  instead of importing because the two consumers have different
+ *  button labels and a shared util would need extra params. */
+function confirmDestructive(title: string, message: string, destructiveLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      resolve(window.confirm(`${title}\n\n${message}`));
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 export default function RoutineDetailScreen() {
   const { routineId } = useLocalSearchParams<{ routineId: string }>();
   const router = useRouter();
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [starting, setStarting] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
 
   const reload = useCallback(() => {
@@ -76,6 +96,43 @@ export default function RoutineDetailScreen() {
     if (Platform.OS === 'web' && !window.confirm('Remove this exercise from the routine?')) return;
     await api.removeExerciseFromRoutine(reId);
     reload();
+  };
+
+  const handlePickExercise = async (exercise: Exercise) => {
+    if (!routine) return;
+    // Close the picker before the network call so the spinner that
+    // re-fetches the routine is visible immediately; the modal's own
+    // state resets on close.
+    setPickerOpen(false);
+    try {
+      await api.addExerciseToRoutine(routine.id, {
+        exercise_id: exercise.id,
+        sort_order: routine.exercises.length,
+      });
+      reload();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Failed to add exercise';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not add exercise', msg);
+    }
+  };
+
+  const handleDeleteRoutine = async () => {
+    if (!routine) return;
+    const exCount = routine.exercises.length;
+    const body = `This removes "${routine.name}", its phases${
+      exCount ? `, and detaches ${exCount} exercise${exCount === 1 ? '' : 's'}` : ''
+    }. Session history stays; exercises themselves remain in your library.`;
+    const ok = await confirmDestructive(`Delete "${routine.name}"?`, body, 'Delete');
+    if (!ok) return;
+    try {
+      await api.deleteRoutine(routine.id);
+      router.replace('/(tabs)/workouts');
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Failed to delete routine';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not delete', msg);
+    }
   };
 
   const handleStart = async () => {
@@ -292,7 +349,36 @@ export default function RoutineDetailScreen() {
             </View>
           );
         })}
+
+        {editMode && (
+          <>
+            <Pressable
+              style={({ pressed }) => [styles.addExerciseBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setPickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Add exercise to routine"
+            >
+              <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+              <Text style={styles.addExerciseText}>Add exercise</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.deleteRoutineBtn, pressed && { opacity: 0.7 }]}
+              onPress={handleDeleteRoutine}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete routine ${routine.name}`}
+            >
+              <Ionicons name="trash-outline" size={16} color="#fff" />
+              <Text style={styles.deleteRoutineText}>Delete routine</Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
+
+      <ExercisePickerModal
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={handlePickExercise}
+      />
 
       <View style={styles.footer}>
         <Pressable
@@ -707,6 +793,20 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  addExerciseBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    margin: 10, marginTop: 6, paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  addExerciseText: { color: colors.primary, fontWeight: '600', fontSize: 14 },
+  deleteRoutineBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    margin: 10, marginTop: 4, marginBottom: 20,
+    paddingVertical: 12, borderRadius: 10,
+    backgroundColor: colors.danger,
+  },
+  deleteRoutineText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
   meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   headerEditBtn: {
