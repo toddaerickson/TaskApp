@@ -111,23 +111,25 @@ describe('aggregateByExercise', () => {
 });
 
 describe('weeklyCounts', () => {
-  // Freeze Date.now() so tests are deterministic.
-  const FIXED_NOW = new Date('2026-04-15T10:00:00Z').getTime(); // Wednesday
-  beforeAll(() => jest.spyOn(Date, 'now').mockReturnValue(FIXED_NOW));
-  afterAll(() => jest.restoreAllMocks());
+  // Pass an explicit `now` to every call. The prior test mocked
+  // `Date.now()` via jest.spyOn, but `new Date()` in V8 doesn't route
+  // through Date.now — it reads the clock via a C++ primitive — so the
+  // spy was a no-op and the suite only passed when the real wall clock
+  // happened to fall in the same Monday-week as FIXED_NOW.
+  const FIXED_NOW = new Date('2026-04-15T10:00:00Z'); // Wednesday
 
   it('returns requested number of weeks', () => {
-    const buckets = weeklyCounts([], 8);
+    const buckets = weeklyCounts([], 8, FIXED_NOW);
     expect(buckets).toHaveLength(8);
   });
 
   it('defaults to 12 weeks', () => {
-    expect(weeklyCounts([])).toHaveLength(12);
+    expect(weeklyCounts([], undefined, FIXED_NOW)).toHaveLength(12);
   });
 
   it('buckets a session into the current week', () => {
     const sessions = [mkSession(1, '2026-04-14T08:00:00Z', [])]; // Tue this week
-    const buckets = weeklyCounts(sessions, 4);
+    const buckets = weeklyCounts(sessions, 4, FIXED_NOW);
     // Last bucket = current week
     expect(buckets[buckets.length - 1].count).toBe(1);
     expect(buckets.slice(0, -1).every((b) => b.count === 0)).toBe(true);
@@ -136,7 +138,7 @@ describe('weeklyCounts', () => {
   it('buckets a session into the right past week', () => {
     // 15 days ago from fixed now (2026-04-15 Wed) → 2026-03-31 Tue, two full weeks back.
     const sessions = [mkSession(1, '2026-03-31T10:00:00Z', [])];
-    const buckets = weeklyCounts(sessions, 4);
+    const buckets = weeklyCounts(sessions, 4, FIXED_NOW);
     // Fixed now is Wed 4/15. Current-week Monday is 4/13. Two weeks back = 3/30.
     // Session on 3/31 falls into the 3/30 bucket (week index len-3 of 4).
     expect(buckets[buckets.length - 3].count).toBe(1);
@@ -144,7 +146,7 @@ describe('weeklyCounts', () => {
 
   it('ignores sessions older than the window', () => {
     const sessions = [mkSession(1, '2025-01-01T08:00:00Z', [])];
-    const buckets = weeklyCounts(sessions, 4);
+    const buckets = weeklyCounts(sessions, 4, FIXED_NOW);
     expect(buckets.reduce((n, b) => n + b.count, 0)).toBe(0);
   });
 });

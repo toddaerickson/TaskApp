@@ -62,12 +62,23 @@ function pickValue(set: SessionSet): number | null {
 }
 
 /** Sessions-per-week bar chart data. Returns oldest-first, 12 weeks. */
-export function weeklyCounts(sessions: WorkoutSession[], weeks = 12): { label: string; count: number }[] {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+export function weeklyCounts(
+  sessions: WorkoutSession[],
+  weeks = 12,
+  // `now` is injectable for tests. `jest.spyOn(Date, 'now')` does NOT
+  // intercept the `new Date()` constructor in V8 (it reads the clock
+  // via a C++ primitive, not through Date.now), so tests that want
+  // deterministic output must pass their own `now`. The existing test
+  // suite used Date.now spy only and passed by luck — whenever the
+  // wall clock happened to fall in the same Monday-week as its
+  // FIXED_NOW constant.
+  now: Date = new Date(),
+): { label: string; count: number }[] {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
   // Start-of-week = Monday.
-  const dow = (now.getDay() + 6) % 7;
-  const monday = new Date(now); monday.setDate(now.getDate() - dow);
+  const dow = (today.getDay() + 6) % 7;
+  const monday = new Date(today); monday.setDate(today.getDate() - dow);
 
   const buckets: { label: string; count: number; start: Date }[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
@@ -83,3 +94,4 @@ export function weeklyCounts(sessions: WorkoutSession[], weeks = 12): { label: s
   }
   return buckets.map(({ label, count }) => ({ label, count }));
 }
+
