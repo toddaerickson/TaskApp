@@ -135,7 +135,10 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, req.name, req.goal, req.notes, req.sort_order or 0,
              req.reminder_time, req.reminder_days,
-             int(bool(req.tracks_symptoms))),
+             # Pass a Python bool — psycopg2 adapts to PG BOOLEAN natively,
+             # and SQLite's driver coerces True/False to 1/0 for INTEGER.
+             # int() coercion would send 0/1 ints into PG BOOLEAN and fail.
+             bool(req.tracks_symptoms)),
         )
         rid = cur.lastrowid
         for idx, ex in enumerate(req.exercises or []):

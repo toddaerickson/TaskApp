@@ -39,7 +39,9 @@ def start_session(req: SessionCreate, user_id: int = Depends(get_current_user_id
         cur.execute(
             "INSERT INTO workout_sessions (user_id, routine_id, notes, tracks_symptoms) "
             "VALUES (?, ?, ?, ?)",
-            (user_id, req.routine_id, req.notes, int(tracks_symptoms)),
+            # Pass a Python bool — see routines INSERT note for why int()
+            # would fail on the PG BOOLEAN column.
+            (user_id, req.routine_id, req.notes, tracks_symptoms),
         )
         sid = cur.lastrowid
         cur.execute("SELECT * FROM workout_sessions WHERE id = ?", (sid,))
