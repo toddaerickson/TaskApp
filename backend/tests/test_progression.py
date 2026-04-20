@@ -5,12 +5,15 @@ Run from backend/: `venv/bin/pytest tests/ -v`
 from app.progression import suggest, Suggestion
 
 
-def _set(session_id=1, reps=None, weight=None, duration_sec=None, distance_m=None, rpe=None):
+def _set(
+    session_id=1, reps=None, weight=None, duration_sec=None,
+    distance_m=None, rpe=None, pain_score=None,
+):
     return {
         "session_id": session_id,
         "reps": reps, "weight": weight,
         "duration_sec": duration_sec, "distance_m": distance_m,
-        "rpe": rpe,
+        "rpe": rpe, "pain_score": pain_score,
     }
 
 
@@ -187,3 +190,120 @@ def test_truly_unknown_measurement():
                 is_bodyweight=True, last_sets=[])
     # No history → echo target path handles this gracefully.
     assert s.reps == 10
+
+
+# ---------- Silbernagel (pain-monitored) branch ----------
+#
+# Triggered by tracks_symptoms=True on the dispatcher. Tests exercise the
+# pain × hit-target matrix: low pain + hit → advance; low pain + miss →
+# hold; moderate → hold; high → back off. Missing pain scores fall
+# through to the RPE path (covered by a separate fall-through test).
+
+def test_silbernagel_low_pain_hit_target_advances_bodyweight_reps():
+    # Pain 2/10, reps at target → +2 reps for a bodyweight exercise.
+    s = suggest(
+        "reps", target_reps=15, target_weight=None, target_duration_sec=None,
+        is_bodyweight=True,
+        last_sets=[_set(reps=15, pain_score=2), _set(reps=15, pain_score=1)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.pain_last == 2  # max across sets
+    assert s.reps == 17
+    assert "advancing" in s.reason.lower()
+
+
+def test_silbernagel_low_pain_hit_target_advances_weighted():
+    # Pain 1/10, hit target → +10% weight, reps held.
+    s = suggest(
+        "reps_weight", target_reps=8, target_weight=100.0, target_duration_sec=None,
+        is_bodyweight=False,
+        last_sets=[_set(reps=8, weight=100.0, pain_score=1)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.pain_last == 1
+    assert s.weight == 110.0
+    assert s.reps == 8
+
+
+def test_silbernagel_low_pain_missed_target_holds():
+    # Pain 2/10 but only 10 reps vs target 15 → hold at what they did.
+    s = suggest(
+        "reps", target_reps=15, target_weight=None, target_duration_sec=None,
+        is_bodyweight=True,
+        last_sets=[_set(reps=10, pain_score=2), _set(reps=10, pain_score=2)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.reps == 10
+    assert "under target" in s.reason.lower()
+
+
+def test_silbernagel_moderate_pain_holds():
+    # Pain 5/10 → hold at last session's actuals, regardless of target.
+    s = suggest(
+        "reps", target_reps=15, target_weight=None, target_duration_sec=None,
+        is_bodyweight=True,
+        last_sets=[_set(reps=12, pain_score=5)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.pain_last == 5
+    assert s.reps == 12  # baseline, not target
+    assert "holding" in s.reason.lower()
+
+
+def test_silbernagel_high_pain_backs_off_weighted():
+    # Pain 8/10 → -10% weight, even if they hit target.
+    s = suggest(
+        "reps_weight", target_reps=8, target_weight=100.0, target_duration_sec=None,
+        is_bodyweight=False,
+        last_sets=[_set(reps=8, weight=100.0, pain_score=8)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.pain_last == 8
+    assert s.weight == 90.0
+    assert "backing off" in s.reason.lower()
+
+
+def test_silbernagel_duration_advances_at_low_pain():
+    # Duration exercise, pain 2/10, hit target → +15s.
+    s = suggest(
+        "duration", target_reps=None, target_weight=None, target_duration_sec=30,
+        is_bodyweight=True,
+        last_sets=[_set(duration_sec=30, pain_score=2)],
+        tracks_symptoms=True,
+    )
+    assert s.policy == "silbernagel"
+    assert s.duration_sec == 45
+
+
+def test_silbernagel_falls_through_when_no_pain_recorded():
+    # tracks_symptoms=True but no pain_score on any set → fall through
+    # to the RPE path. Caller sees the usual RPE-derived suggestion, no
+    # policy badge.
+    s = suggest(
+        "reps", target_reps=12, target_weight=None, target_duration_sec=None,
+        is_bodyweight=True,
+        last_sets=[_set(reps=12, rpe=6)],
+        tracks_symptoms=True,
+    )
+    # RPE 6 = easy → advance by +2 reps on bodyweight; policy stays None.
+    assert s.policy is None
+    assert s.reps == 14
+
+
+def test_silbernagel_ignored_when_tracks_symptoms_false():
+    # Pain scores present but tracks_symptoms=False (strength session) →
+    # suggestion uses the RPE path and ignores the pain entirely.
+    s = suggest(
+        "reps", target_reps=12, target_weight=None, target_duration_sec=None,
+        is_bodyweight=True,
+        last_sets=[_set(reps=12, rpe=6, pain_score=9)],
+        tracks_symptoms=False,
+    )
+    assert s.policy is None
+    assert s.pain_last is None
+    assert s.reps == 14  # RPE 6 advance

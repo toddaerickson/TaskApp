@@ -130,10 +130,15 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO routines
-               (user_id, name, goal, notes, sort_order, reminder_time, reminder_days)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, name, goal, notes, sort_order, reminder_time, reminder_days,
+                tracks_symptoms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, req.name, req.goal, req.notes, req.sort_order or 0,
-             req.reminder_time, req.reminder_days),
+             req.reminder_time, req.reminder_days,
+             # Pass a Python bool — psycopg2 adapts to PG BOOLEAN natively,
+             # and SQLite's driver coerces True/False to 1/0 for INTEGER.
+             # int() coercion would send 0/1 ints into PG BOOLEAN and fail.
+             bool(req.tracks_symptoms)),
         )
         rid = cur.lastrowid
         for idx, ex in enumerate(req.exercises or []):
@@ -245,7 +250,8 @@ def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current
 
 _ROUTINE_UPDATE_COLUMNS = {
     "name", "goal", "notes", "sort_order",
-    "reminder_time", "reminder_days", "phase_start_date", "updated_at",
+    "reminder_time", "reminder_days", "phase_start_date",
+    "tracks_symptoms", "updated_at",
 }
 
 
@@ -428,19 +434,38 @@ class SuggestionResponse(BaseModel):
     weight: Optional[float] = None
     duration_sec: Optional[int] = None
     reason: str = ""
+    # Which policy produced this suggestion: "silbernagel" when pain-
+    # monitored progression fired, null when the default RPE path ran.
+    # Lets clients render a small badge ("Pain-based") next to the row.
+    policy: Optional[str] = None
+    # The max pain score across the last session's sets, when Silbernagel
+    # ran. Null otherwise. Used by the UI to show "Pain 2/10" inline.
+    pain_last: Optional[int] = None
 
 
 @router.get("/{routine_id}/suggestions", response_model=list[SuggestionResponse])
 def get_suggestions(routine_id: int, user_id: int = Depends(get_current_user_id)):
     """Per-routine-exercise suggested targets derived from the user's most
     recent session for that exercise. Conservative: ≤5% load or ±15s. Used
-    to pre-fill the session screen and surface a hint on the routine detail."""
+    to pre-fill the session screen and surface a hint on the routine detail.
+
+    When the routine has tracks_symptoms=True the suggestion engine runs
+    the Silbernagel pain-monitored policy; otherwise it falls through to
+    the existing RPE branch. The flag is read from the routine itself
+    (not the last session's snapshot) because suggestions are computed
+    *before* the next session exists, so the routine's current intent
+    is the right signal.
+    """
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
-                    (routine_id, user_id))
-        if not cur.fetchone():
+        cur.execute(
+            "SELECT id, tracks_symptoms FROM routines WHERE id = ? AND user_id = ?",
+            (routine_id, user_id),
+        )
+        routine_row = cur.fetchone()
+        if not routine_row:
             raise HTTPException(404, "Routine not found")
+        tracks_symptoms = bool(routine_row["tracks_symptoms"])
 
         cur.execute("""
             SELECT re.*, e.measurement, e.is_bodyweight
@@ -459,7 +484,7 @@ def get_suggestions(routine_id: int, user_id: int = Depends(get_current_user_id)
         placeholders = ",".join("?" for _ in ex_ids)
         cur.execute(f"""
             SELECT s.exercise_id, s.session_id, s.reps, s.weight, s.duration_sec,
-                   s.distance_m, s.rpe, ws.started_at
+                   s.distance_m, s.rpe, s.pain_score, ws.started_at
             FROM session_sets s
             JOIN workout_sessions ws ON ws.id = s.session_id
             WHERE ws.user_id = ? AND s.exercise_id IN ({placeholders})
@@ -482,12 +507,15 @@ def get_suggestions(routine_id: int, user_id: int = Depends(get_current_user_id)
             target_duration_sec=re["target_duration_sec"],
             is_bodyweight=bool(re["is_bodyweight"]),
             last_sets=by_ex.get(re["exercise_id"], []),
+            tracks_symptoms=tracks_symptoms,
         )
         out.append(SuggestionResponse(
             routine_exercise_id=re["id"],
             exercise_id=re["exercise_id"],
             reps=s.reps, weight=s.weight, duration_sec=s.duration_sec,
             reason=s.reason,
+            policy=s.policy,
+            pain_last=s.pain_last,
         ))
     return out
 

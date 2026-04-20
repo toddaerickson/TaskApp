@@ -326,6 +326,10 @@ class RoutineCreate(BaseModel):
     sort_order: Optional[int] = 0
     reminder_time: Optional[str] = None    # "HH:MM"
     reminder_days: Optional[str] = None    # CSV of mon..sun or "daily"
+    # When True, sessions started from this routine inherit the flag and
+    # get pain-monitored progression. Default False keeps strength
+    # routines untouched.
+    tracks_symptoms: Optional[bool] = False
     exercises: Optional[list[RoutineExerciseCreate]] = []
 
 class RoutineUpdate(BaseModel):
@@ -338,6 +342,7 @@ class RoutineUpdate(BaseModel):
     # ISO date "YYYY-MM-DD". Marks when phase 0 of a phased routine
     # begins. Null = routine is not phased.
     phase_start_date: Optional[str] = None
+    tracks_symptoms: Optional[bool] = None
     # Optimistic concurrency (Phase 7.4). When present, server returns 409
     # if the row's current updated_at has moved past this value since the
     # client's last GET. Omit to opt out (silent last-write-wins).
@@ -358,6 +363,7 @@ class RoutineResponse(BaseModel):
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
     phase_start_date: Optional[str] = None
+    tracks_symptoms: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
     exercises: list[RoutineExerciseResponse] = []
@@ -417,12 +423,23 @@ class SessionSetCreate(BaseModel):
     duration_sec: Optional[int] = None
     distance_m: Optional[float] = None
     rpe: Optional[int] = None
+    # Per-set pain 0-10. The server only persists it when the parent
+    # session was created with tracks_symptoms=true; on a strength
+    # session the field is ignored so stray values can't pollute later
+    # suggestions.
+    pain_score: Optional[int] = Field(default=None, ge=0, le=10)
     completed: Optional[bool] = True
     notes: Optional[str] = None
 
 class SessionSetResponse(SessionSetCreate):
     id: int
     session_id: int
+
+class SessionSetUpdate(BaseModel):
+    """PATCH-able fields on a logged set. Used by the pain chip after the
+    final set to backfill pain_score without re-sending the whole set."""
+    pain_score: Optional[int] = Field(default=None, ge=0, le=10)
+    notes: Optional[str] = None
 
 class SessionCreate(BaseModel):
     routine_id: Optional[int] = None
@@ -443,6 +460,9 @@ class SessionResponse(BaseModel):
     rpe: Optional[int]
     mood: Optional[int]
     notes: Optional[str]
+    # Session-time snapshot of the starting routine's tracks_symptoms.
+    # Clients read this to decide whether to render pain UX.
+    tracks_symptoms: bool = False
     sets: list[SessionSetResponse] = []
 
 
