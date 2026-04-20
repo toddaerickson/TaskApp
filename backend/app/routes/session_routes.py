@@ -252,7 +252,16 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
     raise HTTPException(500, "Unable to assign set number after retries")
 
 
-_SESSION_SET_UPDATE_COLUMNS = {"pain_score", "notes"}
+# Columns a client can backfill on a previously-logged set via PATCH.
+# pain_score + notes have been allow-listed since #47; the numeric
+# performance fields were added when the tap-row-to-edit UX landed so
+# a user could correct a mis-typed rep count without deleting and
+# re-logging. set_number + session_id + exercise_id stay out — those
+# are structural and mutating them would break the session timeline.
+_SESSION_SET_UPDATE_COLUMNS = {
+    "reps", "weight", "duration_sec", "distance_m", "rpe",
+    "pain_score", "notes",
+}
 
 
 @router.patch("/sessions/sets/{set_id}", response_model=SessionSetResponse)
