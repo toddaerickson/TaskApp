@@ -519,6 +519,12 @@ class SymptomLogResponse(BaseModel):
     logged_at: datetime
 
 
+class SymptomLogUpdate(BaseModel):
+    body_part: Optional[str] = None
+    severity: Optional[int] = Field(default=None, ge=0, le=10)
+    notes: Optional[str] = None
+
+
 # Rebuild forward refs
 TaskResponse.model_rebuild()
 FolderResponse.model_rebuild()

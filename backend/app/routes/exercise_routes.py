@@ -142,6 +142,19 @@ def delete_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id
             raise HTTPException(404, "Exercise not found")
         if row["user_id"] != user_id:
             raise HTTPException(403, "Cannot delete a global exercise")
+        # Guard against orphaning routine rows. The user has to remove the
+        # exercise from its routines first; we surface the count in the
+        # error body so the mobile UI can render "Used in N routines".
+        cur.execute(
+            "SELECT COUNT(DISTINCT routine_id) AS n FROM routine_exercises WHERE exercise_id = ?",
+            (exercise_id,),
+        )
+        n = int(cur.fetchone()["n"] or 0)
+        if n > 0:
+            raise HTTPException(
+                409,
+                f"Exercise is used in {n} routine{'s' if n != 1 else ''}; remove it from there first.",
+            )
         cur.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
     return {"ok": True}
 

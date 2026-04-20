@@ -1,12 +1,13 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Platform,
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Platform, Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '@/lib/api';
 import { severityColor, prettyPart, formatRel } from '@/lib/format';
+import { useUndoSnackbar } from '@/components/UndoSnackbar';
 
 interface SymptomLog {
   id: number;
@@ -29,12 +30,27 @@ const COMMON_PARTS = [
 ];
 
 export default function TrackScreen() {
+  const undo = useUndoSnackbar();
   const [logs, setLogs] = useState<SymptomLog[]>([]);
   const [bodyPart, setBodyPart] = useState<string>(COMMON_PARTS[0]);
   const [customPart, setCustomPart] = useState('');
   const [severity, setSeverity] = useState(3);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Edit-sheet state. `editing` is the full log being edited (includes id)
+  // so Save can PATCH by id; the form fields are separate so the cancel
+  // button can bail out without mutating the list.
+  const [editing, setEditing] = useState<SymptomLog | null>(null);
+  const [eSeverity, setESeverity] = useState(3);
+  const [eNotes, setENotes] = useState('');
+  const [eBodyPart, setEBodyPart] = useState('');
+  const [eBusy, setEBusy] = useState(false);
+
+  // IDs queued for delete. We hide them from the list immediately so the
+  // undo window is a pure local operation; the server round-trip happens
+  // only when the snackbar times out.
+  const [pendingDelete, setPendingDelete] = useState<Set<number>>(new Set());
 
   const reload = () => {
     api.listSymptoms({ limit: 200 })
@@ -44,15 +60,73 @@ export default function TrackScreen() {
 
   useEffect(reload, []);
 
+  const openEdit = (l: SymptomLog) => {
+    setEditing(l);
+    setESeverity(l.severity);
+    setENotes(l.notes ?? '');
+    setEBodyPart(l.body_part);
+  };
+
+  const submitEdit = async () => {
+    if (!editing) return;
+    setEBusy(true);
+    try {
+      await api.updateSymptom(editing.id, {
+        body_part: eBodyPart,
+        severity: eSeverity,
+        notes: eNotes.trim() || null,
+      });
+      setEditing(null);
+      reload();
+    } catch (e: any) {
+      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Save failed');
+    } finally {
+      setEBusy(false);
+    }
+  };
+
+  const deleteLog = (l: SymptomLog) => {
+    setPendingDelete((prev) => new Set(prev).add(l.id));
+    undo.show({
+      message: 'Symptom log removed',
+      onUndo: () => {
+        setPendingDelete((prev) => {
+          const next = new Set(prev);
+          next.delete(l.id);
+          return next;
+        });
+      },
+      onTimeout: async () => {
+        try {
+          await api.deleteSymptom(l.id);
+        } finally {
+          setPendingDelete((prev) => {
+            const next = new Set(prev);
+            next.delete(l.id);
+            return next;
+          });
+          reload();
+        }
+      },
+    });
+  };
+
+  // Hide queued-for-delete logs from rendering without touching the
+  // source `logs` state — the undo path reuses it.
+  const visibleLogs = useMemo(
+    () => logs.filter((l) => !pendingDelete.has(l.id)),
+    [logs, pendingDelete],
+  );
+
   const grouped = useMemo(() => {
     const m = new Map<string, SymptomLog[]>();
-    for (const l of logs) {
+    for (const l of visibleLogs) {
       const arr = m.get(l.body_part) || [];
       arr.push(l);
       m.set(l.body_part, arr);
     }
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [logs]);
+  }, [visibleLogs]);
 
   const handleSave = async () => {
     const part = (customPart.trim() || bodyPart).toLowerCase().replace(/\s+/g, '_');
@@ -200,7 +274,13 @@ export default function TrackScreen() {
 
               {/* Recent entries */}
               {items.slice(0, 4).map((l) => (
-                <View key={l.id} style={styles.logRow}>
+                <Pressable
+                  key={l.id}
+                  style={styles.logRow}
+                  onPress={() => openEdit(l)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit symptom log from ${formatRel(l.logged_at)}, severity ${l.severity}`}
+                >
                   <View style={[styles.sevPill, { backgroundColor: severityColor(l.severity) }]}>
                     <Text style={styles.sevPillText}>{l.severity}</Text>
                   </View>
@@ -211,7 +291,16 @@ export default function TrackScreen() {
                       {l.session_id ? ' · during workout' : ''}
                     </Text>
                   </View>
-                </View>
+                  <Pressable
+                    onPress={(e) => { e.stopPropagation(); deleteLog(l); }}
+                    hitSlop={8}
+                    style={styles.trashBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete symptom log"
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                  </Pressable>
+                </Pressable>
               ))}
               {items.length > 4 && (
                 <Text style={styles.moreText}>+ {items.length - 4} more</Text>
@@ -220,6 +309,77 @@ export default function TrackScreen() {
           );
         })}
       </ScrollView>
+
+      {/* Edit sheet */}
+      <Modal
+        visible={editing !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditing(null)}
+      >
+        <View style={styles.editOverlay}>
+          <View style={styles.editCard}>
+            <View style={styles.editHead}>
+              <Text style={styles.cardTitle}>Edit symptom</Text>
+              <Pressable
+                onPress={() => setEditing(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Close edit sheet"
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={22} color="#888" />
+              </Pressable>
+            </View>
+            <Text style={styles.label}>Body part</Text>
+            <TextInput
+              style={styles.input}
+              value={eBodyPart}
+              onChangeText={setEBodyPart}
+              accessibilityLabel="Body part"
+              autoCapitalize="none"
+            />
+            <Text style={styles.label}>Severity ({eSeverity}/10)</Text>
+            <View style={styles.sevRow}>
+              {Array.from({ length: 11 }).map((_, n) => (
+                <Pressable
+                  key={n}
+                  onPress={() => setESeverity(n)}
+                  style={[
+                    styles.sevDot,
+                    { backgroundColor: eSeverity === n ? severityColor(n) : '#eee' },
+                  ]}
+                  accessibilityLabel={`Severity ${n}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: eSeverity === n }}
+                >
+                  <Text style={[styles.sevNum, eSeverity === n && { color: '#fff', fontWeight: '700' }]}>
+                    {n}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.label}>Notes</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+              value={eNotes}
+              onChangeText={setENotes}
+              multiline
+              accessibilityLabel="Symptom notes"
+              placeholder="What did it feel like?"
+              placeholderTextColor="#bbb"
+            />
+            <Pressable
+              style={[styles.saveBtn, eBusy && { opacity: 0.6 }]}
+              onPress={submitEdit}
+              disabled={eBusy}
+              accessibilityRole="button"
+            >
+              <Ionicons name="checkmark" size={18} color="#fff" />
+              <Text style={styles.saveBtnText}>{eBusy ? 'Saving…' : 'Save changes'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -301,4 +461,21 @@ const styles = StyleSheet.create({
   logNotes: { fontSize: 13, color: '#444' },
   logTime: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
   moreText: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: 8 },
+  trashBtn: {
+    width: 32, height: 32, alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
+
+  editOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center', padding: 20,
+  },
+  editCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 16,
+    maxWidth: 480, alignSelf: 'center', width: '100%',
+  },
+  editHead: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 4,
+  },
 });
