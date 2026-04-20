@@ -108,7 +108,11 @@ describe('timeout window', () => {
 
   it('touchUnlock refreshes the timestamp', async () => {
     await pin.setPin('2507');
-    store['pin.unlockAt'] = String(Date.now() - 9999999);
+    // Parameterise the stale offset on TIMEOUT_MIN so this test doesn't
+    // silently invalidate when the constant moves (happened going from
+    // 15 min → 8 h — the old hardcoded ~166-min delta fell inside the
+    // new window and both expectations became true).
+    store['pin.unlockAt'] = String(Date.now() - (pin.TIMEOUT_MIN + 1) * 60 * 1000);
     expect(await pin.isRecentlyUnlocked()).toBe(false);
     await pin.touchUnlock();
     expect(await pin.isRecentlyUnlocked()).toBe(true);

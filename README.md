@@ -11,15 +11,28 @@ Single user by design. Your server, your data, no subscription.
 reminders, starred items, and fast search. `(auth)/register` → `(tabs)/tasks`
 gets you from zero to an inbox in about a minute.
 
-**Workouts** — routines composed of exercises, with sets, weight / reps /
-duration / RPE per set, and symptom tracking (useful for rehab programs).
-Mid-session features:
-- Rest-timer banner with ±15 s / Stop controls, survives tapping between
-  exercises
-- "New PR!" badges when a set beats your prior best for that exercise
-- Offline queue — if the network drops mid-workout, sets are stashed
-  locally and flushed on the next successful call
-- Suggestions pre-fill next-set targets based on your last session
+**Workouts** — routines composed of exercises, with sets (weight / reps /
+duration / RPE per set), keystone markers, phased progressions, and per-set
+pain tracking for rehab. Highlights:
+- **Routine CRUD** — Quick-start template strip, "New routine" modal,
+  exercise picker (search by name / slug), inline edit of sets/reps/weight
+  via tappable dose chips, reorder / remove, portable JSON import.
+- **Phased progression (Curovate-style)** — split a routine into phases
+  (e.g. Foundation 2w → Loading 6w → Return-to-activity 4w); exercises
+  tagged with a `phase_id` auto-filter based on the current phase.
+- **Rehab mode** — toggle `tracks_symptoms` on a routine and sessions
+  inherit a snapshot of the flag. Pain chip per set feeds a Silbernagel-
+  style advance / hold / back-off policy (`progression_policies/silbernagel.py`)
+  that replaces the default RPE path.
+- **Suggestion engine** — next-session targets pre-fill from last session
+  bests, with a human-readable reason string ("Pain 2/10 — advancing 10%"
+  or "RPE 6 — add 2 reps").
+- **Rest timer** with ±15 s / Stop, survives tapping between exercises.
+- **"New PR!" badges** when a set beats the prior best for that exercise.
+- **Offline queue** — if the network drops mid-workout, sets stash locally
+  and flush on the next successful call.
+- **Undo snackbar** — 5-second grace on every destructive action (set
+  delete, routine delete, etc.) — local-only until the timer commits.
 
 **Auth + shell** — email / password (bcrypt, backward-compat with a legacy
 SHA-256 upgrade path), 10/min login rate limit, JWT (72 h), device-level PIN
