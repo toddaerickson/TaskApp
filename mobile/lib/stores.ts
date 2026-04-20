@@ -26,6 +26,7 @@ interface AuthState {
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   loadToken: () => Promise<void>;
+  setDisplayName: (name: string | null) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -78,6 +79,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     await tokenStorage.deleteItemAsync('token');
     set({ token: null, user: null });
   },
+
+  // Update just the cached display_name after a successful PUT /auth/me
+  // so the header / settings screen reflect the change without a reload.
+  setDisplayName: (name: string | null) => set((s) => ({
+    user: s.user ? { ...s.user, display_name: name } : s.user,
+  })),
 }));
 
 // --- Folder Store ---
