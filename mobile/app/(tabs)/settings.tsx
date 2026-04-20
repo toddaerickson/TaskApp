@@ -121,6 +121,17 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionHeader}>Account</Text>
 
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => router.push('/settings/account')}
+        accessibilityRole="button"
+        accessibilityLabel="Account: password, PIN, display name"
+      >
+        <Ionicons name="person-outline" size={22} color={colors.primary} />
+        <Text style={styles.rowText}>Password, PIN, display name</Text>
+        <Ionicons name="chevron-forward" size={18} color="#bbb" />
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.row} onPress={handleLogout}>
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={[styles.rowText, { color: '#e74c3c' }]}>Logout</Text>

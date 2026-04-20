@@ -67,6 +67,23 @@ class UserResponse(BaseModel):
     display_name: Optional[str]
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ProfileUpdate(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("display_name")
+    @classmethod
+    def _normalize_display_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+
 # --- Folders ---
 class FolderCreate(BaseModel):
     name: str

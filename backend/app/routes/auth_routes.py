@@ -4,7 +4,10 @@ from app.auth import (
     hash_password, verify_password, create_token, get_current_user_id,
     needs_rehash,
 )
-from app.models import RegisterRequest, LoginRequest, TokenResponse, UserResponse
+from app.models import (
+    RegisterRequest, LoginRequest, TokenResponse, UserResponse,
+    ChangePasswordRequest, ProfileUpdate,
+)
 from app.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -75,3 +78,38 @@ def me(user_id: int = Depends(get_current_user_id)):
     if not user:
         raise HTTPException(404, "User not found")
     return user
+
+
+@router.put("/me", response_model=UserResponse)
+def update_me(req: ProfileUpdate, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET display_name = ? WHERE id = ?",
+            (req.display_name, user_id),
+        )
+        cur.execute("SELECT id, email, display_name FROM users WHERE id = ?", (user_id,))
+        user = cur.fetchone()
+    if not user:
+        raise HTTPException(404, "User not found")
+    return user
+
+
+@router.post("/change-password")
+def change_password(req: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "User not found")
+        if not verify_password(req.current_password, row["password_hash"]):
+            # Same wording as login so a wrong current-password can't be
+            # distinguished from an expired session by an attacker with
+            # only an old JWT.
+            raise HTTPException(401, "Current password is incorrect")
+        cur.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(req.new_password), user_id),
+        )
+    return {"ok": True}
