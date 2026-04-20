@@ -6,9 +6,10 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTaskStore, useFolderStore, useTagStore, Task, Tag } from '@/lib/stores';
+import { useTaskStore, useFolderStore, useTagStore, Task, Tag, Reminder } from '@/lib/stores';
 import * as api from '@/lib/api';
 import DateField from '@/components/DateField';
+import TaskReminderEditor from '@/components/TaskReminderEditor';
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -37,6 +38,7 @@ export default function TaskDetailScreen() {
   const [starred, setStarred] = useState(false);
   const [dueDate, setDueDate] = useState('');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -58,11 +60,23 @@ export default function TaskDetailScreen() {
       setStarred(t.starred);
       setDueDate(t.due_date || '');
       setSelectedTagIds(t.tags?.map((tg: Tag) => tg.id) || []);
+      setReminders(t.reminders || []);
     } catch {
       Alert.alert('Error', 'Task not found');
       router.back();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const reloadReminders = async () => {
+    try {
+      const list = await api.getReminders(Number(id));
+      setReminders(list);
+    } catch {
+      // Fall back to reloading the whole task — the GET /reminders
+      // endpoint might have been temporarily unreachable.
+      loadTask();
     }
   };
 
@@ -177,6 +191,12 @@ export default function TaskDetailScreen() {
         // See task/create.tsx for the same fix.
         placeholderTextColor="#bbb"
         accessibilityLabel="Task note"
+      />
+
+      <TaskReminderEditor
+        taskId={Number(id)}
+        reminders={reminders}
+        onChanged={reloadReminders}
       />
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>

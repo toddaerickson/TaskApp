@@ -6,8 +6,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTaskStore, Task } from '@/lib/stores';
+import { useTaskStore, Task, Reminder } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
+import { formatReminderChip } from '@/lib/taskReminder';
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
@@ -89,6 +90,19 @@ function compareTasks(a: Task, b: Task, sorts: SortLevel[]): number {
     if (cmp !== 0) return cmp;
   }
   return 0;
+}
+
+function nextUpcomingReminder(reminders: Reminder[] | undefined, now: number): Reminder | null {
+  if (!reminders || reminders.length === 0) return null;
+  let best: Reminder | null = null;
+  let bestTs = Infinity;
+  for (const r of reminders) {
+    if (r.reminded) continue;
+    const ts = new Date(r.remind_at).getTime();
+    if (!Number.isFinite(ts) || ts <= now) continue;
+    if (ts < bestTs) { best = r; bestTs = ts; }
+  }
+  return best;
 }
 
 function formatDate(d: string | null): string {
@@ -329,7 +343,10 @@ export default function TasksScreen() {
               )}
 
               {/* Task rows in group */}
-              {group.tasks.map((task) => isNarrow ? (
+              {group.tasks.map((task) => {
+                const nextRem = nextUpcomingReminder(task.reminders, Date.now());
+                const nextRemLabel = nextRem ? formatReminderChip(nextRem.remind_at) : null;
+                return isNarrow ? (
                 <Pressable
                   key={task.id}
                   style={({ pressed }) => [styles.cardRow, pressed && { backgroundColor: '#f0f4ff' }]}
@@ -365,6 +382,12 @@ export default function TasksScreen() {
                       )}
                       {task.status !== 'none' && (
                         <Text style={styles.cardMetaText} numberOfLines={1}>{task.status.replace(/_/g, ' ')}</Text>
+                      )}
+                      {nextRemLabel && (
+                        <View style={styles.reminderChip}>
+                          <Ionicons name="alarm" size={11} color={colors.warning} />
+                          <Text style={styles.reminderChipText}>{nextRemLabel}</Text>
+                        </View>
                       )}
                     </View>
                   </View>
@@ -406,10 +429,16 @@ export default function TasksScreen() {
                     <Text style={styles.cellText} numberOfLines={1}>{task.folder_name || '—'}</Text>
                   </View>
 
-                  <View style={[styles.cell, { flex: 1.8 }]}>
+                  <View style={[styles.cell, { flex: 1.8, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                     <Text style={[styles.cellText, styles.titleText, task.completed && styles.completedText]} numberOfLines={1}>
                       {task.subtasks && task.subtasks.length > 0 ? `${task.title} [${task.subtasks.length}]` : task.title}
                     </Text>
+                    {nextRemLabel && (
+                      <View style={styles.reminderChip}>
+                        <Ionicons name="alarm" size={11} color={colors.warning} />
+                        <Text style={styles.reminderChipText}>{nextRemLabel}</Text>
+                      </View>
+                    )}
                   </View>
 
                   <View style={[styles.cell, { flex: 0.6 }]}>
@@ -455,7 +484,8 @@ export default function TasksScreen() {
                     </Text>
                   </View>
                 </Pressable>
-              ))}
+              );
+              })}
             </View>
           ))}
         </ScrollView>
@@ -580,4 +610,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap',
   },
   cardMetaText: { fontSize: 12, color: '#777' },
+
+  reminderChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#fff5e6', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 10,
+  },
+  reminderChipText: { fontSize: 11, color: colors.warning, fontWeight: '600' },
 });

@@ -74,6 +74,11 @@ export default function FoldersScreen() {
   const { tasks, isLoading, load: loadTasks, complete, toggleStar, setFilters } = useTaskStore();
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // Inline rename. Keeping it as row-level state (not per-row component)
+  // so the input auto-focuses and Escape / Save close predictably.
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameName, setRenameName] = useState('');
   // Below 700px (phones in portrait, narrow Safari) the master-detail layout
   // overflows. Render one pane at a time and toggle via tap / back button.
   const { width } = useWindowDimensions();
@@ -112,6 +117,31 @@ export default function FoldersScreen() {
     if (isNarrow) setShowTasksPane(true);
   };
 
+  const startRename = (id: number, name: string) => {
+    setRenamingId(id);
+    setRenameName(name);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameName('');
+  };
+
+  const submitRename = async () => {
+    const id = renamingId;
+    const name = renameName.trim();
+    if (!id || !name) { cancelRename(); return; }
+    try {
+      await api.updateFolder(id, { name });
+      cancelRename();
+      loadFolders();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Could not rename folder.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Rename failed', msg);
+    }
+  };
+
   const selectedLabel = selectedFolderId === null
     ? 'All Tasks'
     : folders.find((f) => f.id === selectedFolderId)?.name || 'Tasks';
@@ -136,25 +166,66 @@ export default function FoldersScreen() {
         <FlatList
           data={folders}
           keyExtractor={(f) => String(f.id)}
-          renderItem={({ item }) => (
-            <Pressable
-              style={[styles.folderRow, selectedFolderId === item.id && styles.folderRowActive]}
-              onPress={() => handleSelectFolder(item.id)}
-            >
-              <Ionicons
-                name="folder-outline" size={18}
-                color={selectedFolderId === item.id ? '#fff' : colors.primary}
-              />
-              <Text style={[styles.folderName, selectedFolderId === item.id && styles.folderNameActive]} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <View style={[styles.countBadge, selectedFolderId === item.id && styles.countBadgeActive]}>
-                <Text style={[styles.countText, selectedFolderId === item.id && styles.countTextActive]}>
-                  {item.task_count}
+          renderItem={({ item }) => {
+            if (renamingId === item.id) {
+              return (
+                <View style={styles.renameRow}>
+                  <Ionicons name="folder-outline" size={18} color={colors.primary} />
+                  <TextInput
+                    style={styles.renameInput}
+                    value={renameName}
+                    onChangeText={setRenameName}
+                    autoFocus
+                    accessibilityLabel={`Rename folder ${item.name}`}
+                    onSubmitEditing={submitRename}
+                    returnKeyType="done"
+                  />
+                  <Pressable onPress={submitRename} accessibilityRole="button" accessibilityLabel="Save folder name">
+                    <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                  </Pressable>
+                  <Pressable onPress={cancelRename} accessibilityRole="button" accessibilityLabel="Cancel rename">
+                    <Ionicons name="close-circle" size={22} color={colors.danger} />
+                  </Pressable>
+                </View>
+              );
+            }
+            const active = selectedFolderId === item.id;
+            return (
+              <Pressable
+                style={[styles.folderRow, active && styles.folderRowActive]}
+                onPress={() => handleSelectFolder(item.id)}
+              >
+                <Ionicons
+                  name="folder-outline" size={18}
+                  color={active ? '#fff' : colors.primary}
+                />
+                <Text style={[styles.folderName, active && styles.folderNameActive]} numberOfLines={1}>
+                  {item.name}
                 </Text>
-              </View>
-            </Pressable>
-          )}
+                <View style={[styles.countBadge, active && styles.countBadgeActive]}>
+                  <Text style={[styles.countText, active && styles.countTextActive]}>
+                    {item.task_count}
+                  </Text>
+                </View>
+                {/* Rename pencil — stops propagation so it doesn't also
+                    select the folder. Tap-to-edit (not long-press) for
+                    iOS / web parity; long-press is inconsistent on web. */}
+                <Pressable
+                  onPress={(e) => { e.stopPropagation(); startRename(item.id, item.name); }}
+                  hitSlop={8}
+                  style={styles.renameBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Rename folder ${item.name}`}
+                >
+                  <Ionicons
+                    name="pencil"
+                    size={14}
+                    color={active ? '#fff' : '#9aa3b2'}
+                  />
+                </Pressable>
+              </Pressable>
+            );
+          }}
         />
 
         {adding ? (
@@ -279,6 +350,16 @@ const styles = StyleSheet.create({
   addInput: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 13 },
   addButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 14, cursor: 'pointer' as any },
   addText: { color: colors.primary, fontSize: 13 },
+  renameRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 6, paddingHorizontal: 12, gap: 8,
+    backgroundColor: '#eef4ff',
+  },
+  renameInput: {
+    flex: 1, borderWidth: 1, borderColor: '#c8d5ea', borderRadius: 6,
+    padding: 6, fontSize: 13, backgroundColor: '#fff',
+  },
+  renameBtn: { marginLeft: 4, padding: 4, cursor: 'pointer' as any },
 
   // Right main panel
   main: { flex: 1, paddingTop: 4 },
