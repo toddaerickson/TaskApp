@@ -137,7 +137,7 @@ export default function CreateTaskScreen() {
         value={title}
         onChangeText={setTitle}
         autoFocus
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor="#bbb"
       />
 
       {/* Folder — dropdown replaces the chip strip */}
@@ -219,7 +219,7 @@ export default function CreateTaskScreen() {
           onChangeText={setNewTag}
           placeholder={tags.length === 0 ? 'Create your first tag…' : '+ New tag'}
           accessibilityLabel="New tag name"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor="#bbb"
           style={styles.newTagInput}
           autoCapitalize="none"
           onSubmitEditing={handleCreateTag}

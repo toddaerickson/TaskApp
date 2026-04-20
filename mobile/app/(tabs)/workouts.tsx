@@ -41,6 +41,11 @@ export default function WorkoutsScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGoal, setNewGoal] = useState('general');
+  // Rehab-routine flag at creation time. Complements the in-detail toggle
+  // from #51 so users can declare intent before the first session — no
+  // need to create then immediately flip. Default off keeps strength
+  // creations untouched.
+  const [newTracksSymptoms, setNewTracksSymptoms] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -80,6 +85,7 @@ export default function WorkoutsScreen() {
   const openCreate = () => {
     setNewName('');
     setNewGoal('general');
+    setNewTracksSymptoms(false);
     setCreateError(null);
     setCreateOpen(true);
   };
@@ -151,7 +157,9 @@ export default function WorkoutsScreen() {
     setCreating(true);
     setCreateError(null);
     try {
-      const routine = await api.createRoutine({ name, goal: newGoal });
+      const routine = await api.createRoutine({
+        name, goal: newGoal, tracks_symptoms: newTracksSymptoms,
+      });
       setCreateOpen(false);
       await loadRoutines();
       // Deep-link into the freshly-made routine so the user can add
@@ -396,6 +404,32 @@ export default function WorkoutsScreen() {
               ))}
             </View>
 
+            {/* Rehab toggle — mirrors the in-detail chip from #51. Declared
+                at creation so the first session honors the flag without a
+                round-trip flip. */}
+            <Pressable
+              onPress={() => setNewTracksSymptoms((v) => !v)}
+              style={[styles.rehabModalToggle, newTracksSymptoms && styles.rehabModalToggleOn]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: newTracksSymptoms }}
+              accessibilityLabel="Track pain and symptoms in this routine"
+              accessibilityHint="When on, sessions render a per-set pain chip and use Silbernagel-style advance/hold/back-off suggestions"
+            >
+              <Ionicons
+                name={newTracksSymptoms ? 'checkmark-circle' : 'ellipse-outline'}
+                size={18}
+                color={newTracksSymptoms ? '#fff' : '#888'}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rehabModalText, newTracksSymptoms && styles.rehabModalTextOn]}>
+                  {newTracksSymptoms ? 'Tracking pain and symptoms' : 'Track pain and symptoms'}
+                </Text>
+                <Text style={[styles.rehabModalHint, newTracksSymptoms && styles.rehabModalHintOn]}>
+                  Pain chip per set · pain-monitored progression
+                </Text>
+              </View>
+            </Pressable>
+
             {createError && <Text style={styles.modalError}>{createError}</Text>}
 
             <Pressable
@@ -538,6 +572,18 @@ const styles = StyleSheet.create({
     cursor: 'pointer' as any,
   },
   goalChipText: { fontSize: 13, color: '#555', fontWeight: '600' },
+  rehabModalToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 12, borderRadius: 10, marginTop: 14,
+    borderWidth: 1, borderColor: '#ddd',
+    backgroundColor: '#fafafa',
+    cursor: 'pointer' as any,
+  },
+  rehabModalToggleOn: { backgroundColor: colors.warning, borderColor: colors.warning },
+  rehabModalText: { fontSize: 14, fontWeight: '700', color: '#333' },
+  rehabModalTextOn: { color: '#fff' },
+  rehabModalHint: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  rehabModalHintOn: { color: 'rgba(255,255,255,0.85)' },
   modalError: { color: colors.danger, fontSize: 13, marginTop: 10 },
   modalSave: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

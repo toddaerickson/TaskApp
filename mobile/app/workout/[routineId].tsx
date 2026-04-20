@@ -209,7 +209,18 @@ export default function RoutineDetailScreen() {
           <RoutineHeaderEdit routine={routine} onSaved={reload} />
         ) : (
           <View style={styles.header}>
-            <Text style={styles.title}>{routine.name}</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{routine.name}</Text>
+              {routine.tracks_symptoms && (
+                <View
+                  style={styles.rehabBadge}
+                  accessibilityLabel="Rehab routine: tracking pain and symptoms"
+                >
+                  <Ionicons name="pulse-outline" size={10} color="#fff" />
+                  <Text style={styles.rehabBadgeText}>REHAB</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.meta}>
               {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
             </Text>
@@ -831,6 +842,13 @@ const styles = StyleSheet.create({
   },
   deleteRoutineText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   title: { fontSize: 22, fontWeight: '700', color: '#222' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  rehabBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: colors.warning,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+  },
+  rehabBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   headerEditBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
