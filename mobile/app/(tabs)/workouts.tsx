@@ -1,9 +1,9 @@
 import { colors } from "@/lib/colors";
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput, ScrollView, Platform, Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession, Exercise, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
@@ -52,12 +52,19 @@ export default function WorkoutsScreen() {
   // here (not per-card) so exactly one sheet can be open at a time.
   const [reminderTarget, setReminderTarget] = useState<Routine | null>(null);
 
-  useEffect(() => {
+  // Refetch every time the tab regains focus. `useEffect([])` only fires
+  // on mount, which meant mutations to a routine from the detail screen
+  // (add / remove exercise, rename, change reminder) were invisible here
+  // until a full app restart — the card would still show the stale
+  // "{n} exercises" count after the user navigated back. `useFocusEffect`
+  // matches expo-router's focus lifecycle and mirrors the pattern used
+  // on the routine detail screen for the same reason.
+  useFocusEffect(useCallback(() => {
     loadRoutines();
     api.listSessions({ limit: 10 })
       .then(setRecent)
       .catch((e) => console.warn('[workouts] listSessions failed:', e));
-  }, []);
+  }, [loadRoutines]));
 
   // Re-sync local notifications whenever the routine list (and therefore
   // its reminder_time / reminder_days) changes. No-op on web.
