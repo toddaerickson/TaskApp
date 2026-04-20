@@ -12,6 +12,7 @@ import { PhaseEditor } from '@/components/PhaseEditor';
 import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
+import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import * as api from '@/lib/api';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
@@ -61,6 +62,7 @@ function confirmDestructive(title: string, message: string, destructiveLabel: st
 export default function RoutineDetailScreen() {
   const { routineId } = useLocalSearchParams<{ routineId: string }>();
   const router = useRouter();
+  const undo = useUndoSnackbar();
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [starting, setStarting] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -93,10 +95,35 @@ export default function RoutineDetailScreen() {
     }
   };
 
-  const deleteRoutineExercise = async (reId: number) => {
-    if (Platform.OS === 'web' && !window.confirm('Remove this exercise from the routine?')) return;
-    await api.removeExerciseFromRoutine(reId);
-    reload();
+  const deleteRoutineExercise = (reId: number) => {
+    if (!routine) return;
+    const idx = routine.exercises.findIndex((re) => re.id === reId);
+    if (idx === -1) return;
+    const target = routine.exercises[idx];
+    const name = target.exercise?.name ?? 'Exercise';
+    // Optimistic drop. We filter the row out of the local list so the
+    // user sees it disappear immediately; the real DELETE fires only if
+    // the 5-second undo window elapses without a tap. Undo reinserts
+    // at the original index so ordering is lossless.
+    setRoutine((prev) => (
+      prev ? { ...prev, exercises: prev.exercises.filter((re) => re.id !== reId) } : prev
+    ));
+    undo.show({
+      message: `${name} removed`,
+      onUndo: () => setRoutine((prev) => {
+        if (!prev) return prev;
+        const next = [...prev.exercises];
+        // Clamp the insert index in case exercises shifted after remove
+        // (e.g. a reorder raced with the undo window). Worst case the
+        // row lands at the end — still preserves presence.
+        const pos = Math.min(idx, next.length);
+        next.splice(pos, 0, target);
+        return { ...prev, exercises: next };
+      }),
+      onTimeout: () => {
+        api.removeExerciseFromRoutine(reId).catch(() => reload());
+      },
+    });
   };
 
   const handlePickExercise = async (exercise: Exercise) => {
@@ -124,16 +151,37 @@ export default function RoutineDetailScreen() {
     const body = `This removes "${routine.name}", its phases${
       exCount ? `, and detaches ${exCount} exercise${exCount === 1 ? '' : 's'}` : ''
     }. Session history stays; exercises themselves remain in your library.`;
+    // Keep the hard confirm — deleting a whole routine is a bigger
+    // blast radius than dropping one exercise, and an accidental tap
+    // on the red "Delete routine" button at the bottom of the edit
+    // panel should still require an explicit yes.
     const ok = await confirmDestructive(`Delete "${routine.name}"?`, body, 'Delete');
     if (!ok) return;
-    try {
-      await api.deleteRoutine(routine.id);
-      router.replace('/(tabs)/workouts');
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.message || 'Failed to delete routine';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Could not delete', msg);
-    }
+    // Capture locals before we navigate away: `routine` is about to go
+    // out of scope for the snackbar callbacks because this screen
+    // unmounts on router.replace(). Rename to avoid shadowing the
+    // useLocalSearchParams binding above.
+    const deletedRoutineId = routine.id;
+    const deletedRoutineName = routine.name;
+    // Navigate back to the list immediately so the user sees the
+    // routine disappear from the tab. We have NOT hit the DELETE API
+    // yet — the snackbar's onTimeout is the actual commit point.
+    // Undo = do nothing on the server; the workouts tab's
+    // useFocusEffect refetch will pick the routine back up on its
+    // next focus cycle. If the timeout-commit fails the workouts tab
+    // refetches on focus anyway, so the row reappears in its real
+    // state rather than being a ghost.
+    router.replace('/(tabs)/workouts');
+    undo.show({
+      message: `"${deletedRoutineName}" deleted`,
+      onTimeout: () => {
+        api.deleteRoutine(deletedRoutineId).catch((e: any) => {
+          const msg = e?.response?.data?.detail || e?.message || 'Failed to delete routine';
+          if (Platform.OS === 'web') window.alert(msg);
+          else Alert.alert('Could not delete', msg);
+        });
+      },
+    });
   };
 
   const handleStart = async () => {
