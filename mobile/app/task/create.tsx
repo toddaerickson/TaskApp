@@ -284,12 +284,15 @@ export default function CreateTaskScreen() {
           <Text style={styles.label}>Note</Text>
           <TextInput
             style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-            placeholder="Additional details..."
+            placeholder="Additional details…"
             accessibilityLabel="Task note"
             value={note}
             onChangeText={setNote}
             multiline
-            placeholderTextColor={colors.textMuted}
+            // Light gray so placeholder reads as a hint, not pre-filled
+            // text. colors.textMuted (#595959) is darkened for body-text
+            // a11y — too close to real input to be a placeholder.
+            placeholderTextColor="#bbb"
           />
         </View>
       )}
