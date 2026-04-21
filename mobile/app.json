@@ -17,7 +17,7 @@
       "package": "com.taskapp.tasks"
     },
     "web": {
-      "favicon": "./public/favicon.svg",
+      "favicon": "./public/icon-192.png",
       "bundler": "metro",
       "name": "TaskApp",
       "shortName": "TaskApp",
