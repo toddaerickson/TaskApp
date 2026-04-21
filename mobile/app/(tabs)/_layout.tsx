@@ -29,27 +29,33 @@ export default function TabLayout() {
       // iOS home-indicator inset so labels don't sit under it on iPhones.
       // Growing height (not just padding) keeps the icon+label space intact;
       // if only padding grew, the usable area shrank by the inset amount.
+      //
+      // Tightened the vertical padding (top 6→3, bottom min 10→6, bar 68→58)
+      // so the tab bar feels like a crisp footer on iPhone rather than
+      // wasting ~15px of whitespace around the icons. Total content:
+      // 3 (top) + 18 (icon) + 2 (label margin) + 16 (label line-height) +
+      // 6 (bottom min) = 45px, comfortably inside 58px.
       tabBarStyle: Platform.OS === 'web' ? ({
-        height: 'calc(68px + env(safe-area-inset-bottom))',
-        paddingTop: 6,
+        height: 'calc(58px + env(safe-area-inset-bottom))',
+        paddingTop: 3,
         // RN-web passes the raw CSS string through; on iOS Safari this lifts
         // the bar above the browser chrome. TS types reject the string, so
         // cast through `any` rather than disabling rules everywhere.
-        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+        paddingBottom: 'max(6px, env(safe-area-inset-bottom))',
       } as any) : undefined,
       tabBarLabelStyle: {
         fontSize: LABEL_FONT,
         // Default RN-web line-height is too tight; descenders ("g", "y") get
         // clipped on Safari. Bumping line-height fixes it.
         lineHeight: Math.round(LABEL_FONT * 1.3),
-        marginTop: 3,
+        marginTop: 2,
         // Label should never be chopped mid-word. numberOfLines=1 is the
         // default for tab labels so we only need to make sure it doesn't
         // overflow the tab: let the container clip with ellipsis rather
         // than silently truncating the text mid-glyph.
         includeFontPadding: false,
       },
-      tabBarIconStyle: { marginBottom: 0 },
+      tabBarIconStyle: { marginBottom: 0, marginTop: 0 },
     }}>
       <Tabs.Screen
         name="tasks"
