@@ -142,6 +142,42 @@ export default function FoldersScreen() {
     }
   };
 
+  // Two-platform confirm. Same pattern as the task-delete hotfix and
+  // the routine-delete flow — Alert.alert no-ops on Expo web so web
+  // needs confirm(). Native gets the real Alert so the destructive
+  // button gets its red styling.
+  const confirmDeleteFolder = (id: number, name: string): Promise<boolean> => {
+    const title = `Delete "${name}"?`;
+    const body = `Tasks in this folder stay put but become unfoldered. This can't be undone.`;
+    return new Promise((resolve) => {
+      if (Platform.OS === 'web') {
+        // eslint-disable-next-line no-alert
+        resolve(window.confirm(`${title}\n\n${body}`));
+        return;
+      }
+      Alert.alert(title, body, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Delete', style: 'destructive', onPress: () => resolve(true) },
+      ]);
+    });
+  };
+
+  const deleteFolder = async (id: number, name: string) => {
+    const ok = await confirmDeleteFolder(id, name);
+    if (!ok) return;
+    try {
+      await api.deleteFolder(id);
+      // If the deleted folder was currently selected, drop selection
+      // so the task list doesn't keep filtering on a nonexistent id.
+      if (selectedFolderId === id) selectFolder(null);
+      loadFolders();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Could not delete folder.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Delete failed', msg);
+    }
+  };
+
   const selectedLabel = selectedFolderId === null
     ? 'All Tasks'
     : folders.find((f) => f.id === selectedFolderId)?.name || 'Tasks';
@@ -221,6 +257,19 @@ export default function FoldersScreen() {
                     name="pencil"
                     size={14}
                     color={active ? '#fff' : '#9aa3b2'}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={(e) => { e.stopPropagation(); deleteFolder(item.id, item.name); }}
+                  hitSlop={8}
+                  style={styles.renameBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete folder ${item.name}`}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={14}
+                    color={active ? '#fff' : colors.danger}
                   />
                 </Pressable>
               </Pressable>
