@@ -309,7 +309,9 @@ export async function getUpcomingReminders(limit: number = 20) {
 }
 
 // --- Workouts: Exercises ---
-export async function getExercises(params?: { category?: string; search?: string }) {
+export async function getExercises(
+  params?: { category?: string; search?: string; include_archived?: boolean },
+) {
   const { data } = await api.get('/exercises', { params });
   return data;
 }
@@ -399,7 +401,15 @@ export async function updateExercise(id: number, updates: ExerciseUpdatePayload)
 }
 
 export async function deleteExercise(id: number) {
+  // Server-side soft-delete: sets archived_at on the row. The exercise
+  // disappears from default list responses but routines / sessions
+  // that reference it still resolve.
   await api.delete(`/exercises/${id}`);
+}
+
+export async function restoreExercise(id: number) {
+  const { data } = await api.post(`/exercises/${id}/restore`);
+  return data;
 }
 
 export async function updateRoutine(id: number, updates: RoutineUpdatePayload) {
