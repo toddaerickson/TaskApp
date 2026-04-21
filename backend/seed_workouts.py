@@ -366,6 +366,151 @@ EXERCISES = [
             "https://wger.de/media/exercise-images/130/Glute-bridge-1.png",
         ],
     },
+    # ---------- Compound strength / calisthenics fundamentals ----------
+    # Added in PR 7. These cover the big movement patterns the user
+    # would otherwise have to hand-create: squat, hinge, push, pull,
+    # row, single-leg, plank. All bodyweight-by-default with an
+    # optional loaded variant implied by `measurement=reps_weight`;
+    # routines that want the loaded version just fill target_weight.
+    {
+        "slug": "squat",
+        "name": "Squat",
+        "category": "strength",
+        "primary_muscle": "quadriceps / glutes",
+        "equipment": "none (or barbell / goblet)",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Feet shoulder-width, toes slightly out. Brace core, sit hips "
+            "back and down until thighs are parallel (or to comfortable "
+            "depth). Drive through midfoot to stand. Keep torso upright."
+        ),
+        "cue": "Knees track over toes; chest stays proud.",
+        "images": [
+            f"{_BASE}/Barbell_Squat/0.jpg",
+            f"{_BASE}/Barbell_Squat/1.jpg",
+        ],
+    },
+    {
+        "slug": "pushup",
+        "name": "Push-up",
+        "category": "strength",
+        "primary_muscle": "chest / triceps",
+        "equipment": "none",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Start in a high plank, hands just wider than shoulders. "
+            "Keep a straight line from head to heels. Lower until chest "
+            "hovers above the floor, then press back up."
+        ),
+        "cue": "Elbows ~45° from the torso; core stays braced.",
+        "images": [
+            f"{_BASE}/Pushups/0.jpg",
+            f"{_BASE}/Pushups/1.jpg",
+        ],
+    },
+    {
+        "slug": "pullup",
+        "name": "Pull-up",
+        "category": "strength",
+        "primary_muscle": "lats / upper back",
+        "equipment": "pull-up bar",
+        "difficulty": 4,
+        "is_bodyweight": True,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Hang from the bar with an overhand grip slightly wider than "
+            "shoulders. Pull chest to the bar, leading with the elbows. "
+            "Lower under control to a dead hang."
+        ),
+        "cue": "Shoulders pack down before the pull; don't swing.",
+        "images": [
+            f"{_BASE}/Pullups/0.jpg",
+            f"{_BASE}/Pullups/1.jpg",
+        ],
+    },
+    {
+        "slug": "deadlift",
+        "name": "Deadlift",
+        "category": "strength",
+        "primary_muscle": "posterior chain",
+        "equipment": "barbell",
+        "difficulty": 3,
+        "is_bodyweight": False,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Feet hip-width under the bar. Hinge, grip bar just outside "
+            "shins. Set a flat back and wedge tension before the pull. "
+            "Drive the floor away; bar travels straight up the shins."
+        ),
+        "cue": "Pull the slack out of the bar before you lift it.",
+        "images": [
+            f"{_BASE}/Barbell_Deadlift/0.jpg",
+            f"{_BASE}/Barbell_Deadlift/1.jpg",
+        ],
+    },
+    {
+        "slug": "row",
+        "name": "Bent-Over Row",
+        "category": "strength",
+        "primary_muscle": "mid-back / lats",
+        "equipment": "barbell or dumbbells",
+        "difficulty": 2,
+        "is_bodyweight": False,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Hinge forward with a flat back, knees soft. Row the bar "
+            "(or dumbbells) to the lower ribs, leading with the elbows. "
+            "Pause, then lower under control."
+        ),
+        "cue": "Squeeze the shoulder blades; hips stay back.",
+        "images": [
+            f"{_BASE}/Bent_Over_Barbell_Row/0.jpg",
+            f"{_BASE}/Bent_Over_Barbell_Row/1.jpg",
+        ],
+    },
+    {
+        "slug": "lunge",
+        "name": "Lunge",
+        "category": "strength",
+        "primary_muscle": "quadriceps / glutes",
+        "equipment": "none (or dumbbells)",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Step forward into a long stride. Lower the back knee toward "
+            "the floor; front shin stays vertical. Drive through the "
+            "front heel to return. Alternate legs or finish one side."
+        ),
+        "cue": "Torso upright; back knee kisses, doesn't crash.",
+        "images": [
+            f"{_BASE}/Bodyweight_Walking_Lunge/0.jpg",
+            f"{_BASE}/Bodyweight_Walking_Lunge/1.jpg",
+        ],
+    },
+    {
+        "slug": "plank",
+        "name": "Plank",
+        "category": "strength",
+        "primary_muscle": "core",
+        "equipment": "none",
+        "difficulty": 1,
+        "is_bodyweight": True,
+        "measurement": "duration",
+        "instructions": (
+            "Forearms on the floor under the shoulders, feet hip-width, "
+            "body in a straight line from head to heels. Brace the core, "
+            "squeeze the glutes, breathe steadily. Hold for time."
+        ),
+        "cue": "Don't let hips sag or pike; ribs stay down.",
+        "images": [
+            f"{_BASE}/Plank/0.jpg",
+        ],
+    },
 ]
 
 

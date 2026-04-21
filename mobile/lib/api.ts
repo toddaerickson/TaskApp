@@ -557,6 +557,17 @@ export async function deleteRoutine(id: number) {
   await api.delete(`/routines/${id}`);
 }
 
+/** Deep-copy a routine into a fresh template. Returns the full hydrated
+ *  new routine so the caller can navigate directly into it. Name gets a
+ *  " (copy)" suffix server-side — clients don't prompt for a name, the
+ *  user renames inline in the detail screen if desired. Return type
+ *  stays inferred (untyped from the server) so we don't duplicate the
+ *  Routine shape that lives in lib/stores.ts. */
+export async function cloneRoutine(id: number) {
+  const { data } = await api.post(`/routines/${id}/clone`);
+  return data;
+}
+
 export async function addExerciseToRoutine(routineId: number, payload: RoutineExerciseCreatePayload) {
   const { data } = await api.post(`/routines/${routineId}/exercises`, payload);
   return data;
@@ -646,6 +657,11 @@ export async function logSet(sessionId: number, payload: {
   set_number?: number;
   reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
   rpe?: number; pain_score?: number; completed?: boolean; notes?: string;
+  /** 'left' | 'right' | undefined (bilateral). The server normalizes any
+   *  other value to NULL so old clients can't punch in a bogus side. */
+  side?: 'left' | 'right';
+  /** Warmup sets are excluded from volume + progression suggestion. */
+  is_warmup?: boolean;
 }) {
   const { data } = await api.post(`/sessions/${sessionId}/sets`, payload);
   return data;

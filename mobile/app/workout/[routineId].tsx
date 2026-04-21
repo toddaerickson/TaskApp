@@ -199,6 +199,21 @@ export default function RoutineDetailScreen() {
     }
   };
 
+  const handleClone = async () => {
+    if (!routine) return;
+    try {
+      const clone = await api.cloneRoutine(routine.id);
+      // Navigate straight into the clone in edit mode so the user can
+      // rename it without an extra tap. Use replace so the back button
+      // jumps to the list, not back to the source routine.
+      router.replace(`/workout/${clone.id}`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Failed to clone routine';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not clone', msg);
+    }
+  };
+
   if (!routine) {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
@@ -253,7 +268,18 @@ export default function RoutineDetailScreen() {
           ),
         }}
       />
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        contentContainerStyle={
+          // The absolute-positioned footer's CTA is ~82px tall; add the iOS
+          // home-indicator inset on web so the last exercise card stays
+          // scrollable past the green Start button on iPhones. Cast through
+          // any because RN types reject the CSS string, but RN-web forwards
+          // it to the DOM verbatim.
+          Platform.OS === 'web'
+            ? ({ paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' } as any)
+            : { paddingBottom: 120 }
+        }
+      >
         {editMode ? (
           <RoutineHeaderEdit routine={routine} onSaved={reload} />
         ) : (
@@ -423,6 +449,20 @@ export default function RoutineDetailScreen() {
             >
               <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
               <Text style={styles.addExerciseText}>Add exercise</Text>
+            </Pressable>
+            {/* Clone: deep-copies this routine into a fresh "(copy)"
+                template. Navigates straight into the clone in edit mode
+                so the user can rename it without an extra tap. Lives
+                above Delete to separate additive actions from the
+                destructive one. */}
+            <Pressable
+              style={({ pressed }) => [styles.cloneRoutineBtn, pressed && { opacity: 0.7 }]}
+              onPress={handleClone}
+              accessibilityRole="button"
+              accessibilityLabel={`Duplicate routine ${routine.name}`}
+            >
+              <Ionicons name="copy-outline" size={18} color={colors.primary} />
+              <Text style={styles.cloneRoutineText}>Duplicate routine</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.deleteRoutineBtn, pressed && { opacity: 0.7 }]}
@@ -958,6 +998,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   addExerciseText: { color: colors.primary, fontWeight: '600', fontSize: 14 },
+  cloneRoutineBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    margin: 10, marginTop: 4,
+    paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  cloneRoutineText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
   deleteRoutineBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     margin: 10, marginTop: 4, marginBottom: 20,
@@ -1067,7 +1115,14 @@ const styles = StyleSheet.create({
 
   footer: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee',
+    padding: 16,
+    // Keep the Start-workout button above the iPhone home indicator on web
+    // by reserving the safe-area inset at the bottom. max(16, inset) so
+    // devices without a home bar still get the original 16px padding.
+    ...(Platform.OS === 'web'
+      ? ({ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' } as any)
+      : null),
+    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee',
   },
   startBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

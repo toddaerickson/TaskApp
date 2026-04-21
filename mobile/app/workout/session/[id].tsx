@@ -175,6 +175,8 @@ export default function ActiveSessionScreen() {
       // session_routes.log_set) but we also drop it client-side so it
       // isn't sent for strength sessions.
       pain_score: session.tracks_symptoms ? (payload.pain_score ?? undefined) : undefined,
+      side: payload.side ?? undefined,
+      is_warmup: payload.is_warmup ?? undefined,
     };
     try {
       // Server assigns set_number atomically; don't send one from the client
@@ -576,6 +578,16 @@ function ExerciseBlock({
   // undefined so the server-side sparse-update semantics apply.
   const [rpe, setRpe] = useState('');
   const [pain, setPain] = useState('');
+  // Per-set laterality. null = bilateral (historical default). A two-
+  // state toggle rather than three buttons because the most common
+  // flow is "left, log, right, log" — cycling through a single button
+  // is one tap between sides.
+  const [side, setSide] = useState<'left' | 'right' | null>(null);
+  // Warmup toggle. When on, the set is excluded from progression +
+  // volume. Resets to off after each log so a user who adds a warmup
+  // at the start of an exercise doesn't accidentally tag real working
+  // sets as warmup too.
+  const [isWarmup, setIsWarmup] = useState(false);
 
   // When the suggestion arrives after the block rendered, update inputs —
   // but only if the user hasn't typed anything yet (compare against the
@@ -644,12 +656,17 @@ function ExerciseBlock({
       weight: weight ? Number(weight) : undefined,
       rpe: rpe ? Number(rpe) : undefined,
       pain_score: tracksSymptoms && pain ? Number(pain) : undefined,
+      side: side ?? undefined,
+      is_warmup: isWarmup || undefined,
     });
     // Clear the once-per-set fields so the next set starts blank. Reps /
     // weight / duration are persistent across sets (they tend to repeat);
-    // RPE and pain genuinely change set-to-set.
+    // RPE + pain + warmup genuinely change set-to-set. Side is kept
+    // sticky across logs because the "L then R" rhythm usually wants
+    // the user to advance side themselves, not auto-flip on log.
     setRpe('');
     setPain('');
+    setIsWarmup(false);
     // Read fresh length AFTER onLog's reload so we don't miss sets logged
     // concurrently elsewhere in the session.
     if (setsRef.current.length >= targetSets) {
@@ -738,6 +755,17 @@ function ExerciseBlock({
                         <Text style={styles.prBadgeText}>PR</Text>
                       </View>
                     )}
+                    {s.side && (
+                      <View style={styles.sideTag} accessibilityLabel={`${s.side} side`}>
+                        <Text style={styles.sideTagText}>{s.side === 'left' ? 'L' : 'R'}</Text>
+                      </View>
+                    )}
+                    {s.is_warmup && (
+                      <View style={styles.warmupTag} accessibilityLabel="Warmup set">
+                        <Ionicons name="flame" size={10} color="#fff" />
+                        <Text style={styles.warmupTagText}>WU</Text>
+                      </View>
+                    )}
                     <Text style={styles.setDone}>
                       {s.reps ? `${s.reps} reps` : s.duration_sec ? `${s.duration_sec}s` : '—'}
                       {s.weight ? ` @${s.weight}` : ''}
@@ -781,6 +809,50 @@ function ExerciseBlock({
             {tracksSymptoms && (
               <LabeledInput label="Pain (0–10)" value={pain} onChange={setPain} />
             )}
+          </View>
+
+          {/* Per-set flags: L/R for unilateral work, warmup toggle. Both
+              compact pills rather than full rows because they're
+              occasional switches, not per-set entries like RPE. */}
+          <View style={styles.flagsRow}>
+            <View style={styles.sideGroup}>
+              <Pressable
+                style={[styles.sideBtn, side === 'left' && styles.sideBtnOn]}
+                onPress={() => setSide(side === 'left' ? null : 'left')}
+                accessibilityRole="button"
+                accessibilityLabel={side === 'left' ? 'Left side selected. Tap to clear.' : 'Tag set as left side'}
+                accessibilityState={{ selected: side === 'left' }}
+                hitSlop={6}
+              >
+                <Text style={side === 'left' ? styles.sideTextOn : styles.sideText}>L</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.sideBtn, side === 'right' && styles.sideBtnOn]}
+                onPress={() => setSide(side === 'right' ? null : 'right')}
+                accessibilityRole="button"
+                accessibilityLabel={side === 'right' ? 'Right side selected. Tap to clear.' : 'Tag set as right side'}
+                accessibilityState={{ selected: side === 'right' }}
+                hitSlop={6}
+              >
+                <Text style={side === 'right' ? styles.sideTextOn : styles.sideText}>R</Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={[styles.warmupChip, isWarmup && styles.warmupChipOn]}
+              onPress={() => setIsWarmup((v) => !v)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: isWarmup }}
+              accessibilityLabel="Mark next set as warmup"
+              accessibilityHint="Warmup sets are excluded from volume and progression suggestions"
+              hitSlop={6}
+            >
+              <Ionicons
+                name={isWarmup ? 'flame' : 'flame-outline'}
+                size={12}
+                color={isWarmup ? '#fff' : colors.textMuted}
+              />
+              <Text style={isWarmup ? styles.warmupTextOn : styles.warmupText}>Warmup</Text>
+            </Pressable>
           </View>
 
           {isDuration && !holdActive && (
@@ -920,6 +992,47 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   inputLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 2 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 14 },
+
+  // Per-set flag row: L/R toggle + warmup pill. Sits between the
+  // numeric inputs and the Log button so it's scanned with the set,
+  // not the exercise.
+  flagsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  sideGroup: {
+    flexDirection: 'row', borderRadius: 6, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#ddd',
+  },
+  sideBtn: {
+    minWidth: 36, paddingHorizontal: 10, paddingVertical: 6,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#fafafa', cursor: 'pointer' as any,
+  },
+  sideBtnOn: { backgroundColor: colors.primary },
+  sideText: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  sideTextOn: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  warmupChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
+    cursor: 'pointer' as any,
+  },
+  warmupChipOn: { backgroundColor: colors.warning, borderColor: colors.warning },
+  warmupText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+  warmupTextOn: { fontSize: 12, fontWeight: '700', color: '#fff' },
+
+  // Tags on logged-set rows so the user can see at a glance which were
+  // warmups and which were L/R. Small pills, muted on purpose — the
+  // reps/weight value is still the dominant read.
+  sideTag: {
+    backgroundColor: '#dce4f4', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 4, marginRight: 4,
+  },
+  sideTagText: { fontSize: 10, fontWeight: '800', color: colors.primary },
+  warmupTag: {
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    backgroundColor: colors.warning, paddingHorizontal: 5, paddingVertical: 1,
+    borderRadius: 4, marginRight: 4,
+  },
+  warmupTagText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.3 },
 
   logBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
