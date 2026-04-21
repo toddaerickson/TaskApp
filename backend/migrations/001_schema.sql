@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     tempo TEXT,
     keystone BOOLEAN DEFAULT FALSE,
     notes TEXT,
+    -- Target RPE per working set (1-10). NULL = no target. Pydantic
+    -- layer enforces the range.
+    target_rpe INTEGER,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

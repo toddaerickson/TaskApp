@@ -663,6 +663,10 @@ function RoutineExerciseEdit({
   const [tempo, setTempo] = useState(re.tempo ?? '');
   const [notes, setNotes] = useState(re.notes ?? '');
   const [keystone, setKeystone] = useState(!!re.keystone);
+  // Target RPE per working set (1-10). Empty string clears to null;
+  // server enforces the bound. Rendered next to Tempo — both are
+  // coaching cues distinct from the volume targets (sets/reps).
+  const [rpe, setRpe] = useState(re.target_rpe != null ? String(re.target_rpe) : '');
   const [busy, setBusy] = useState(false);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
 
@@ -687,6 +691,7 @@ function RoutineExerciseEdit({
         tempo: tempo || null,
         notes: notes || null,
         keystone,
+        target_rpe: rpe ? Number(rpe) : null,
       };
       if (!overwrite && re.updated_at) body.expected_updated_at = re.updated_at;
       await api.updateRoutineExercise(re.id, body);
@@ -715,6 +720,7 @@ function RoutineExerciseEdit({
       </View>
       <View style={{ flexDirection: 'row', gap: 6 }}>
         <EditField label="Tempo" value={tempo} onChange={setTempo} />
+        <EditField label="RPE (1–10)" value={rpe} onChange={setRpe} numeric />
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>Priority</Text>
           <Pressable style={styles.keystoneToggle} onPress={() => setKeystone(!keystone)}>

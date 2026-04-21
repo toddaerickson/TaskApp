@@ -381,6 +381,9 @@ export interface RoutineExerciseCreatePayload {
   /** null = "all phases" (every phase the routine has). Server-side
    *  default for rows created before the phase editor shipped. */
   phase_id?: number | null;
+  /** Target RPE per working set, 1-10. Null clears. Server enforces
+   *  the 1-10 bound via Pydantic Field(ge=1, le=10). */
+  target_rpe?: number | null;
 }
 export type RoutineExerciseUpdatePayload = Partial<Omit<RoutineExerciseCreatePayload, 'exercise_id'>> & {
   /** Same optimistic-concurrency story as RoutineUpdatePayload. */
