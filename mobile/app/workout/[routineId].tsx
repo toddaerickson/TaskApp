@@ -13,6 +13,7 @@ import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import ImageSearchModal from '@/components/ImageSearchModal';
 import * as api from '@/lib/api';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
@@ -381,9 +382,11 @@ export default function RoutineDetailScreen() {
                 )}
               </View>
 
-              {editMode && <RoutineExerciseEdit re={re} onSaved={reload} />}
+              {editMode && <RoutineExerciseEdit re={re} ex={ex} onSaved={reload} />}
 
-              {ex.images.length > 0 && (
+              {/* Read-mode only: edit mode renders its own managed image
+                  row (with trash + Add/Change button) inside the panel. */}
+              {!editMode && ex.images.length > 0 && (
                 <ScrollView horizontal style={styles.imageRow} showsHorizontalScrollIndicator={false}>
                   {ex.images.map((img) => (
                     <Image
@@ -606,7 +609,13 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   );
 }
 
-function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: () => void }) {
+function RoutineExerciseEdit({
+  re, ex, onSaved,
+}: {
+  re: RoutineExercise;
+  ex: Exercise;
+  onSaved: () => void;
+}) {
   const [sets, setSets] = useState(String(re.target_sets ?? ''));
   const [reps, setReps] = useState(String(re.target_reps ?? ''));
   const [dur, setDur] = useState(String(re.target_duration_sec ?? ''));
@@ -615,6 +624,17 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
   const [notes, setNotes] = useState(re.notes ?? '');
   const [keystone, setKeystone] = useState(!!re.keystone);
   const [busy, setBusy] = useState(false);
+  const [imageSearchOpen, setImageSearchOpen] = useState(false);
+
+  const deleteImage = async (imageId: number) => {
+    if (Platform.OS === 'web' && !window.confirm('Remove image?')) return;
+    try {
+      await api.deleteExerciseImage(imageId);
+      onSaved();
+    } catch (e: any) {
+      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed to delete image');
+    }
+  };
 
   const save = async (overwrite = false) => {
     setBusy(true);
@@ -684,6 +704,62 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
         <Ionicons name="save-outline" size={14} color="#fff" />
         <Text style={styles.saveText}>{busy ? 'Saving…' : 'Save'}</Text>
       </Pressable>
+
+      {/* Image management. In edit mode the user expects inline affordances
+          for everything about the exercise, including its images. Previously
+          this required detouring through Settings → Exercise library. */}
+      <Text style={styles.fieldLabel}>Images</Text>
+      {ex.images.length > 0 ? (
+        <ScrollView horizontal style={styles.editImageRow} showsHorizontalScrollIndicator={false}>
+          {ex.images.map((img) => (
+            <View key={img.id} style={styles.editImageWrap}>
+              <Image source={{ uri: img.url }} style={styles.editImageThumb} resizeMode="cover" />
+              <Pressable
+                style={styles.editImageTrash}
+                onPress={() => deleteImage(img.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Remove this image"
+                hitSlop={6}
+              >
+                <Ionicons name="close" size={12} color="#fff" />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      ) : (
+        <Text style={styles.editImageEmpty}>No image yet.</Text>
+      )}
+      <Pressable
+        style={[
+          styles.editImageFindBtn,
+          ex.images.length === 0 && styles.editImageFindBtnEmpty,
+        ]}
+        onPress={() => setImageSearchOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={ex.images.length === 0 ? 'Add image' : 'Find another image'}
+      >
+        <Ionicons
+          name="sparkles"
+          size={14}
+          color={ex.images.length === 0 ? '#fff' : colors.primary}
+        />
+        <Text
+          style={[
+            styles.editImageFindText,
+            ex.images.length === 0 && styles.editImageFindTextEmpty,
+          ]}
+        >
+          {ex.images.length === 0 ? 'Add image' : 'Find another image'}
+        </Text>
+      </Pressable>
+
+      <ImageSearchModal
+        visible={imageSearchOpen}
+        exerciseId={ex.id}
+        exerciseName={ex.name}
+        onClose={() => setImageSearchOpen(false)}
+        onSaved={onSaved}
+      />
     </View>
   );
 }
@@ -1027,6 +1103,35 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8,
     backgroundColor: '#fafafa', cursor: 'pointer' as any,
   },
+
+  editImageRow: { marginTop: 6, marginBottom: 4 },
+  editImageWrap: {
+    width: 72, height: 72, borderRadius: 8, marginRight: 6,
+    backgroundColor: '#f0f0f0', overflow: 'hidden', position: 'relative' as any,
+  },
+  editImageThumb: { width: '100%', height: '100%' },
+  editImageTrash: {
+    position: 'absolute' as any, top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(231,76,60,0.9)',
+    alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
+  editImageEmpty: {
+    color: colors.textMuted, fontSize: 12, fontStyle: 'italic',
+    paddingVertical: 6,
+  },
+  editImageFindBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderColor: colors.primary, borderRadius: 8,
+    paddingVertical: 8, marginTop: 6,
+    backgroundColor: '#fff', cursor: 'pointer' as any,
+  },
+  editImageFindBtnEmpty: {
+    backgroundColor: colors.primary, borderColor: colors.primary,
+  },
+  editImageFindText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  editImageFindTextEmpty: { color: '#fff' },
   dayChip: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
     backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
