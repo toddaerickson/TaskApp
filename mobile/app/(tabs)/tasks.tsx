@@ -9,6 +9,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, Task, Reminder } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import { formatReminderChip } from '@/lib/taskReminder';
+import FiltersSheet from '@/components/FiltersSheet';
+
+// Status values that GTD treats as "not acting on right now" — when
+// "Hide deferred" is on, rows with these statuses are dropped locally.
+// Kept in one place so the FiltersSheet hint string stays in sync.
+const DEFERRED_STATUSES = new Set(['hold', 'someday', 'postponed', 'cancelled']);
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
@@ -154,6 +160,36 @@ export default function TasksScreen() {
   );
   const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
 
+  // GTD filters. Session-sticky only (intentional — a morning reset
+  // means the user opens to an unfiltered view rather than wondering
+  // why their Hotlist is empty). `hideDeferred` is client-side only
+  // because the backend filter is a single-status match; extending
+  // that to a NOT-IN set is more cost than the local pass is worth.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [hideDeferred, setHideDeferred] = useState(false);
+
+  const nextActionsOn = filters.status === 'next_action';
+  const hideFuture = !!filters.hide_future_start;
+  const activeSheetFilters = (hideFuture ? 1 : 0) + (hideDeferred ? 1 : 0);
+
+  const toggleNextActions = () => {
+    setFilters({ status: nextActionsOn ? undefined : 'next_action' });
+  };
+  const toggleHideFuture = (v: boolean) => setFilters({ hide_future_start: v || undefined });
+  const clearAllSheetFilters = () => {
+    setHideDeferred(false);
+    setFilters({ hide_future_start: undefined });
+  };
+  const clearEverything = () => {
+    setHideDeferred(false);
+    setFilters({
+      hide_future_start: undefined,
+      status: undefined,
+      starred: undefined,
+      completed: false,
+    });
+  };
+
   useEffect(() => { load(); }, []);
 
   const handleColumnPress = (key: SortKey) => {
@@ -181,9 +217,18 @@ export default function TasksScreen() {
     setGroupDropdownOpen(false);
   };
 
+  // Apply client-side Hide-deferred before sorting. Doing it here (not
+  // inside the sort memo) keeps the dependency graph honest: flipping
+  // hideDeferred doesn't re-sort needlessly, and flipping sort doesn't
+  // re-filter.
+  const visibleTasks = useMemo(() => {
+    if (!hideDeferred) return tasks;
+    return tasks.filter((t) => !DEFERRED_STATUSES.has(t.status));
+  }, [tasks, hideDeferred]);
+
   const sortedTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => compareTasks(a, b, sorts));
-  }, [tasks, sorts]);
+    return [...visibleTasks].sort((a, b) => compareTasks(a, b, sorts));
+  }, [visibleTasks, sorts]);
 
   // Group tasks
   const groupedTasks = useMemo(() => {
@@ -237,6 +282,37 @@ export default function TasksScreen() {
           accessibilityLabel={filters.starred ? 'Remove starred filter' : 'Filter to starred tasks'}
         >
           <Ionicons name="star" size={14} color={filters.starred ? '#fff' : '#666'} />
+        </Pressable>
+        {/* GTD "Next" chip. Primary verb of the engage phase; ship the
+            one that actually changes what the user does in the next
+            five minutes, not just what they look at. */}
+        <Pressable
+          style={[styles.filterChip, nextActionsOn && styles.filterChipActive]}
+          onPress={toggleNextActions}
+          accessibilityRole="button"
+          accessibilityLabel={nextActionsOn ? 'Clear next-actions filter' : 'Filter to next actions'}
+          accessibilityState={{ selected: nextActionsOn }}
+        >
+          <Ionicons name="flash" size={14} color={nextActionsOn ? '#fff' : '#666'} />
+          <Text style={nextActionsOn ? styles.filterTextActive : styles.filterText}>Next</Text>
+        </Pressable>
+        {/* Secondary filters live in a bottom sheet so the chip bar
+            doesn't wrap on a 390-px iPhone. Count badge surfaces how
+            many are active without opening the sheet. */}
+        <Pressable
+          style={[styles.filterChip, activeSheetFilters > 0 && styles.filterChipActive]}
+          onPress={() => setFiltersOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            activeSheetFilters > 0
+              ? `Open filters, ${activeSheetFilters} active`
+              : 'Open filters'
+          }
+        >
+          <Ionicons name="options-outline" size={14} color={activeSheetFilters > 0 ? '#fff' : '#666'} />
+          <Text style={activeSheetFilters > 0 ? styles.filterTextActive : styles.filterText}>
+            {activeSheetFilters > 0 ? `Filters (${activeSheetFilters})` : 'Filters'}
+          </Text>
         </Pressable>
 
         {/* Group By dropdown */}
@@ -311,21 +387,43 @@ export default function TasksScreen() {
       {isLoading ? (
         <SkeletonList count={6} variant="task" />
       ) : sortedTasks.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="checkmark-done-circle-outline" size={64} color="#d0d7e2" />
-          <Text style={styles.emptyTitle}>Nothing on your plate</Text>
-          <Text style={styles.emptyHint}>
-            Capture the next thing on your mind — you can organize it later.
-          </Text>
-          <Pressable
-            style={styles.emptyCta}
-            onPress={() => router.push('/task/create')}
-            accessibilityRole="button"
-          >
-            <Ionicons name="add" size={16} color="#fff" />
-            <Text style={styles.emptyCtaText}>Add your first task</Text>
-          </Pressable>
-        </View>
+        // Split empty-state copy: filters-zero vs real-zero. "Nothing on
+        // your plate" is encouraging when you're actually done; it's
+        // misleading when three filter chips are quietly hiding things.
+        (nextActionsOn || activeSheetFilters > 0) ? (
+          <View style={styles.empty}>
+            <Ionicons name="funnel-outline" size={56} color="#d0d7e2" />
+            <Text style={styles.emptyTitle}>No matches</Text>
+            <Text style={styles.emptyHint}>
+              Nothing fits your current filters. Clear them to see all tasks.
+            </Text>
+            <Pressable
+              style={styles.emptyCta}
+              onPress={clearEverything}
+              accessibilityRole="button"
+              accessibilityLabel="Clear all filters"
+            >
+              <Ionicons name="refresh" size={16} color="#fff" />
+              <Text style={styles.emptyCtaText}>Clear filters</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.empty}>
+            <Ionicons name="checkmark-done-circle-outline" size={64} color="#d0d7e2" />
+            <Text style={styles.emptyTitle}>Nothing on your plate</Text>
+            <Text style={styles.emptyHint}>
+              Capture the next thing on your mind — you can organize it later.
+            </Text>
+            <Pressable
+              style={styles.emptyCta}
+              onPress={() => router.push('/task/create')}
+              accessibilityRole="button"
+            >
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.emptyCtaText}>Add your first task</Text>
+            </Pressable>
+          </View>
+        )
       ) : (
         <ScrollView style={styles.tableBody}>
           {groupedTasks.map((group, gi) => (
@@ -490,6 +588,16 @@ export default function TasksScreen() {
           ))}
         </ScrollView>
       )}
+
+      <FiltersSheet
+        visible={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        hideFuture={hideFuture}
+        onHideFutureChange={toggleHideFuture}
+        hideDeferred={hideDeferred}
+        onHideDeferredChange={setHideDeferred}
+        onClearAll={clearAllSheetFilters}
+      />
     </View>
   );
 }

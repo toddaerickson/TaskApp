@@ -290,6 +290,9 @@ class ExerciseResponse(BaseModel):
     contraindications: Optional[str]
     min_age: Optional[int]
     max_age: Optional[int]
+    # ISO timestamp when archived, NULL while active. Mobile renders
+    # archived rows grayed-out with a Restore affordance.
+    archived_at: Optional[datetime] = None
     images: list[ExerciseImageResponse] = []
 
 

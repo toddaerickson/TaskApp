@@ -50,12 +50,18 @@ def _image_hash(url: str) -> str:
 def list_exercises(
     category: str | None = None,
     search: str | None = Query(None, min_length=1),
+    # Soft-delete: archived rows live in the table but are filtered out
+    # of normal list responses. Opt-in via ?include_archived=true so the
+    # library screen can render an "archived" toggle.
+    include_archived: bool = False,
     user_id: int = Depends(get_current_user_id),
 ):
     with get_db() as conn:
         cur = conn.cursor()
         sql = "SELECT * FROM exercises WHERE (user_id IS NULL OR user_id = ?)"
         params: list = [user_id]
+        if not include_archived:
+            sql += " AND archived_at IS NULL"
         if category:
             sql += " AND category = ?"
             params.append(category)
@@ -134,32 +140,47 @@ def update_exercise(exercise_id: int, req: ExerciseUpdate, user_id: int = Depend
 
 @router.delete("/{exercise_id}")
 def delete_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id)):
+    """Soft-delete. The row stays in the table so that routines and
+    historical sessions that reference it still resolve. List endpoints
+    hide archived rows by default; pass `include_archived=true` to see
+    them. Un-archive via POST /exercises/{id}/restore.
+    Prior behavior (hard delete with 409-on-referenced) is gone — the
+    whole point of soft-delete is to make retirement low-friction."""
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Exercise not found")
-        # Allow deleting globals (user_id IS NULL) OR the caller's own
-        # exercises. Single-user self-hosted: every row in the library is
-        # effectively theirs to prune. Matches update_exercise's guard.
+        # Allow archiving globals (user_id IS NULL) OR the caller's own
+        # exercises. Matches update_exercise's guard.
         if row["user_id"] is not None and row["user_id"] != user_id:
             raise HTTPException(403, "Cannot delete another user's exercise")
-        # Guard against orphaning routine rows. The user has to remove the
-        # exercise from its routines first; we surface the count in the
-        # error body so the mobile UI can render "Used in N routines".
         cur.execute(
-            "SELECT COUNT(DISTINCT routine_id) AS n FROM routine_exercises WHERE exercise_id = ?",
+            "UPDATE exercises SET archived_at = CURRENT_TIMESTAMP WHERE id = ?",
             (exercise_id,),
         )
-        n = int(cur.fetchone()["n"] or 0)
-        if n > 0:
-            raise HTTPException(
-                409,
-                f"Exercise is used in {n} routine{'s' if n != 1 else ''}; remove it from there first.",
-            )
-        cur.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
     return {"ok": True}
+
+
+@router.post("/{exercise_id}/restore", response_model=ExerciseResponse)
+def restore_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id)):
+    """Un-archive a soft-deleted exercise. Idempotent: restoring a row
+    that was never archived is a no-op and returns the row unchanged."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Exercise not found")
+        if row["user_id"] is not None and row["user_id"] != user_id:
+            raise HTTPException(403, "Cannot restore another user's exercise")
+        cur.execute(
+            "UPDATE exercises SET archived_at = NULL WHERE id = ?",
+            (exercise_id,),
+        )
+        cur.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,))
+        return _hydrate_one(cur, cur.fetchone())
 
 
 @router.post("/{exercise_id}/images", response_model=ExerciseImageResponse)

@@ -240,7 +240,11 @@ CREATE TABLE IF NOT EXISTS exercises (
     contraindications TEXT,
     min_age INTEGER,
     max_age INTEGER,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    -- Soft-delete marker. NULL = active; set to a timestamp when the
+    -- user archives. List endpoints filter this out by default; the
+    -- row stays so routines and historical sessions still resolve.
+    archived_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exercise_images (
@@ -443,6 +447,12 @@ def init_db():
             # session has tracks_symptoms=1; otherwise stays NULL and the
             # progression dispatcher falls through to the RPE path.
             ("pain_score", "INTEGER"),
+        ])
+        _ensure_columns(cur, "exercises", [
+            # Soft-delete marker. Pre-feature rows get NULL which reads
+            # as "active" — zero migration risk. See exercise_routes.py
+            # for the archive/restore semantics.
+            ("archived_at", "TEXT"),
         ])
         _ensure_columns(cur, "exercise_images", [
             # Phase 6.3: content hash for dedup. Existing rows get NULL and

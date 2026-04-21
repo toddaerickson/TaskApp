@@ -100,8 +100,16 @@ CREATE TABLE IF NOT EXISTS exercises (
     contraindications TEXT,
     min_age INTEGER,
     max_age INTEGER,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Soft-delete marker. NULL = active. The row stays in the table
+    -- when archived so routines and sessions still resolve names /
+    -- images; list endpoints filter `WHERE archived_at IS NULL` by
+    -- default.
+    archived_at TIMESTAMPTZ
 );
+-- Idempotent ALTER for DBs created before soft-delete shipped. Mirrors
+-- _ensure_columns behavior on the SQLite side.
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS exercise_images (
     id SERIAL PRIMARY KEY,
