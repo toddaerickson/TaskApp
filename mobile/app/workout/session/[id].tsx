@@ -170,6 +170,11 @@ export default function ActiveSessionScreen() {
       duration_sec: payload.duration_sec,
       weight: payload.weight,
       rpe: payload.rpe,
+      // pain_score flows through only when the session tracks symptoms;
+      // the server guards the insert against tracks_symptoms=false (see
+      // session_routes.log_set) but we also drop it client-side so it
+      // isn't sent for strength sessions.
+      pain_score: session.tracks_symptoms ? (payload.pain_score ?? undefined) : undefined,
     };
     try {
       // Server assigns set_number atomically; don't send one from the client
@@ -391,6 +396,7 @@ export default function ActiveSessionScreen() {
             sets={session.sets.filter((s) => s.exercise_id === re.exercise_id)}
             suggestion={suggestions.find((sg) => sg.routine_exercise_id === re.id)}
             prIds={prIds}
+            tracksSymptoms={Boolean(session.tracks_symptoms)}
             onActivate={() => setActiveIdx(idx)}
             onLog={(payload) => handleLogSet(re, payload)}
             onAdvance={() => setActiveIdx(Math.min(visibleExercises.length - 1, idx + 1))}
@@ -531,7 +537,8 @@ const SYMPTOM_PARTS = [
 ];
 
 function ExerciseBlock({
-  re, idx, isActive, sets, suggestion, prIds, onActivate, onLog, onAdvance,
+  re, idx, isActive, sets, suggestion, prIds, tracksSymptoms,
+  onActivate, onLog, onAdvance,
   onRestRequest, restActive, onEditSet,
 }: {
   re: RoutineExercise;
@@ -540,6 +547,10 @@ function ExerciseBlock({
   sets: SessionSet[];
   suggestion?: api.RoutineSuggestion;
   prIds: Set<number>;
+  /** When true (rehab session), a Pain input appears in the log row and
+   *  its value is sent with each logged set. Otherwise the field stays
+   *  hidden and pain_score is never collected at log time. */
+  tracksSymptoms: boolean;
   onActivate: () => void;
   onLog: (payload: Partial<SessionSet>) => Promise<void>;
   onAdvance: () => void;
@@ -560,6 +571,11 @@ function ExerciseBlock({
   const [reps, setReps] = useState(String(initReps));
   const [duration, setDuration] = useState(String(initDur));
   const [weight, setWeight] = useState(String(initW));
+  // RPE is always logged when the user types one; pain is only logged
+  // on rehab sessions (tracksSymptoms). Blank strings clear to
+  // undefined so the server-side sparse-update semantics apply.
+  const [rpe, setRpe] = useState('');
+  const [pain, setPain] = useState('');
 
   // When the suggestion arrives after the block rendered, update inputs —
   // but only if the user hasn't typed anything yet (compare against the
@@ -626,7 +642,14 @@ function ExerciseBlock({
       reps: !isDuration && reps ? Number(reps) : undefined,
       duration_sec: isDuration && duration ? Number(duration) : undefined,
       weight: weight ? Number(weight) : undefined,
+      rpe: rpe ? Number(rpe) : undefined,
+      pain_score: tracksSymptoms && pain ? Number(pain) : undefined,
     });
+    // Clear the once-per-set fields so the next set starts blank. Reps /
+    // weight / duration are persistent across sets (they tend to repeat);
+    // RPE and pain genuinely change set-to-set.
+    setRpe('');
+    setPain('');
     // Read fresh length AFTER onLog's reload so we don't miss sets logged
     // concurrently elsewhere in the session.
     if (setsRef.current.length >= targetSets) {
@@ -747,6 +770,16 @@ function ExerciseBlock({
             )}
             {!ex.is_bodyweight && (
               <LabeledInput label="Weight" value={weight} onChange={setWeight} />
+            )}
+          </View>
+
+          {/* Second input row — RPE always, Pain only on rehab sessions.
+              These clear after each set logged (unlike reps/weight which
+              persist across sets since they tend to repeat). */}
+          <View style={styles.inputRow}>
+            <LabeledInput label="RPE (1–10)" value={rpe} onChange={setRpe} />
+            {tracksSymptoms && (
+              <LabeledInput label="Pain (0–10)" value={pain} onChange={setPain} />
             )}
           </View>
 
