@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch, ActivityIndicator, useWindowDimensions,
+  ScrollView, Alert, Switch, ActivityIndicator, useWindowDimensions, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,24 @@ import { useTaskStore, useFolderStore, useTagStore, Task, Tag, Reminder } from '
 import * as api from '@/lib/api';
 import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
+import { useUndoSnackbar } from '@/components/UndoSnackbar';
+
+/** Yes/no confirm that works on both web and native. `Alert.alert`
+ *  silently no-ops on Expo web, which is why the Delete Task button
+ *  previously did nothing when clicked in the browser. */
+function confirmDestructive(title: string, message: string, destructiveLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      resolve(window.confirm(`${title}\n\n${message}`));
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: destructiveLabel, style: 'destructive', onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -26,6 +44,7 @@ export default function TaskDetailScreen() {
   const { update, remove, load: reloadTasks } = useTaskStore();
   const { folders, load: loadFolders } = useFolderStore();
   const { tags, load: loadTags } = useTagStore();
+  const undo = useUndoSnackbar();
   const { width } = useWindowDimensions();
   const isNarrow = width < 700;
 
@@ -41,6 +60,7 @@ export default function TaskDetailScreen() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   useEffect(() => {
     loadFolders();
@@ -81,7 +101,14 @@ export default function TaskDetailScreen() {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) return Alert.alert('Error', 'Title is required');
+    // Inline validation instead of Alert.alert which is a silent no-op
+    // on Expo web. Clearing the error on next edit is driven by the
+    // TextInput's onChangeText below.
+    if (!title.trim()) {
+      setTitleError('Title is required.');
+      return;
+    }
+    setTitleError(null);
     setSaving(true);
     try {
       await update(Number(id), {
@@ -96,22 +123,43 @@ export default function TaskDetailScreen() {
       });
       router.back();
     } catch (e: any) {
-      Alert.alert('Error', 'Failed to save');
+      const msg = e?.response?.data?.detail || 'Failed to save';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Error', msg);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = () => {
-    Alert.alert('Delete Task', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          await remove(Number(id));
-          router.back();
+  const handleDelete = async () => {
+    const ok = await confirmDestructive(
+      `Delete "${title || 'this task'}"?`,
+      'The task will be removed. You have 5 seconds to undo.',
+      'Delete',
+    );
+    if (!ok) return;
+    // Navigate back immediately so the user sees the row disappear.
+    // The actual DELETE fires when the undo window elapses; tapping
+    // undo before then is pure local state (no server round-trip).
+    const taskId = Number(id);
+    router.back();
+    undo.show({
+      message: 'Task deleted',
+      onUndo: () => {
+        // The task is still on the server (we haven't fired DELETE
+        // yet). On undo the store reloads; the row reappears.
+        reloadTasks();
+      },
+      onTimeout: async () => {
+        try {
+          await remove(taskId);
+        } catch (e: any) {
+          // If the DELETE fails we reload so the UI reflects the real
+          // server state (task still present).
+          reloadTasks();
         }
       },
-    ]);
+    });
   };
 
   const toggleTag = (tagId: number) => {
@@ -127,7 +175,13 @@ export default function TaskDetailScreen() {
   return (
     <ScrollView style={[styles.container, isNarrow && styles.containerNarrow]}>
       <Text style={styles.label}>Task</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} accessibilityLabel="Task title" />
+      <TextInput
+        style={[styles.input, titleError && styles.inputError]}
+        value={title}
+        onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
+        accessibilityLabel="Task title"
+      />
+      {titleError && <Text style={styles.errorText}>{titleError}</Text>}
 
       <Text style={styles.label}>Folder</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
@@ -219,6 +273,8 @@ const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   label: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 16, marginBottom: 6, textTransform: 'uppercase' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
+  inputError: { borderColor: colors.danger, borderWidth: 1.5 },
+  errorText: { color: colors.danger, fontSize: 13, marginTop: 4 },
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   chipRowContent: { gap: 8, paddingRight: 8 },
   chipRowWrap: { flexWrap: 'wrap' },
