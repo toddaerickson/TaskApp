@@ -2,12 +2,14 @@ import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch, ActivityIndicator, useWindowDimensions, Platform,
+  ScrollView, Alert, Switch, Pressable,
+  ActivityIndicator, useWindowDimensions, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore, Task, Tag, Reminder } from '@/lib/stores';
 import * as api from '@/lib/api';
+import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
@@ -29,6 +31,10 @@ function confirmDestructive(title: string, message: string, destructiveLabel: st
   });
 }
 
+// Shared definitions with create.tsx. Kept inline rather than factored
+// into a shared module because the two screens diverge on a few bits
+// (create allows multi-add; edit has reminders + delete). If they
+// drift further, extract.
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
   { value: 1, label: 'Medium', color: colors.warningSoft },
@@ -36,7 +42,27 @@ const PRIORITIES = [
   { value: 3, label: 'Top', color: colors.danger },
 ];
 
-const STATUSES = ['none', 'next_action', 'active', 'waiting', 'hold', 'postponed', 'someday', 'cancelled'];
+const STATUS_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'next_action', label: 'Next action' },
+  { value: 'active', label: 'Active' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'hold', label: 'Hold' },
+  { value: 'postponed', label: 'Postponed' },
+  { value: 'someday', label: 'Someday' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const REPEAT_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'semiannual', label: 'Every 6 months' },
+  { value: 'yearly', label: 'Yearly' },
+];
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -55,12 +81,17 @@ export default function TaskDetailScreen() {
   const [priority, setPriority] = useState(0);
   const [status, setStatus] = useState('none');
   const [starred, setStarred] = useState(false);
+  const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [repeatType, setRepeatType] = useState('none');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [addingTag, setAddingTag] = useState(false);
 
   useEffect(() => {
     loadFolders();
@@ -78,7 +109,9 @@ export default function TaskDetailScreen() {
       setPriority(t.priority);
       setStatus(t.status);
       setStarred(t.starred);
+      setStartDate(t.start_date || '');
       setDueDate(t.due_date || '');
+      setRepeatType(t.repeat_type || 'none');
       setSelectedTagIds(t.tags?.map((tg: Tag) => tg.id) || []);
       setReminders(t.reminders || []);
     } catch {
@@ -118,7 +151,9 @@ export default function TaskDetailScreen() {
         priority,
         status,
         starred,
+        start_date: startDate || null,
         due_date: dueDate || null,
+        repeat_type: repeatType,
         tag_ids: selectedTagIds,
       });
       router.back();
@@ -153,7 +188,7 @@ export default function TaskDetailScreen() {
       onTimeout: async () => {
         try {
           await remove(taskId);
-        } catch (e: any) {
+        } catch {
           // If the DELETE fails we reload so the UI reflects the real
           // server state (task still present).
           reloadTasks();
@@ -162,18 +197,54 @@ export default function TaskDetailScreen() {
     });
   };
 
+  const handleCreateTag = async () => {
+    const name = newTag.trim();
+    if (!name || addingTag) return;
+    setAddingTag(true);
+    try {
+      const created = await api.createTag(name);
+      await loadTags();
+      setNewTag('');
+      if (created?.id) setSelectedTagIds((prev) => [...prev, created.id]);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Try again.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Tag not created', msg);
+    } finally {
+      setAddingTag(false);
+    }
+  };
+
   const toggleTag = (tagId: number) => {
     setSelectedTagIds((prev) =>
       prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId]
     );
   };
 
+  const folderOptions = [
+    { value: null as number | null, label: 'None' },
+    ...folders.map((f) => ({ value: f.id as number | null, label: f.name })),
+  ];
+
+  // Summary of hidden advanced values so the user knows something's set
+  // when the section is collapsed. Matches the create screen exactly.
+  const advancedSummary = (() => {
+    const bits: string[] = [];
+    if (status !== 'none') bits.push(status.replace('_', ' '));
+    if (startDate) bits.push(`start ${startDate}`);
+    if (dueDate) bits.push(`due ${dueDate}`);
+    if (repeatType !== 'none') bits.push(repeatType);
+    if (note) bits.push('note');
+    return bits.join(' · ');
+  })();
+
   if (loading) {
     return <View style={styles.loading}><ActivityIndicator size="large" color={colors.primary} /></View>;
   }
 
   return (
-    <ScrollView style={[styles.container, isNarrow && styles.containerNarrow]}>
+    <ScrollView style={[styles.container, isNarrow && styles.containerNarrow]} contentContainerStyle={{ paddingBottom: 40 }}>
+      {/* Title */}
       <Text style={styles.label}>Task</Text>
       <TextInput
         style={[styles.input, titleError && styles.inputError]}
@@ -183,81 +254,176 @@ export default function TaskDetailScreen() {
       />
       {titleError && <Text style={styles.errorText}>{titleError}</Text>}
 
+      {/* Folder — dropdown, same as create.tsx (was a chip strip) */}
       <Text style={styles.label}>Folder</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
-        <TouchableOpacity style={[styles.chip, folderId === null && styles.chipActive]} onPress={() => setFolderId(null)}>
-          <Text style={folderId === null ? styles.chipTextActive : styles.chipText}>None</Text>
-        </TouchableOpacity>
-        {folders.map((f) => (
-          <TouchableOpacity key={f.id} style={[styles.chip, folderId === f.id && styles.chipActive]} onPress={() => setFolderId(f.id)}>
-            <Text style={folderId === f.id ? styles.chipTextActive : styles.chipText}>{f.name}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <Text style={styles.label}>Priority</Text>
-      <View style={[styles.chipRow, styles.chipRowWrap]}>
-        {PRIORITIES.map((p) => (
-          <TouchableOpacity key={p.value} style={[styles.chip, priority === p.value && { backgroundColor: p.color }]} onPress={() => setPriority(p.value)}>
-            <Text style={priority === p.value ? styles.chipTextActive : styles.chipText}>{p.value} {p.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.label}>Status</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipRowContent}>
-        {STATUSES.map((s) => (
-          <TouchableOpacity key={s} style={[styles.chip, status === s && styles.chipActive]} onPress={() => setStatus(s)}>
-            <Text style={status === s ? styles.chipTextActive : styles.chipText}>{s.replace('_', ' ')}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <View style={styles.switchRow}>
-        <Text style={styles.label}>Starred</Text>
-        <Switch value={starred} onValueChange={setStarred} trackColor={{ true: colors.accent }} />
-      </View>
-
-      <Text style={styles.label}>Due date</Text>
-      <DateField value={dueDate} onChange={setDueDate} placeholder="Pick a due date" />
-
-      {tags.length > 0 && (
-        <>
-          <Text style={styles.label}>Tags</Text>
-          <View style={[styles.chipRow, styles.chipRowWrap]}>
-            {tags.map((t) => (
-              <TouchableOpacity key={t.id} style={[styles.chip, selectedTagIds.includes(t.id) && styles.tagActive]} onPress={() => toggleTag(t.id)}>
-                <Text style={selectedTagIds.includes(t.id) ? styles.chipTextActive : styles.chipText}>{t.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </>
-      )}
-
-      <Text style={styles.label}>Note</Text>
-      <TextInput
-        style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-        value={note}
-        onChangeText={setNote}
-        multiline
-        placeholder="Add notes…"
-        // Light gray so the hint doesn't read as real pre-filled text.
-        // See task/create.tsx for the same fix.
-        placeholderTextColor="#bbb"
-        accessibilityLabel="Task note"
+      <Dropdown
+        value={folderId}
+        options={folderOptions}
+        onChange={setFolderId}
+        placeholder="Pick a folder"
       />
 
+      {/* Priority — color-coded chips, same style as create.tsx */}
+      <Text style={styles.label}>Priority</Text>
+      <View style={styles.chipRow}>
+        {PRIORITIES.map((p) => {
+          const active = priority === p.value;
+          return (
+            <TouchableOpacity
+              key={p.value}
+              style={[
+                styles.priChip,
+                { borderColor: p.color },
+                active && { backgroundColor: p.color },
+              ]}
+              onPress={() => setPriority(p.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Priority ${p.label}`}
+            >
+              <Text style={[
+                styles.priChipText,
+                { color: active ? '#fff' : p.color },
+              ]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Starred */}
+      <View style={styles.switchRow}>
+        <Text style={styles.label}>Starred</Text>
+        <Switch
+          value={starred}
+          onValueChange={setStarred}
+          trackColor={{ true: colors.accent }}
+          accessibilityLabel="Starred"
+        />
+      </View>
+
+      {/* Tags — same layout + inline create as create.tsx */}
+      <Text style={styles.label}>Tags</Text>
+      {tags.length > 0 && (
+        <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 6 }]}>
+          {tags.map((t) => {
+            const on = selectedTagIds.includes(t.id);
+            return (
+              <TouchableOpacity
+                key={t.id}
+                style={[styles.tagChip, on && styles.tagChipOn]}
+                onPress={() => toggleTag(t.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+              >
+                <Text style={on ? styles.chipTextActive : styles.chipText}>
+                  {t.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+      <View style={styles.newTagRow}>
+        <TextInput
+          value={newTag}
+          onChangeText={setNewTag}
+          placeholder={tags.length === 0 ? 'Create your first tag…' : '+ New tag'}
+          accessibilityLabel="New tag name"
+          placeholderTextColor="#bbb"
+          style={styles.newTagInput}
+          autoCapitalize="none"
+          onSubmitEditing={handleCreateTag}
+          returnKeyType="done"
+        />
+        <Pressable
+          style={[styles.newTagBtn, (!newTag.trim() || addingTag) && { opacity: 0.5 }]}
+          onPress={handleCreateTag}
+          disabled={!newTag.trim() || addingTag}
+          accessibilityRole="button"
+          accessibilityLabel="Add tag"
+        >
+          <Ionicons name="add" size={18} color="#fff" />
+        </Pressable>
+      </View>
+
+      {/* Reminders stay visible — they're only available on edit */}
       <TaskReminderEditor
         taskId={Number(id)}
         reminders={reminders}
         onChanged={reloadReminders}
       />
 
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
-        <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
+      {/* Advanced collapse — status, dates, repeat, note. Mirrors create.tsx. */}
+      <Pressable
+        style={styles.advancedToggle}
+        onPress={() => setAdvancedOpen(!advancedOpen)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: advancedOpen }}
+      >
+        <Ionicons
+          name={advancedOpen ? 'chevron-down' : 'chevron-forward'}
+          size={16} color={colors.primary}
+        />
+        <Text style={styles.advancedToggleText}>
+          {advancedOpen ? 'Hide' : 'More'} options
+        </Text>
+        {!advancedOpen && advancedSummary ? (
+          <Text style={styles.advancedSummary} numberOfLines={1}>
+            · {advancedSummary}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      {advancedOpen && (
+        <View>
+          <Text style={styles.label}>Status</Text>
+          <Dropdown
+            value={status}
+            options={STATUS_OPTIONS}
+            onChange={setStatus}
+            placeholder="Select status"
+          />
+
+          <Text style={styles.label}>Start date</Text>
+          <DateField value={startDate} onChange={setStartDate} placeholder="Pick a start date" />
+
+          <Text style={styles.label}>Due date</Text>
+          <DateField value={dueDate} onChange={setDueDate} placeholder="Pick a due date" />
+
+          <Text style={styles.label}>Repeat</Text>
+          <Dropdown
+            value={repeatType}
+            options={REPEAT_OPTIONS}
+            onChange={setRepeatType}
+            placeholder="Repeat cadence"
+          />
+
+          <Text style={styles.label}>Note</Text>
+          <TextInput
+            style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+            value={note}
+            onChangeText={setNote}
+            multiline
+            placeholder="Add notes…"
+            placeholderTextColor="#bbb"
+            accessibilityLabel="Task note"
+          />
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.saveButton, saving && { opacity: 0.6 }]}
+        onPress={handleSave}
+        disabled={saving}
+        accessibilityRole="button"
+      >
+        <Ionicons name="checkmark" size={20} color="#fff" />
+        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete} accessibilityRole="button">
         <Ionicons name="trash-outline" size={18} color={colors.danger} />
         <Text style={styles.deleteText}>Delete Task</Text>
       </TouchableOpacity>
@@ -275,17 +441,51 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
   inputError: { borderColor: colors.danger, borderWidth: 1.5 },
   errorText: { color: colors.danger, fontSize: 13, marginTop: 4 },
-  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
-  chipRowContent: { gap: 8, paddingRight: 8 },
-  chipRowWrap: { flexWrap: 'wrap' },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f0f0f0' },
-  chipActive: { backgroundColor: colors.primary },
-  tagActive: { backgroundColor: colors.violet },
+
+  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+
+  priChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1.5, backgroundColor: '#fff',
+  },
+  priChipText: { fontSize: 13, fontWeight: '600' },
+
+  tagChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3e8ff' },
+  tagChipOn: { backgroundColor: colors.violet },
   chipText: { fontSize: 13, color: '#555' },
   chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
-  saveButton: { backgroundColor: colors.success, borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 24 },
+
+  newTagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  newTagInput: {
+    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10,
+    fontSize: 14, color: '#333', backgroundColor: '#fafafa',
+  },
+  newTagBtn: {
+    width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.violet, cursor: 'pointer' as any,
+  },
+
+  switchRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 12,
+  },
+
+  advancedToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 12, marginTop: 20,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
+  },
+  advancedToggleText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  advancedSummary: { color: colors.textMuted, fontSize: 12, flex: 1 },
+
+  saveButton: {
+    flexDirection: 'row', backgroundColor: colors.success, borderRadius: 8, padding: 16,
+    alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24,
+  },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 16, padding: 12 },
+  deleteButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 16, padding: 12,
+  },
   deleteText: { color: colors.danger, fontSize: 15 },
 });
