@@ -657,6 +657,11 @@ export async function logSet(sessionId: number, payload: {
   set_number?: number;
   reps?: number; weight?: number; duration_sec?: number; distance_m?: number;
   rpe?: number; pain_score?: number; completed?: boolean; notes?: string;
+  /** 'left' | 'right' | undefined (bilateral). The server normalizes any
+   *  other value to NULL so old clients can't punch in a bogus side. */
+  side?: 'left' | 'right';
+  /** Warmup sets are excluded from volume + progression suggestion. */
+  is_warmup?: boolean;
 }) {
   const { data } = await api.post(`/sessions/${sessionId}/sets`, payload);
   return data;

@@ -305,6 +305,13 @@ export interface SessionSet {
    *  has tracks_symptoms=true (see PR #47). Strength sessions leave it
    *  undefined and the progression dispatcher falls through to RPE. */
   pain_score?: number | null;
+  /** Laterality for unilateral work: 'left' | 'right' | undefined
+   *  (bilateral). Undefined is the historical default and covers any
+   *  exercise that doesn't distinguish sides. */
+  side?: 'left' | 'right' | null;
+  /** Warmup sets are excluded from volume aggregation and the
+   *  progression suggestion. False for pre-column rows. */
+  is_warmup?: boolean;
   completed: boolean; notes?: string;
 }
 export interface WorkoutSession {

@@ -227,19 +227,24 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
                     set_number = cur.fetchone()["n"]
                 else:
                     set_number = req.set_number
+                # Normalize side: only 'left' and 'right' are stored; anything
+                # else (empty string, bogus value from an old client) becomes
+                # NULL so the bilateral invariant stays intact.
+                side = req.side if req.side in ("left", "right") else None
                 cur.execute(
                     """INSERT INTO session_sets
                     (session_id, exercise_id, set_number, reps, weight, duration_sec,
-                     distance_m, rpe, pain_score, completed, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     distance_m, rpe, pain_score, side, is_warmup, completed, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (session_id, req.exercise_id, set_number, req.reps, req.weight,
                      req.duration_sec, req.distance_m, req.rpe, pain_score,
-                     completed, req.notes),
+                     side, bool(req.is_warmup), completed, req.notes),
                 )
                 set_id = cur.lastrowid
                 cur.execute("SELECT * FROM session_sets WHERE id = ?", (set_id,))
                 row = cur.fetchone()
                 row["completed"] = bool(row["completed"])
+                row["is_warmup"] = bool(row["is_warmup"])
                 return row
         except Exception as exc:
             if not is_unique_violation(exc):
@@ -260,7 +265,7 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
 # are structural and mutating them would break the session timeline.
 _SESSION_SET_UPDATE_COLUMNS = {
     "reps", "weight", "duration_sec", "distance_m", "rpe",
-    "pain_score", "notes",
+    "pain_score", "side", "is_warmup", "notes",
 }
 
 
@@ -300,6 +305,11 @@ def patch_set(
         if "pain_score" in fields and not row["tracks_symptoms"]:
             # Strength session — drop the value rather than writing it.
             fields.pop("pain_score")
+        if "side" in fields and fields["side"] not in ("left", "right", None):
+            fields["side"] = None
+        if "is_warmup" in fields:
+            # PG BOOLEAN adaptation: pass a Python bool, not an int.
+            fields["is_warmup"] = bool(fields["is_warmup"])
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(
@@ -309,6 +319,7 @@ def patch_set(
         cur.execute("SELECT * FROM session_sets WHERE id = ?", (set_id,))
         updated = cur.fetchone()
         updated["completed"] = bool(updated["completed"])
+        updated["is_warmup"] = bool(updated["is_warmup"])
         return updated
 
 

@@ -448,6 +448,14 @@ class SessionSetCreate(BaseModel):
     # session the field is ignored so stray values can't pollute later
     # suggestions.
     pain_score: Optional[int] = Field(default=None, ge=0, le=10)
+    # Laterality: 'left' | 'right' | None (bilateral). None keeps
+    # historical behavior. A Literal type would force a client update
+    # dance for older apps mid-rollout; the route layer normalizes any
+    # other string to NULL.
+    side: Optional[str] = None
+    # Warmup flag. Warmup sets are excluded from volume aggregation and
+    # the progression suggestion (once the suggester learns about them).
+    is_warmup: Optional[bool] = False
     completed: Optional[bool] = True
     notes: Optional[str] = None
 
@@ -470,6 +478,8 @@ class SessionSetUpdate(BaseModel):
     distance_m: Optional[float] = None
     rpe: Optional[int] = Field(default=None, ge=1, le=10)
     pain_score: Optional[int] = Field(default=None, ge=0, le=10)
+    side: Optional[str] = None
+    is_warmup: Optional[bool] = None
     notes: Optional[str] = None
 
 class SessionCreate(BaseModel):
