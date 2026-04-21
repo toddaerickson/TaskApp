@@ -22,13 +22,25 @@ export interface ExerciseStat {
 }
 
 /** Metric dimension for per-metric charting. "pain" is only non-empty for
- *  rehab sessions (tracks_symptoms=true on the parent session). */
-export type Metric = 'reps' | 'weight' | 'duration' | 'pain';
+ *  rehab sessions (tracks_symptoms=true on the parent session). "volume"
+ *  is weight × reps summed across the day — the standard strength-log
+ *  trend metric. */
+export type Metric = 'reps' | 'weight' | 'duration' | 'pain' | 'volume';
 
 /** Pick a per-metric value from a set. Pain is the max of pain_score;
  *  the "best" of the day is the highest reading (worst feeling), so the
- *  chart reads as "your pain level hit X on this day". */
+ *  chart reads as "your pain level hit X on this day". Volume is
+ *  weight × reps for the set — `metricSeries` sums volumes within a day
+ *  rather than taking the daily max. */
 function pickMetricValue(set: SessionSet, metric: Metric): number | null {
+  // Warmup sets are excluded from volume (they inflate totals without
+  // representing working effort). Kept in reps/weight/duration so a
+  // PR set that happened to get tagged warmup still shows up; the
+  // exclusion is specific to the aggregated volume metric where it
+  // matters most. Guarded by an `any` cast because SessionSet gained
+  // `is_warmup` in a sibling PR; the cast degrades gracefully when the
+  // field is absent (undefined is falsy).
+  if (metric === 'volume' && (set as any).is_warmup) return null;
   switch (metric) {
     case 'reps':
       return typeof set.reps === 'number' && set.reps > 0 ? set.reps : null;
@@ -38,6 +50,10 @@ function pickMetricValue(set: SessionSet, metric: Metric): number | null {
       return typeof set.duration_sec === 'number' && set.duration_sec > 0 ? set.duration_sec : null;
     case 'pain':
       return typeof set.pain_score === 'number' ? set.pain_score : null;
+    case 'volume':
+      return (typeof set.weight === 'number' && set.weight > 0
+        && typeof set.reps === 'number' && set.reps > 0)
+        ? set.weight * set.reps : null;
   }
 }
 
@@ -91,16 +107,17 @@ function markPRs(points: StatPoint[]): void {
   }
 }
 
-/** Per-metric, per-exercise daily series. Best value of the day. PRs
- *  flagged with higher-is-better (same direction as aggregateByExercise).
- *  Pain is inverted UX-wise: higher pain is worse, so "PR" there means
- *  "pain floor" — we flag only decreasing-minimums. */
+/** Per-metric, per-exercise daily series. Best value of the day for the
+ *  per-set metrics. Volume is the exception — it's SUMMED across the
+ *  day's working sets (standard strength-log trend). PRs flagged with
+ *  higher-is-better for everything except pain, which uses
+ *  lower-is-better ("pain floor"). */
 export function metricSeries(
   sessions: WorkoutSession[],
   exerciseId: number,
   metric: Metric,
 ): StatPoint[] {
-  // day → best (or worst for pain)
+  // day → best (or worst for pain, or running sum for volume)
   const byDay = new Map<string, { best: number; setCount: number }>();
   for (const s of sessions) {
     const day = s.started_at.slice(0, 10);
@@ -111,6 +128,10 @@ export function metricSeries(
       const cur = byDay.get(day);
       if (!cur) {
         byDay.set(day, { best: v, setCount: 1 });
+      } else if (metric === 'volume') {
+        // Volume sums within a day: tonnage moved, not the single-set max.
+        cur.best += v;
+        cur.setCount += 1;
       } else if (metric === 'pain') {
         // For pain: store the MAX of the day (worst reading), matches
         // the aggregate-intent of "how bad did it get."
@@ -146,7 +167,7 @@ export function availableMetrics(
   exerciseId: number,
 ): Metric[] {
   const seen: Record<Metric, boolean> = {
-    reps: false, weight: false, duration: false, pain: false,
+    reps: false, weight: false, duration: false, pain: false, volume: false,
   };
   for (const s of sessions) {
     for (const set of s.sets || []) {
@@ -155,9 +176,16 @@ export function availableMetrics(
       if (!seen.weight && typeof set.weight === 'number' && set.weight > 0) seen.weight = true;
       if (!seen.duration && typeof set.duration_sec === 'number' && set.duration_sec > 0) seen.duration = true;
       if (!seen.pain && typeof set.pain_score === 'number') seen.pain = true;
+      // Volume only applies when a set has BOTH weight and reps — a
+      // reps-only or weight-only log can't be tonnage-summed.
+      if (!seen.volume
+        && typeof set.weight === 'number' && set.weight > 0
+        && typeof set.reps === 'number' && set.reps > 0) seen.volume = true;
     }
   }
-  const order: Metric[] = ['reps', 'weight', 'duration', 'pain'];
+  // Volume trails weight so the toggle order reads as "reps → weight →
+  // volume (derived) → duration → pain".
+  const order: Metric[] = ['reps', 'weight', 'volume', 'duration', 'pain'];
   return order.filter((m) => seen[m]);
 }
 
@@ -217,5 +245,57 @@ export function weeklyCounts(
     }
   }
   return buckets.map(({ label, count }) => ({ label, count }));
+}
+
+/** Flatten sessions → per-set rows and emit a CSV blob. Intended for the
+ *  Settings "Export progress CSV" row. Header + quoted text fields. Pure
+ *  function so tests can snapshot the format. */
+export function sessionsToCsv(
+  sessions: WorkoutSession[],
+  exercises: Exercise[],
+): string {
+  const exNameById = new Map(exercises.map((e) => [e.id, e.name]));
+  const header = [
+    'session_id', 'session_started_at', 'exercise_id', 'exercise_name',
+    'set_number', 'reps', 'weight', 'duration_sec', 'distance_m',
+    'rpe', 'pain_score', 'side', 'is_warmup', 'notes',
+  ];
+  const rows: string[] = [header.join(',')];
+  for (const s of sessions) {
+    for (const set of s.sets || []) {
+      rows.push([
+        s.id,
+        s.started_at,
+        set.exercise_id,
+        exNameById.get(set.exercise_id) ?? '',
+        set.set_number,
+        set.reps ?? '',
+        set.weight ?? '',
+        set.duration_sec ?? '',
+        set.distance_m ?? '',
+        set.rpe ?? '',
+        set.pain_score ?? '',
+        (set as any).side ?? '',
+        (set as any).is_warmup ? 'true' : '',
+        set.notes ?? '',
+      ].map(csvCell).join(','));
+    }
+  }
+  // Trailing newline so `wc -l` matches the logical row count and common
+  // tools (pandas, sqlite .import) read the last row cleanly.
+  return rows.join('\n') + '\n';
+}
+
+/** Quote + escape a CSV cell only when needed. Excel / Google Sheets
+ *  treat a leading `=`, `+`, `-`, or `@` as formula input — we prefix
+ *  such values with a single quote to defang them (standard "CSV
+ *  injection" guard). Numbers and clean strings pass through unquoted. */
+function csvCell(v: unknown): string {
+  const s = v == null ? '' : String(v);
+  const unsafe = /^[=+\-@]/.test(s) ? "'" + s : s;
+  if (/[",\n\r]/.test(unsafe)) {
+    return '"' + unsafe.replace(/"/g, '""') + '"';
+  }
+  return unsafe;
 }
 

@@ -155,6 +155,92 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
         return _hydrate_routine(cur, cur.fetchone())
 
 
+@router.post("/{routine_id}/clone", response_model=RoutineResponse)
+def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
+    """Deep-copy a routine the user owns: the routines row, all its
+    routine_phases, and all routine_exercises (with phase_id remapped
+    into the new phase ids). Session history is NOT copied — the clone
+    is a fresh template. The new routine's name is "{original} (copy)"
+    so the user can recognise it in the list without retyping anything.
+
+    Runs in a single transaction (get_db commits on success, rolls back
+    on exception) so a failure mid-copy never leaves a zombie routine
+    without its exercises."""
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM routines WHERE id = ? AND user_id = ?",
+            (routine_id, user_id),
+        )
+        src = cur.fetchone()
+        if not src:
+            raise HTTPException(404, "Routine not found")
+
+        # Insert the new routines row. phase_start_date intentionally
+        # stays null — a clone is a template until the user assigns
+        # their own start. Reminders are not copied (a duplicated
+        # reminder is almost always noise).
+        cur.execute(
+            """INSERT INTO routines
+               (user_id, name, goal, notes, sort_order, tracks_symptoms)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                f"{src['name']} (copy)",
+                src["goal"],
+                src["notes"],
+                src["sort_order"] or 0,
+                bool(src["tracks_symptoms"]),
+            ),
+        )
+        new_id = cur.lastrowid
+
+        # Phases next so routine_exercises can FK the cloned ids.
+        cur.execute(
+            "SELECT * FROM routine_phases WHERE routine_id = ? "
+            "ORDER BY order_idx ASC, id ASC",
+            (routine_id,),
+        )
+        old_to_new_phase: dict[int, int] = {}
+        for ph in cur.fetchall():
+            cur.execute(
+                "INSERT INTO routine_phases "
+                "(routine_id, label, order_idx, duration_weeks, notes) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (new_id, ph["label"], ph["order_idx"], ph["duration_weeks"], ph["notes"]),
+            )
+            old_to_new_phase[ph["id"]] = cur.lastrowid
+
+        # Exercises in source order. phase_id is remapped through the
+        # old_to_new_phase dict; unmapped / null stays null so a clone
+        # of a flat routine remains flat.
+        cur.execute(
+            "SELECT * FROM routine_exercises WHERE routine_id = ? "
+            "ORDER BY sort_order ASC, id ASC",
+            (routine_id,),
+        )
+        for re in cur.fetchall():
+            new_phase_id = (
+                old_to_new_phase.get(re["phase_id"]) if re["phase_id"] is not None else None
+            )
+            cur.execute(
+                """INSERT INTO routine_exercises
+                (routine_id, exercise_id, sort_order, target_sets, target_reps,
+                 target_weight, target_duration_sec, rest_sec, tempo, keystone,
+                 notes, phase_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    new_id, re["exercise_id"], re["sort_order"],
+                    re["target_sets"], re["target_reps"], re["target_weight"],
+                    re["target_duration_sec"], re["rest_sec"], re["tempo"],
+                    bool(re["keystone"]), re["notes"], new_phase_id,
+                ),
+            )
+
+        cur.execute("SELECT * FROM routines WHERE id = ?", (new_id,))
+        return _hydrate_routine(cur, cur.fetchone())
+
+
 @router.post("/import", response_model=RoutineResponse)
 def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current_user_id)):
     """Create a routine from a portable JSON template. Resolves slugs to
