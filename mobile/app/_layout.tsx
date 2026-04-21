@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { AppState, View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
+import { AppState, View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
@@ -14,6 +14,32 @@ import { UndoSnackbarProvider } from '@/components/UndoSnackbar';
 // mounts — an error during the first render would otherwise escape. No-op
 // when EXPO_PUBLIC_SENTRY_DSN is unset, so dev Expo Go runs stay quiet.
 initSentry();
+
+// Web-only PWA polish: service worker + viewport-fit=cover.
+// Expo SDK 52 emits its own <meta name="viewport"> and doesn't offer a
+// clean hook in app.json to override it (web.meta *adds* tags, doesn't
+// replace). We runtime-patch the content attribute so the iPhone
+// notch-area gets the full-bleed treatment, and we register the SW
+// (see public/sw.js). Failures here are non-fatal — the app works
+// without either.
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const viewport = document.querySelector('meta[name="viewport"]');
+  if (viewport) {
+    const existing = viewport.getAttribute('content') || '';
+    if (!existing.includes('viewport-fit')) {
+      viewport.setAttribute('content', `${existing}, viewport-fit=cover`);
+    }
+  }
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        // Swallow: failed registration is not a user-visible error.
+        // eslint-disable-next-line no-console
+        console.warn('[sw] registration failed:', err);
+      });
+    });
+  }
+}
 
 // Expo-router picks up a named `ErrorBoundary` export from a layout and
 // renders it in place of the route tree when any descendant throws.
@@ -122,7 +148,8 @@ function RootLayout() {
         <Stack.Screen name="task/create" options={{ title: 'New Task', presentation: 'modal' }} />
         <Stack.Screen name="workout/[routineId]" options={{ title: 'Routine' }} />
         <Stack.Screen name="workout/session/[id]" options={{ title: 'Workout', headerBackTitle: 'Back' }} />
-        <Stack.Screen name="workout/progress" options={{ title: 'Progress' }} />
+        <Stack.Screen name="workout/progress/index" options={{ title: 'Progress' }} />
+        <Stack.Screen name="workout/progress/print" options={{ title: 'Printable report' }} />
         <Stack.Screen name="workout/track" options={{ title: 'Symptom Tracker' }} />
         <Stack.Screen name="workout/admin" options={{ title: 'Image Admin' }} />
       </Stack>

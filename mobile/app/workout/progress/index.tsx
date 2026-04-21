@@ -4,7 +4,7 @@ import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import Svg, { Line, Path, Circle, Rect, Text as SvgText } from 'react-native-svg';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import * as api from '@/lib/api';
@@ -14,6 +14,7 @@ import {
   metricSeries, availableMetrics, filterByRange, sessionsToCsv,
   ExerciseStat, StatPoint, Metric,
 } from '@/lib/progress';
+import StreakHeatmap from '@/components/StreakHeatmap';
 
 const RANGE_OPTIONS: { days: number; label: string }[] = [
   { days: 30, label: '30d' },
@@ -44,6 +45,7 @@ const METRIC_UNITS: Record<Metric, string> = {
 };
 
 export default function ProgressScreen() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,12 +63,33 @@ export default function ProgressScreen() {
     }).finally(() => setLoading(false));
   }, []);
 
+  // Sessions windowed by the screen-scoped `rangeDays` selector. All
+  // three summary widgets below (stat cards, weekly bar, heatmap) work
+  // off this subset so the range selector at the top drives the whole
+  // screen, not just the per-exercise chart. rangeDays=0 means "All"
+  // and sessionsInRange === sessions.
+  const sessionsInRange = useMemo(() => {
+    if (!rangeDays || rangeDays <= 0) return sessions;
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return sessions.filter((s) => s.started_at.slice(0, 10) >= cutoffStr);
+  }, [sessions, rangeDays]);
+
   const stats = useMemo(
     () => aggregateByExercise(sessions, exercises),
     [sessions, exercises],
   );
-  const weekly = useMemo(() => weeklyCounts(sessions, 12), [sessions]);
-  const totalSets = useMemo(() => sessions.reduce((n, s) => n + (s.sets?.length ?? 0), 0), [sessions]);
+  // Weekly chart shows 12 bars when the range is >= 12w, otherwise it
+  // compresses to the range width (rounded up to whole weeks) so the
+  // chart doesn't show empty weeks outside the selected window.
+  const weeks = rangeDays > 0 ? Math.max(4, Math.min(12, Math.ceil(rangeDays / 7))) : 12;
+  const weekly = useMemo(() => weeklyCounts(sessionsInRange, weeks), [sessionsInRange, weeks]);
+  const totalSets = useMemo(
+    () => sessionsInRange.reduce((n, s) => n + (s.sets?.length ?? 0), 0),
+    [sessionsInRange],
+  );
 
   useEffect(() => {
     if (selectedExId === null && stats.length > 0) setSelectedExId(stats[0].exercise_id);
@@ -98,6 +121,19 @@ export default function ProgressScreen() {
     const full = metricSeries(sessions, selectedExId, selectedMetric);
     return filterByRange(full, rangeDays);
   }, [sessions, selectedExId, selectedMetric, rangeDays]);
+
+  // Pain overlay — only meaningful when viewing a load-ish metric
+  // (volume or weight) on an exercise that has pain data at all.
+  // Rehab routines collect pain_score; strength ones don't, so the
+  // overlay just doesn't render on strength screens (secPoints < 2
+  // in LineChart disables it).
+  const painOverlay = useMemo(() => {
+    if (!selectedExId || !selectedMetric) return undefined;
+    if (selectedMetric !== 'volume' && selectedMetric !== 'weight') return undefined;
+    const full = metricSeries(sessions, selectedExId, 'pain');
+    return filterByRange(full, rangeDays);
+  }, [sessions, selectedExId, selectedMetric, rangeDays]);
+  const showPainOverlay = painOverlay && painOverlay.length >= 2;
 
   const selectedStat = stats.find((s) => s.exercise_id === selectedExId);
 
@@ -148,30 +184,85 @@ export default function ProgressScreen() {
         options={{
           title: 'Progress',
           headerRight: () => (
-            <Pressable
-              onPress={handleExportCsv}
-              style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Export progress as CSV"
-              hitSlop={8}
-            >
-              <Ionicons name="download-outline" size={16} color="#fff" />
-              <Text style={styles.headerBtnText}>CSV</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {/* PDF uses the browser's native print menu rather than a
+                  jspdf/html2canvas dep — one less npm install, works on
+                  Safari, and the PT can save as PDF from there. */}
+              <Pressable
+                onPress={() => router.push(`/workout/progress/print?range=${rangeDays}`)}
+                style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Open printable progress report"
+                hitSlop={8}
+              >
+                <Ionicons name="print-outline" size={16} color="#fff" />
+                <Text style={styles.headerBtnText}>PDF</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleExportCsv}
+                style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Export progress as CSV"
+                hitSlop={8}
+              >
+                <Ionicons name="download-outline" size={16} color="#fff" />
+                <Text style={styles.headerBtnText}>CSV</Text>
+              </Pressable>
+            </View>
           ),
         }}
       />
 
+      {/* Global date-range selector. Drives the stat cards, weekly bar,
+          heatmap, and per-exercise chart below. The per-exercise card
+          has its own metric toggle but no longer its own date range —
+          everything shares this window so the story on the page is
+          consistent. */}
+      <View
+        style={[styles.metricRow, styles.globalRangeRow]}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Date range"
+      >
+        {RANGE_OPTIONS.map((r) => {
+          const active = rangeDays === r.days;
+          return (
+            <Pressable
+              key={r.days}
+              style={[styles.rangeChip, active && styles.rangeChipActive]}
+              onPress={() => setRangeDays(r.days)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={r.label === '1y' ? '1 year' : r.label === 'All' ? 'All time' : `${r.days} days`}
+            >
+              <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
+                {r.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.statRow}>
-        <StatCard label="Sessions" value={String(sessions.length)} />
+        <StatCard label="Sessions" value={String(sessionsInRange.length)} />
         <StatCard label="Sets logged" value={String(totalSets)} />
         <StatCard label="Exercises used" value={String(stats.length)} />
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle} accessibilityRole="header">Sessions per week</Text>
-        <Text style={styles.cardSub}>Last 12 weeks</Text>
+        <Text style={styles.cardSub}>Last {weeks} weeks</Text>
         <BarChart data={weekly} height={140} />
+      </View>
+
+      {/* Streak heatmap. Always renders a 365-day grid anchored to
+          today; the selected rangeDays greys out everything older than
+          the cutoff so the visual focus matches the stat cards above. */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle} accessibilityRole="header">Streak heatmap</Text>
+        <Text style={styles.cardSub}>
+          Daily session count · {rangeDays > 0 ? `last ${rangeDays}d highlighted` : 'full year'}
+        </Text>
+        <StreakHeatmap sessions={sessions} rangeDays={rangeDays} />
       </View>
 
       <View style={styles.card}>
@@ -243,38 +334,26 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {/* Date-range toggle. 0 days = "All". */}
-        <View
-          style={styles.metricRow}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="Date range"
-        >
-          {RANGE_OPTIONS.map((r) => {
-            const active = rangeDays === r.days;
-            return (
-              <Pressable
-                key={r.days}
-                style={[styles.rangeChip, active && styles.rangeChipActive]}
-                onPress={() => setRangeDays(r.days)}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={r.label === '1y' ? '1 year' : r.label === 'All' ? 'All time' : `${r.days} days`}
-              >
-                <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
-                  {r.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* Date-range selector moved to screen scope at the top; the
+            global one drives this chart too via the `rangeDays` state. */}
 
         {selectedStat && selectedMetric && (
-          <LineChart
-            points={chartSeries}
-            height={200}
-            unit={METRIC_UNITS[selectedMetric]}
-            label={`${selectedStat.name} · ${METRIC_LABELS[selectedMetric]}`}
-          />
+          <>
+            <LineChart
+              points={chartSeries}
+              height={200}
+              unit={METRIC_UNITS[selectedMetric]}
+              label={`${selectedStat.name} · ${METRIC_LABELS[selectedMetric]}`}
+              secondarySeries={showPainOverlay ? painOverlay : undefined}
+              secondaryLabel="Pain"
+              secondaryUnit="/10"
+            />
+            {showPainOverlay && (
+              <Text style={styles.overlayLegend}>
+                Solid blue: {METRIC_LABELS[selectedMetric].toLowerCase()} · Dashed red: pain (right axis)
+              </Text>
+            )}
+          </>
         )}
       </View>
     </ScrollView>
@@ -354,15 +433,27 @@ function BarChart({ data, height }: { data: { label: string; count: number }[]; 
 
 function LineChart({
   points, height, unit, label,
+  secondarySeries, secondaryLabel, secondaryUnit,
 }: {
   points: StatPoint[];
   height: number;
   unit: string;
   label: string;
+  /** Optional pain / secondary metric overlay on a right-hand y-axis.
+   *  Rendered as a dashed line in the danger color so it reads as
+   *  distinct from the primary series without a legend. Secondary
+   *  series is joined on date; a day with primary data but no
+   *  secondary leaves a gap, which is the honest read. */
+  secondarySeries?: StatPoint[];
+  secondaryLabel?: string;
+  secondaryUnit?: string;
 }) {
   const { width: winW } = useWindowDimensions();
   const w = Math.min(winW - 56, 600);
-  const padL = 36, padR = 12, padB = 28, padT = 10;
+  // Reserve an extra 28px on the right when a secondary axis is present
+  // so its max/min labels have room without overlapping the chart.
+  const hasSecondary = !!(secondarySeries && secondarySeries.length >= 2);
+  const padL = 36, padR = hasSecondary ? 40 : 12, padB = 28, padT = 10;
   const chartW = w - padL - padR;
   const chartH = height - padT - padB;
 
@@ -387,14 +478,63 @@ function LineChart({
 
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ');
 
+  // Secondary-axis math. Scale independently on the same vertical space;
+  // the x-axis is shared by date position. Join on date so a secondary
+  // point aligns vertically with the primary point of the same day.
+  let secondaryPath = '';
+  let secPoints: { i: number; value: number; pr?: boolean }[] = [];
+  let minS = 0, maxS = 1;
+  if (hasSecondary) {
+    const byDate = new Map(secondarySeries!.map((p) => [p.date, p]));
+    secPoints = points.flatMap((p, i) => {
+      const s = byDate.get(p.date);
+      return s ? [{ i, value: s.value, pr: s.pr }] : [];
+    });
+    if (secPoints.length >= 2) {
+      const svalues = secPoints.map((p) => p.value);
+      minS = Math.min(...svalues);
+      maxS = Math.max(...svalues);
+      const srange = Math.max(1, maxS - minS);
+      const ys = (v: number) => padT + chartH * (1 - (v - minS) / srange);
+      secondaryPath = secPoints
+        .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.i)} ${ys(p.value)}`)
+        .join(' ');
+    }
+  }
+
+  const axisLabel = hasSecondary
+    ? `Trend chart for ${label} with ${secondaryLabel ?? 'secondary'} overlay`
+    : `Trend chart for ${label}`;
+
   return (
-    <Svg width={w} height={height} accessibilityLabel={`Trend chart for ${label}`}>
+    <Svg width={w} height={height} accessibilityLabel={axisLabel}>
       <Line x1={padL} x2={w - padR} y1={padT} y2={padT} stroke="#eee" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH / 2} y2={padT + chartH / 2} stroke="#f5f5f5" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH} y2={padT + chartH} stroke="#eee" />
       <SvgText x={4} y={padT + 4} fontSize={10} fill="#999">{maxV}{unit}</SvgText>
       <SvgText x={4} y={padT + chartH + 4} fontSize={10} fill="#999">{minV}{unit}</SvgText>
+      {/* Right-hand axis labels for the secondary series, colored to
+          match its path so the reader can map value → axis visually. */}
+      {hasSecondary && secPoints.length >= 2 && (
+        <>
+          <SvgText x={w - 4} y={padT + 4} fontSize={10} fill={colors.danger} textAnchor="end">
+            {maxS}{secondaryUnit ?? ''}
+          </SvgText>
+          <SvgText x={w - 4} y={padT + chartH + 4} fontSize={10} fill={colors.danger} textAnchor="end">
+            {minS}{secondaryUnit ?? ''}
+          </SvgText>
+        </>
+      )}
       <Path d={pathD} stroke={colors.primary} strokeWidth={2} fill="none" />
+      {hasSecondary && secondaryPath && (
+        <Path
+          d={secondaryPath}
+          stroke={colors.danger}
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          fill="none"
+        />
+      )}
       {points.map((p, i) => (
         // Larger + highlighted circle on PR days. A filled accent ring
         // makes the record visible at a glance without a legend.
@@ -463,6 +603,16 @@ const styles = StyleSheet.create({
   metricRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
     marginTop: 8,
+  },
+  // Screen-scoped date-range selector sits outside a card, anchored to
+  // the top of the scroll view so it reads as "drives the whole page"
+  // rather than "scoped to the card below."
+  globalRangeRow: {
+    paddingHorizontal: 12, paddingTop: 12, marginTop: 0,
+  },
+  overlayLegend: {
+    fontSize: 11, color: colors.textMuted, textAlign: 'center',
+    marginTop: 6, fontStyle: 'italic',
   },
   metricChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
