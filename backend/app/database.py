@@ -447,6 +447,15 @@ def init_db():
             # session has tracks_symptoms=1; otherwise stays NULL and the
             # progression dispatcher falls through to the RPE path.
             ("pain_score", "INTEGER"),
+            # Per-set laterality: 'left' | 'right' | NULL (bilateral).
+            # NULL means "both sides / doesn't matter" which is the
+            # historical default — pre-column rows read that way.
+            # Stored as TEXT, not an enum, so SQLite + PG share a path.
+            ("side", "TEXT"),
+            # Warmup flag. Warmup sets shouldn't push the progression
+            # suggestion or count toward volume. Default FALSE (0 on
+            # SQLite INTEGER) so existing rows behave exactly as before.
+            ("is_warmup", "INTEGER NOT NULL DEFAULT 0"),
         ])
         _ensure_columns(cur, "exercises", [
             # Soft-delete marker. Pre-feature rows get NULL which reads
