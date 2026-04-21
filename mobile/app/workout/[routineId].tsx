@@ -311,7 +311,7 @@ export default function RoutineDetailScreen() {
                     {re.keystone && (
                       <View style={styles.keystoneBadge}>
                         <Ionicons name="star" size={11} color="#fff" />
-                        <Text style={styles.keystoneBadgeText}>KEY</Text>
+                        <Text style={styles.keystoneBadgeText}>PRIORITY</Text>
                       </View>
                     )}
                   </View>
@@ -656,7 +656,7 @@ function RoutineExerciseEdit({ re, onSaved }: { re: RoutineExercise; onSaved: ()
       <View style={{ flexDirection: 'row', gap: 6 }}>
         <EditField label="Tempo" value={tempo} onChange={setTempo} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.fieldLabel}>Keystone</Text>
+          <Text style={styles.fieldLabel}>Priority</Text>
           <Pressable style={styles.keystoneToggle} onPress={() => setKeystone(!keystone)}>
             <Ionicons
               name={keystone ? 'star' : 'star-outline'}
