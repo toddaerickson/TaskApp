@@ -8,7 +8,6 @@ generic "403 host_not_allowed" — totally unactionable. The new
 behavior logs loudly, boots with localhost-only origins, and
 exposes the misconfig via /health/detailed.
 """
-import pytest
 
 
 def test_health_returns_ok(auth_client):
@@ -41,10 +40,12 @@ def test_health_detailed_reports_config_state(auth_client):
 
 
 def test_health_detailed_never_leaks_secret_values(auth_client):
-    """Double-check: presence-flags only, no raw values anywhere."""
+    """Double-check: presence-flags only, no raw values anywhere.
+    Assertions use r.text so we catch leaks in any JSON key/value pair
+    or header echo. r.json() isn't needed here — shape is covered by
+    the sibling test above."""
     c, _tok, _uid = auth_client
     r = c.get("/health/detailed")
-    body = r.json()
     # The fallback sentinel used when JWT_SECRET is unset — should never
     # appear in the response body regardless of environment.
     assert "dev-secret-change-in-production" not in r.text
