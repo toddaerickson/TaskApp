@@ -200,7 +200,10 @@ export default function ExerciseLibraryScreen() {
               accessibilityState={{ selected: on }}
               accessibilityLabel={c.label}
             >
-              <Text style={[styles.catChipText, on && styles.catChipTextActive]}>
+              <Text
+                style={[styles.catChipText, on && styles.catChipTextActive]}
+                numberOfLines={1}
+              >
                 {c.label}
               </Text>
             </Pressable>
@@ -406,6 +409,12 @@ const styles = StyleSheet.create({
   catChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    // flexShrink: 0 keeps the chip at its intrinsic width. Without it,
+    // RN-web inside a horizontal ScrollView will shrink each child to
+    // fit the cross-axis on narrow viewports, causing "All / Rehab /
+    // Strength" chips to collapse into tall 1-char-wide vertical bars
+    // on a 414-wide iPhone. (User-reported audit bug.)
+    flexShrink: 0,
     cursor: 'pointer' as any,
   },
   catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
