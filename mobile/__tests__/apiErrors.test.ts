@@ -1,9 +1,9 @@
-import { describeApiError } from '../lib/apiErrors';
+import { describeApiError, describeApiErrorDetailed } from '../lib/apiErrors';
 
 // Minimal fakes that shape-match AxiosError without pulling axios into
 // the node-libs jest project (which has no RN bootstrap).
-function axiosLike(status: number, data: unknown = undefined): any {
-  return { response: { status, data } };
+function axiosLike(status: number, data: unknown = undefined, headers: Record<string, string> = {}): any {
+  return { response: { status, data, headers } };
 }
 
 describe('describeApiError', () => {
@@ -50,5 +50,36 @@ describe('describeApiError', () => {
   it('uses the caller-provided fallback when nothing else matches', () => {
     const msg = describeApiError(axiosLike(418), 'Keep calm');
     expect(msg).toBe('Keep calm');
+  });
+});
+
+describe('describeApiErrorDetailed', () => {
+  it('prepends HTTP status and appends request_id from the body', () => {
+    const msg = describeApiErrorDetailed(
+      axiosLike(500, { code: 'internal_error', request_id: 'abc123' }),
+    );
+    expect(msg).toMatch(/^HTTP 500:/);
+    expect(msg).toMatch(/\(req abc123\)$/);
+  });
+
+  it('falls back to the X-Request-Id response header when body is silent', () => {
+    const msg = describeApiErrorDetailed(
+      axiosLike(502, { detail: 'upstream down' }, { 'x-request-id': 'hdr-only' }),
+    );
+    expect(msg).toMatch(/^HTTP 502:/);
+    expect(msg).toContain('upstream down');
+    expect(msg).toMatch(/\(req hdr-only\)$/);
+  });
+
+  it('omits the request-id parenthetical when neither source has one', () => {
+    const msg = describeApiErrorDetailed(axiosLike(409, { detail: 'conflict' }));
+    expect(msg).toMatch(/^HTTP 409:/);
+    expect(msg).not.toMatch(/\(req /);
+  });
+
+  it('returns the plain network message when there is no response', () => {
+    const msg = describeApiErrorDetailed({} as unknown);
+    expect(msg).toMatch(/Can't reach the server/i);
+    expect(msg).not.toMatch(/^HTTP /);
   });
 });
