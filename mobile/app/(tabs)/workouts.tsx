@@ -14,6 +14,7 @@ import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
 import { formatReminder } from '@/lib/reminders';
+import { bucketRoutines } from '@/lib/workoutGroupBy';
 
 const GOAL_COLORS: Record<string, string> = {
   rehab: colors.warning, strength: colors.primary, mobility: colors.success,
@@ -46,11 +47,23 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: keyof typeof Ionicons.g
   { key: 'created', label: 'Created', icon: 'calendar-outline' },
 ];
 
-type GroupKey = 'none' | 'goal';
+type GroupKey = 'none' | 'goal' | 'day' | 'phase' | 'lastPerformed';
 
 const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   { key: 'none', label: 'None' },
   { key: 'goal', label: 'Goal' },
+  // A routine scheduled Mon + Wed appears under both Monday and Wednesday
+  // buckets — the user's mental model is "what's on my plate today", so
+  // duplication is the right call. Unscheduled routines trail in "No day".
+  { key: 'day', label: 'Scheduled day' },
+  // Phase-grouped surfaces Curovate-style progression at a glance:
+  // routines in their "Loading" phase cluster together; flat routines
+  // trail in "No phase".
+  { key: 'phase', label: 'Phase' },
+  // Recency bucket rather than an exact date — today / this week / this
+  // month / older / never. "Last performed" sort already exists; this
+  // groups the same signal by recency bin.
+  { key: 'lastPerformed', label: 'Last performed' },
 ];
 
 // localStorage keys. Web-only persistence; native always falls back to
@@ -206,22 +219,7 @@ export default function WorkoutsScreen() {
     if (groupBy === 'none') {
       return [{ key: 'all', label: '', items: sorted }];
     }
-    const buckets = new Map<string, { label: string; items: Routine[] }>();
-    for (const r of sorted) {
-      const key = r.goal || 'general';
-      const label = (GOAL_OPTIONS.find((g) => g.value === key)?.label) ?? key;
-      if (!buckets.has(key)) buckets.set(key, { label, items: [] });
-      buckets.get(key)!.items.push(r);
-    }
-    // Preserve GOAL_OPTIONS order for deterministic group ordering; any
-    // unrecognized goal (shouldn't happen today, but defensive) trails.
-    const ordered: { key: string; label: string; items: Routine[] }[] = [];
-    for (const g of GOAL_OPTIONS) {
-      const b = buckets.get(g.value);
-      if (b) { ordered.push({ key: g.value, ...b }); buckets.delete(g.value); }
-    }
-    for (const [key, b] of buckets) ordered.push({ key, ...b });
-    return ordered;
+    return bucketRoutines(sorted, groupBy, lastPerformedByRoutine, new Date());
   }, [routines, search, goalFilter, sorts, groupBy, lastPerformedByRoutine]);
 
   // Flatten groups into a FlatList-friendly row array so one FlatList can
