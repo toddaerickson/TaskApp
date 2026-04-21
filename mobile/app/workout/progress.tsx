@@ -6,11 +6,12 @@ import {
 import Svg, { Line, Path, Circle, Rect, Text as SvgText } from 'react-native-svg';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Platform } from 'react-native';
 import * as api from '@/lib/api';
 import type { Exercise, WorkoutSession } from '@/lib/stores';
 import {
   aggregateByExercise, weeklyCounts,
-  metricSeries, availableMetrics, filterByRange,
+  metricSeries, availableMetrics, filterByRange, sessionsToCsv,
   ExerciseStat, StatPoint, Metric,
 } from '@/lib/progress';
 
@@ -27,6 +28,7 @@ const METRIC_LABELS: Record<Metric, string> = {
   weight: 'Weight',
   duration: 'Duration',
   pain: 'Pain',
+  volume: 'Volume',
 };
 
 const METRIC_UNITS: Record<Metric, string> = {
@@ -34,6 +36,11 @@ const METRIC_UNITS: Record<Metric, string> = {
   weight: '',
   duration: 's',
   pain: '/10',
+  // Volume units match the weight units of the source rows (lb in this
+  // app). No suffix so the chart tick labels stay compact — the
+  // card-subheading "Total volume per day" tells the user what they're
+  // reading.
+  volume: '',
 };
 
 export default function ProgressScreen() {
@@ -109,9 +116,51 @@ export default function ProgressScreen() {
     );
   }
 
+  const handleExportCsv = () => {
+    const csv = sessionsToCsv(sessions, exercises);
+    if (Platform.OS === 'web') {
+      // Browser download: create a one-shot Blob URL, attach it to a
+      // hidden anchor, click, then revoke to free memory. Same dance
+      // every "export CSV from a SPA" uses — no extra deps.
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `taskapp-progress-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // A 1-second defer gives the download dialog time to latch onto
+      // the URL on slower browsers before we revoke it.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } else {
+      // Native requires expo-sharing + FileSystem for a true save flow.
+      // Deferred — the user's primary surface is Safari. A future PR can
+      // wire this up if we add a native build.
+      // eslint-disable-next-line no-alert
+      window?.alert?.('CSV export is available from the web build.');
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <Stack.Screen options={{ title: 'Progress' }} />
+      <Stack.Screen
+        options={{
+          title: 'Progress',
+          headerRight: () => (
+            <Pressable
+              onPress={handleExportCsv}
+              style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Export progress as CSV"
+              hitSlop={8}
+            >
+              <Ionicons name="download-outline" size={16} color="#fff" />
+              <Text style={styles.headerBtnText}>CSV</Text>
+            </Pressable>
+          ),
+        }}
+      />
 
       <View style={styles.statRow}>
         <StatCard label="Sessions" value={String(sessions.length)} />
@@ -128,7 +177,11 @@ export default function ProgressScreen() {
       <View style={styles.card}>
         <Text style={styles.cardTitle} accessibilityRole="header">Per-exercise trend</Text>
         <Text style={styles.cardSub}>
-          {selectedMetric ? `Best ${METRIC_LABELS[selectedMetric].toLowerCase()} per day` : 'Best per-day result'}
+          {selectedMetric === 'volume'
+            ? 'Total volume (weight × reps) per day'
+            : selectedMetric
+              ? `Best ${METRIC_LABELS[selectedMetric].toLowerCase()} per day`
+              : 'Best per-day result'}
         </Text>
         <ScrollView
           horizontal
@@ -369,6 +422,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f5f6fa' },
   emptyTitle: { fontSize: 16, color: '#666', marginTop: 10 },
   emptyHint: { fontSize: 13, color: '#aaa', marginTop: 4 },
+
+  headerBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    marginRight: 8, borderRadius: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)',
+  },
+  headerBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   statRow: { flexDirection: 'row', padding: 12, gap: 8 },
   stat: {

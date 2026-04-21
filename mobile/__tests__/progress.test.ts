@@ -1,6 +1,6 @@
 import {
   aggregateByExercise, weeklyCounts,
-  metricSeries, availableMetrics, filterByRange,
+  metricSeries, availableMetrics, filterByRange, sessionsToCsv,
 } from '../lib/progress';
 import type { WorkoutSession, Exercise } from '../lib/stores';
 
@@ -275,5 +275,112 @@ describe('filterByRange', () => {
 
   it('returns the full list when everything is in-window', () => {
     expect(filterByRange(points, 365, now)).toEqual(points);
+  });
+});
+
+describe('metricSeries volume', () => {
+  it('sums weight × reps across sets within a day', () => {
+    const ex = mkExercise(1, 'Squat', 'reps_weight');
+    const sessions = [
+      mkSession(1, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100 },   // 500
+        { exercise_id: 1, reps: 5, weight: 110 },   // 550
+        { exercise_id: 1, reps: 3, weight: 120 },   // 360
+      ]),
+      mkSession(2, '2026-04-11T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100 },   // 500
+      ]),
+    ];
+    const points = metricSeries(sessions, 1, 'volume');
+    expect(points).toHaveLength(2);
+    expect(points[0]).toEqual(expect.objectContaining({ date: '2026-04-10', value: 1410 }));
+    expect(points[1]).toEqual(expect.objectContaining({ date: '2026-04-11', value: 500 }));
+  });
+
+  it('excludes warmup sets from volume aggregation', () => {
+    const ex = mkExercise(1, 'Squat', 'reps_weight');
+    const sessions = [
+      mkSession(1, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100, is_warmup: true }, // excluded
+        { exercise_id: 1, reps: 5, weight: 200 },                   // 1000
+      ]),
+    ];
+    const points = metricSeries(sessions, 1, 'volume');
+    expect(points).toHaveLength(1);
+    expect(points[0].value).toBe(1000);
+  });
+
+  it('ignores sets without both weight and reps', () => {
+    const ex = mkExercise(1, 'Plank', 'duration');
+    const sessions = [
+      mkSession(1, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, duration_sec: 60 },            // no weight+reps
+        { exercise_id: 1, reps: 10 },                    // no weight
+        { exercise_id: 1, reps: 5, weight: 100 },        // 500
+      ]),
+    ];
+    const points = metricSeries(sessions, 1, 'volume');
+    expect(points).toHaveLength(1);
+    expect(points[0].value).toBe(500);
+  });
+});
+
+describe('availableMetrics volume', () => {
+  it('includes volume only when a set has both weight and reps', () => {
+    const reps_weight_session = mkSession(1, '2026-04-10T08:00:00Z', [
+      { exercise_id: 1, reps: 5, weight: 100 },
+    ]);
+    expect(availableMetrics([reps_weight_session], 1)).toContain('volume');
+
+    const reps_only_session = mkSession(2, '2026-04-10T08:00:00Z', [
+      { exercise_id: 2, reps: 10 },
+    ]);
+    expect(availableMetrics([reps_only_session], 2)).not.toContain('volume');
+  });
+});
+
+describe('sessionsToCsv', () => {
+  it('emits header + one row per set', () => {
+    const exs = [mkExercise(1, 'Squat', 'reps_weight')];
+    const sessions = [
+      mkSession(7, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100, rpe: 8 },
+        { exercise_id: 1, reps: 5, weight: 110 },
+      ]),
+    ];
+    const csv = sessionsToCsv(sessions, exs);
+    const lines = csv.trimEnd().split('\n');
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[0]).toBe(
+      'session_id,session_started_at,exercise_id,exercise_name,set_number,reps,weight,duration_sec,distance_m,rpe,pain_score,side,is_warmup,notes',
+    );
+    expect(lines[1]).toContain('Squat');
+    expect(lines[1]).toContain('100');
+    expect(lines[2]).toContain('110');
+  });
+
+  it('defangs leading formula characters to block CSV injection', () => {
+    const exs = [mkExercise(1, 'Squat', 'reps_weight')];
+    const sessions = [
+      mkSession(1, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100, notes: '=cmd()' },
+      ]),
+    ];
+    const csv = sessionsToCsv(sessions, exs);
+    // The unsafe `=cmd()` becomes `"'=cmd()"` — quoted (because it
+    // contains a prefix mutation) and prefixed with a single quote.
+    expect(csv).toContain("'=cmd()");
+  });
+
+  it('quotes cells containing commas or quotes', () => {
+    const exs = [mkExercise(1, 'Rows', 'reps_weight')];
+    const sessions = [
+      mkSession(1, '2026-04-10T08:00:00Z', [
+        { exercise_id: 1, reps: 5, weight: 100, notes: 'heavy, sloppy "form"' },
+      ]),
+    ];
+    const csv = sessionsToCsv(sessions, exs);
+    // Inner quotes doubled, whole cell wrapped.
+    expect(csv).toContain('"heavy, sloppy ""form"""');
   });
 });
