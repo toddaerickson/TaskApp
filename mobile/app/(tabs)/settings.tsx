@@ -1,10 +1,17 @@
 import { colors } from "@/lib/colors";
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/lib/stores';
 import { useRouter } from 'expo-router';
 import * as api from '@/lib/api';
+import { loadHomeTab, saveHomeTab, HomeTab } from '@/lib/homeTab';
+
+const HOME_TAB_OPTIONS: { value: HomeTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { value: 'tasks', label: 'Tasks', icon: 'checkmark-circle-outline' },
+  { value: 'folders', label: 'Folders', icon: 'folder-outline' },
+  { value: 'workouts', label: 'Workouts', icon: 'barbell-outline' },
+];
 
 export default function SettingsScreen() {
   const { user, logout } = useAuthStore();
@@ -12,6 +19,12 @@ export default function SettingsScreen() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [homeTab, setHomeTab] = useState<HomeTab>(() => loadHomeTab());
+
+  const changeHomeTab = (tab: HomeTab) => {
+    setHomeTab(tab);
+    saveHomeTab(tab);
+  };
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure?', [
@@ -103,6 +116,39 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      <Text style={styles.sectionHeader}>Preferences</Text>
+
+      <View style={styles.prefCard}>
+        <Text style={styles.prefLabel}>Home tab</Text>
+        <Text style={styles.prefHint}>
+          Which tab opens first when you launch the app.
+        </Text>
+        <View style={styles.prefChipRow}>
+          {HOME_TAB_OPTIONS.map((opt) => {
+            const active = homeTab === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                style={[styles.prefChip, active && styles.prefChipActive]}
+                onPress={() => changeHomeTab(opt.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Home tab: ${opt.label}`}
+              >
+                <Ionicons
+                  name={opt.icon}
+                  size={16}
+                  color={active ? '#fff' : colors.primary}
+                />
+                <Text style={[styles.prefChipText, active && styles.prefChipTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       <Text style={styles.sectionHeader}>Workout Data</Text>
 
       <TouchableOpacity
@@ -156,6 +202,23 @@ const styles = StyleSheet.create({
   profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 20, marginBottom: 12 },
   name: { fontSize: 18, fontWeight: '600', color: '#333' },
   email: { fontSize: 14, color: colors.textMuted },
+  prefCard: {
+    backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 6,
+    borderRadius: 10, padding: 14,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
+  },
+  prefLabel: { fontSize: 14, fontWeight: '600', color: '#222' },
+  prefHint: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 10 },
+  prefChipRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  prefChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
+    backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#e3e7ee',
+    cursor: 'pointer' as any,
+  },
+  prefChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  prefChipText: { fontSize: 13, color: '#444', fontWeight: '600' },
+  prefChipTextActive: { color: '#fff' },
   sectionHeader: {
     fontSize: 12, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase',
     letterSpacing: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6,
