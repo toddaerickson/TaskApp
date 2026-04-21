@@ -4,7 +4,7 @@ import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import Svg, { Line, Path, Circle, Rect, Text as SvgText } from 'react-native-svg';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import * as api from '@/lib/api';
@@ -45,6 +45,7 @@ const METRIC_UNITS: Record<Metric, string> = {
 };
 
 export default function ProgressScreen() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +122,19 @@ export default function ProgressScreen() {
     return filterByRange(full, rangeDays);
   }, [sessions, selectedExId, selectedMetric, rangeDays]);
 
+  // Pain overlay — only meaningful when viewing a load-ish metric
+  // (volume or weight) on an exercise that has pain data at all.
+  // Rehab routines collect pain_score; strength ones don't, so the
+  // overlay just doesn't render on strength screens (secPoints < 2
+  // in LineChart disables it).
+  const painOverlay = useMemo(() => {
+    if (!selectedExId || !selectedMetric) return undefined;
+    if (selectedMetric !== 'volume' && selectedMetric !== 'weight') return undefined;
+    const full = metricSeries(sessions, selectedExId, 'pain');
+    return filterByRange(full, rangeDays);
+  }, [sessions, selectedExId, selectedMetric, rangeDays]);
+  const showPainOverlay = painOverlay && painOverlay.length >= 2;
+
   const selectedStat = stats.find((s) => s.exercise_id === selectedExId);
 
   if (loading) {
@@ -170,16 +184,31 @@ export default function ProgressScreen() {
         options={{
           title: 'Progress',
           headerRight: () => (
-            <Pressable
-              onPress={handleExportCsv}
-              style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Export progress as CSV"
-              hitSlop={8}
-            >
-              <Ionicons name="download-outline" size={16} color="#fff" />
-              <Text style={styles.headerBtnText}>CSV</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {/* PDF uses the browser's native print menu rather than a
+                  jspdf/html2canvas dep — one less npm install, works on
+                  Safari, and the PT can save as PDF from there. */}
+              <Pressable
+                onPress={() => router.push(`/workout/progress/print?range=${rangeDays}`)}
+                style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Open printable progress report"
+                hitSlop={8}
+              >
+                <Ionicons name="print-outline" size={16} color="#fff" />
+                <Text style={styles.headerBtnText}>PDF</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleExportCsv}
+                style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Export progress as CSV"
+                hitSlop={8}
+              >
+                <Ionicons name="download-outline" size={16} color="#fff" />
+                <Text style={styles.headerBtnText}>CSV</Text>
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -309,12 +338,22 @@ export default function ProgressScreen() {
             global one drives this chart too via the `rangeDays` state. */}
 
         {selectedStat && selectedMetric && (
-          <LineChart
-            points={chartSeries}
-            height={200}
-            unit={METRIC_UNITS[selectedMetric]}
-            label={`${selectedStat.name} · ${METRIC_LABELS[selectedMetric]}`}
-          />
+          <>
+            <LineChart
+              points={chartSeries}
+              height={200}
+              unit={METRIC_UNITS[selectedMetric]}
+              label={`${selectedStat.name} · ${METRIC_LABELS[selectedMetric]}`}
+              secondarySeries={showPainOverlay ? painOverlay : undefined}
+              secondaryLabel="Pain"
+              secondaryUnit="/10"
+            />
+            {showPainOverlay && (
+              <Text style={styles.overlayLegend}>
+                Solid blue: {METRIC_LABELS[selectedMetric].toLowerCase()} · Dashed red: pain (right axis)
+              </Text>
+            )}
+          </>
         )}
       </View>
     </ScrollView>
@@ -394,15 +433,27 @@ function BarChart({ data, height }: { data: { label: string; count: number }[]; 
 
 function LineChart({
   points, height, unit, label,
+  secondarySeries, secondaryLabel, secondaryUnit,
 }: {
   points: StatPoint[];
   height: number;
   unit: string;
   label: string;
+  /** Optional pain / secondary metric overlay on a right-hand y-axis.
+   *  Rendered as a dashed line in the danger color so it reads as
+   *  distinct from the primary series without a legend. Secondary
+   *  series is joined on date; a day with primary data but no
+   *  secondary leaves a gap, which is the honest read. */
+  secondarySeries?: StatPoint[];
+  secondaryLabel?: string;
+  secondaryUnit?: string;
 }) {
   const { width: winW } = useWindowDimensions();
   const w = Math.min(winW - 56, 600);
-  const padL = 36, padR = 12, padB = 28, padT = 10;
+  // Reserve an extra 28px on the right when a secondary axis is present
+  // so its max/min labels have room without overlapping the chart.
+  const hasSecondary = !!(secondarySeries && secondarySeries.length >= 2);
+  const padL = 36, padR = hasSecondary ? 40 : 12, padB = 28, padT = 10;
   const chartW = w - padL - padR;
   const chartH = height - padT - padB;
 
@@ -427,14 +478,63 @@ function LineChart({
 
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ');
 
+  // Secondary-axis math. Scale independently on the same vertical space;
+  // the x-axis is shared by date position. Join on date so a secondary
+  // point aligns vertically with the primary point of the same day.
+  let secondaryPath = '';
+  let secPoints: { i: number; value: number; pr?: boolean }[] = [];
+  let minS = 0, maxS = 1;
+  if (hasSecondary) {
+    const byDate = new Map(secondarySeries!.map((p) => [p.date, p]));
+    secPoints = points.flatMap((p, i) => {
+      const s = byDate.get(p.date);
+      return s ? [{ i, value: s.value, pr: s.pr }] : [];
+    });
+    if (secPoints.length >= 2) {
+      const svalues = secPoints.map((p) => p.value);
+      minS = Math.min(...svalues);
+      maxS = Math.max(...svalues);
+      const srange = Math.max(1, maxS - minS);
+      const ys = (v: number) => padT + chartH * (1 - (v - minS) / srange);
+      secondaryPath = secPoints
+        .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.i)} ${ys(p.value)}`)
+        .join(' ');
+    }
+  }
+
+  const axisLabel = hasSecondary
+    ? `Trend chart for ${label} with ${secondaryLabel ?? 'secondary'} overlay`
+    : `Trend chart for ${label}`;
+
   return (
-    <Svg width={w} height={height} accessibilityLabel={`Trend chart for ${label}`}>
+    <Svg width={w} height={height} accessibilityLabel={axisLabel}>
       <Line x1={padL} x2={w - padR} y1={padT} y2={padT} stroke="#eee" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH / 2} y2={padT + chartH / 2} stroke="#f5f5f5" />
       <Line x1={padL} x2={w - padR} y1={padT + chartH} y2={padT + chartH} stroke="#eee" />
       <SvgText x={4} y={padT + 4} fontSize={10} fill="#999">{maxV}{unit}</SvgText>
       <SvgText x={4} y={padT + chartH + 4} fontSize={10} fill="#999">{minV}{unit}</SvgText>
+      {/* Right-hand axis labels for the secondary series, colored to
+          match its path so the reader can map value → axis visually. */}
+      {hasSecondary && secPoints.length >= 2 && (
+        <>
+          <SvgText x={w - 4} y={padT + 4} fontSize={10} fill={colors.danger} textAnchor="end">
+            {maxS}{secondaryUnit ?? ''}
+          </SvgText>
+          <SvgText x={w - 4} y={padT + chartH + 4} fontSize={10} fill={colors.danger} textAnchor="end">
+            {minS}{secondaryUnit ?? ''}
+          </SvgText>
+        </>
+      )}
       <Path d={pathD} stroke={colors.primary} strokeWidth={2} fill="none" />
+      {hasSecondary && secondaryPath && (
+        <Path
+          d={secondaryPath}
+          stroke={colors.danger}
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          fill="none"
+        />
+      )}
       {points.map((p, i) => (
         // Larger + highlighted circle on PR days. A filled accent ring
         // makes the record visible at a glance without a legend.
@@ -509,6 +609,10 @@ const styles = StyleSheet.create({
   // rather than "scoped to the card below."
   globalRangeRow: {
     paddingHorizontal: 12, paddingTop: 12, marginTop: 0,
+  },
+  overlayLegend: {
+    fontSize: 11, color: colors.textMuted, textAlign: 'center',
+    marginTop: 6, fontStyle: 'italic',
   },
   metricChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
