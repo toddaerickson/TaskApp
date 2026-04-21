@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/lib/stores';
 import { useRouter } from 'expo-router';
@@ -107,7 +107,14 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      // Reserve bottom padding so the last row (Logout) isn't hidden
+      // behind the floating tab bar on narrow screens. The previous
+      // plain <View> had no scroll and clipped content below the
+      // viewport entirely on iPhone heights.
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
       <View style={styles.profileCard}>
         <Ionicons name="person-circle" size={48} color={colors.primary} />
         <View style={{ marginLeft: 12 }}>
@@ -193,7 +200,7 @@ export default function SettingsScreen() {
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={[styles.rowText, { color: '#e74c3c' }]}>Logout</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
