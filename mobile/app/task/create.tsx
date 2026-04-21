@@ -1,8 +1,8 @@
 import { colors } from "@/lib/colors";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch, Pressable,
+  ScrollView, Alert, Switch, Pressable, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,21 @@ import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
 import * as api from '@/lib/api';
+import { parseBatch, titlesToText, MAX_BATCH } from '@/lib/multiAdd';
+
+// GTD's "capture" inbox — the folder new brain-dump tasks land in by
+// default. The register flow seeds a folder literally named "1. Capture";
+// if the user has renamed or removed it, we fall through to the first
+// folder whose name starts with "capture" (case-insensitive), and then
+// to no folder at all. Intentional: brain-dumped tasks should NOT inherit
+// the currently-filtered folder context — that's the GTD "capture now,
+// clarify later" rule.
+function pickCaptureFolderId(folders: { id: number; name: string }[]): number | null {
+  const exact = folders.find((f) => f.name === '1. Capture');
+  if (exact) return exact.id;
+  const fuzzy = folders.find((f) => /^\s*(\d+\.\s*)?capture\b/i.test(f.name));
+  return fuzzy?.id ?? null;
+}
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
@@ -62,7 +77,19 @@ export default function CreateTaskScreen() {
   const [newTag, setNewTag] = useState('');
   const [addingTag, setAddingTag] = useState(false);
 
+  // GTD brain-dump mode. Toggles the header between "One task" and
+  // "Add multiple"; the latter swaps the title field for a multiline
+  // textarea and the action metadata for a "goes to Capture folder"
+  // hint. Batch text persists across toggles so accidental flips don't
+  // wipe a 30-line dump.
+  const [mode, setMode] = useState<'one' | 'many'>('one');
+  const [batchText, setBatchText] = useState('');
+  const [batchStatus, setBatchStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
   useEffect(() => { loadFolders(); loadTags(); }, []);
+
+  const parsedBatch = useMemo(() => parseBatch(batchText), [batchText]);
+  const captureFolderId = useMemo(() => pickCaptureFolderId(folders), [folders]);
 
   const handleCreateTag = async () => {
     const name = newTag.trim();
@@ -110,6 +137,59 @@ export default function CreateTaskScreen() {
     }
   };
 
+  const handleBatchSave = async () => {
+    const { titles, truncated } = parsedBatch;
+    if (titles.length === 0) {
+      setBatchStatus({ kind: 'err', text: 'Nothing to add — paste one task per line.' });
+      return;
+    }
+    setSaving(true);
+    setBatchStatus(null);
+    // Best-effort loop. Record per-index outcomes so failed titles can
+    // be surfaced back into the textarea for a retry without re-typing.
+    // Sequential (not parallel) to keep server-side rate / validation
+    // errors attributable to a specific title.
+    const failed: string[] = [];
+    let added = 0;
+    for (const t of titles) {
+      try {
+        await api.createTask({
+          title: t,
+          // GTD capture rule: brand-new tasks don't inherit the
+          // currently-filtered folder/priority/status. Everything goes
+          // to the Capture inbox; clarification happens later.
+          folder_id: captureFolderId,
+          status: 'none',
+          priority: 0,
+        });
+        added += 1;
+      } catch {
+        failed.push(t);
+      }
+    }
+    setSaving(false);
+    if (failed.length === 0) {
+      const msg = truncated
+        ? `Added ${added} tasks (capped at ${MAX_BATCH}). Trim the list and submit again for the rest.`
+        : `Added ${added} task${added === 1 ? '' : 's'}.`;
+      setBatchStatus({ kind: 'ok', text: msg });
+      // Clear text and bounce back — a full success is a clean finish.
+      setBatchText('');
+      // Nudge the task store so the list reflects the new entries.
+      useTaskStore.getState().load();
+      // Small delay so the success banner is visible before we leave.
+      setTimeout(() => router.back(), 700);
+    } else {
+      // Partial failure: keep the failing lines in the textarea for retry.
+      setBatchText(titlesToText(failed));
+      setBatchStatus({
+        kind: 'err',
+        text: `Added ${added}. ${failed.length} failed — remaining titles kept below.`,
+      });
+      useTaskStore.getState().load();
+    }
+  };
+
   const toggleTag = (id: number) => {
     setSelectedTagIds((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
@@ -128,7 +208,59 @@ export default function CreateTaskScreen() {
   })();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // Small inset so the submit button doesn't collide with the iOS
+      // keyboard's autofill suggestions bar.
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+    >
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* Mode toggle — segmented control. "Add multiple" is the GTD
+          brain-dump channel: one task per line, everything lands in
+          Capture, metadata is clarified later. */}
+      <View style={styles.modeSegment} accessibilityRole="radiogroup" accessibilityLabel="Create mode">
+        <Pressable
+          style={[styles.modeBtn, mode === 'one' && styles.modeBtnActive]}
+          onPress={() => setMode('one')}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: mode === 'one' }}
+        >
+          <Text style={[styles.modeBtnText, mode === 'one' && styles.modeBtnTextActive]}>
+            One task
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.modeBtn, mode === 'many' && styles.modeBtnActive]}
+          onPress={() => setMode('many')}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: mode === 'many' }}
+        >
+          <Text style={[styles.modeBtnText, mode === 'many' && styles.modeBtnTextActive]}>
+            Add multiple
+          </Text>
+        </Pressable>
+      </View>
+
+      {mode === 'many' ? (
+        <BatchMode
+          text={batchText}
+          onTextChange={setBatchText}
+          onSubmit={handleBatchSave}
+          saving={saving}
+          status={batchStatus}
+          count={parsedBatch.titles.length}
+          truncated={parsedBatch.truncated}
+          captureFolderName={
+            folders.find((f) => f.id === captureFolderId)?.name ?? null
+          }
+        />
+      ) : (
+      <>
       {/* Title */}
       <Text style={styles.label}>Task</Text>
       <TextInput
@@ -317,7 +449,68 @@ export default function CreateTaskScreen() {
         <Ionicons name="checkmark" size={20} color="#fff" />
         <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save Task'}</Text>
       </TouchableOpacity>
+      </>
+      )}
     </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+function BatchMode({
+  text, onTextChange, onSubmit, saving, status, count, truncated, captureFolderName,
+}: {
+  text: string;
+  onTextChange: (t: string) => void;
+  onSubmit: () => void;
+  saving: boolean;
+  status: { kind: 'ok' | 'err'; text: string } | null;
+  count: number;
+  truncated: boolean;
+  captureFolderName: string | null;
+}) {
+  return (
+    <View style={{ marginTop: 4 }}>
+      <Text style={styles.label}>Brain dump</Text>
+      <Text style={styles.batchHint}>
+        One task per line. Lines starting with <Text style={{ fontWeight: '700' }}>#</Text> are ignored.
+      </Text>
+      <TextInput
+        style={[styles.input, styles.batchArea]}
+        placeholder={'Pick up laundry\nEmail Alex re: Q2 budget\n# these will go to your Capture inbox'}
+        placeholderTextColor="#bbb"
+        value={text}
+        onChangeText={onTextChange}
+        multiline
+        autoFocus
+        accessibilityLabel="Tasks, one per line"
+        autoCapitalize="sentences"
+      />
+      <Text style={styles.batchMetaHint}>
+        {count > 0
+          ? `${count} task${count === 1 ? '' : 's'} ready${truncated ? ` (capped at ${MAX_BATCH})` : ''}`
+          : 'Paste or type to get started.'}
+        {captureFolderName
+          ? `  ·  Destination: ${captureFolderName}`
+          : '  ·  Destination: no folder (create a "1. Capture" folder to organize).'}
+      </Text>
+      {status && (
+        <Text style={status.kind === 'ok' ? styles.batchOk : styles.batchErr}>
+          {status.text}
+        </Text>
+      )}
+      <TouchableOpacity
+        style={[styles.saveButton, (count === 0 || saving) && { opacity: 0.6 }]}
+        onPress={onSubmit}
+        disabled={count === 0 || saving}
+        accessibilityRole="button"
+        accessibilityLabel={`Add ${count} tasks`}
+      >
+        <Ionicons name="checkmark" size={20} color="#fff" />
+        <Text style={styles.saveText}>
+          {saving ? 'Adding…' : count > 0 ? `Add ${count} task${count === 1 ? '' : 's'}` : 'Add tasks'}
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -367,4 +560,41 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24,
   },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
+  modeSegment: {
+    flexDirection: 'row', gap: 0,
+    borderRadius: 10, overflow: 'hidden',
+    borderWidth: 1, borderColor: colors.border,
+    marginBottom: 6,
+  },
+  modeBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 10, backgroundColor: '#fff',
+    cursor: 'pointer' as any,
+    minHeight: 44,
+  },
+  modeBtnActive: { backgroundColor: colors.primary },
+  modeBtnText: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
+  modeBtnTextActive: { color: '#fff' },
+
+  batchHint: { fontSize: 12, color: colors.textMuted, marginTop: -2, marginBottom: 8 },
+  batchArea: {
+    minHeight: 200, textAlignVertical: 'top',
+    // iOS Safari zooms on <16px inputs; our base `input` is 16 already,
+    // but the textarea line-height benefits from a slight bump for the
+    // long-form feel of a brain dump.
+    lineHeight: 22,
+  },
+  batchMetaHint: {
+    fontSize: 12, color: colors.textMuted,
+    marginTop: 8, marginBottom: 4,
+  },
+  batchOk: {
+    fontSize: 13, color: colors.success, fontWeight: '600',
+    marginTop: 6,
+  },
+  batchErr: {
+    fontSize: 13, color: colors.danger, fontWeight: '600',
+    marginTop: 6,
+  },
 });
