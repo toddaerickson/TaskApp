@@ -25,10 +25,12 @@ export default function TabLayout() {
       headerTintColor: '#fff',
       // Mobile Safari covers the bottom of the viewport with its own chrome,
       // which was clipping the tab labels' descenders. Reserve enough vertical
-      // room for icon (18) + label (12) + padding, and use env(safe-area-...)
-      // on web so the bar lifts above the iOS browser bar.
+      // room for icon (18) + label (12) + padding, and grow the bar by the
+      // iOS home-indicator inset so labels don't sit under it on iPhones.
+      // Growing height (not just padding) keeps the icon+label space intact;
+      // if only padding grew, the usable area shrank by the inset amount.
       tabBarStyle: Platform.OS === 'web' ? ({
-        height: 68,
+        height: 'calc(68px + env(safe-area-inset-bottom))',
         paddingTop: 6,
         // RN-web passes the raw CSS string through; on iOS Safari this lifts
         // the bar above the browser chrome. TS types reject the string, so
