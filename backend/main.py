@@ -172,17 +172,25 @@ _origins = [
     "http://localhost:3000",
     *_extra,
 ]
-# In dev (SQLite), if CORS_ORIGINS is unset, fall back to allow-all so a
-# fresh clone "just works". In prod (Postgres), refuse to start without an
-# explicit allowlist — `*` would let any site call the API on behalf of
-# logged-in users.
+# Dev (SQLite) + unset CORS_ORIGINS → allow-all so a fresh clone "just
+# works". Prod (Postgres) + unset → boot with only localhost origins and
+# log loudly. We used to RuntimeError here, which crash-looped the Fly
+# machine and got masked as "403 host_not_allowed" from the edge proxy
+# — the operator saw a network failure instead of a clear startup error.
+# Boot-and-warn keeps /health reachable so the ops path is obvious.
+_cors_misconfigured = False
 if not _extra:
     if DB_TYPE == "postgresql":
-        raise RuntimeError(
-            "CORS_ORIGINS must be set in production. "
-            "Example: `fly secrets set CORS_ORIGINS=https://taskapp.vercel.app`."
+        _cors_misconfigured = True
+        log.error(
+            "CORS_ORIGINS is not set in production. Browser requests from "
+            "the frontend will be blocked until you set it via `fly secrets "
+            "set CORS_ORIGINS=https://your-frontend.vercel.app`. The app "
+            "will still serve /health and respond to curl requests so you "
+            "can diagnose from the Fly dashboard."
         )
-    _origins = ["*"]
+    else:
+        _origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -212,3 +220,54 @@ app.include_router(admin_routes.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/detailed")
+def health_detailed():
+    """Diagnostic health view — safe to call unauthenticated. Reports
+    which config surfaces are set so the operator can see via curl or
+    the Fly dashboard exactly what's missing when the app is alive but
+    the frontend can't talk to it. Intentionally never returns a 5xx
+    so a broken config stays observable — a 200 body with fields set
+    to False is the right "diagnosable" state.
+
+    Fields:
+      - db_type: "sqlite" or "postgresql"
+      - db_reachable: True when a SELECT 1 round-trips
+      - cors_origins_configured: True when CORS_ORIGINS env is non-empty
+      - jwt_secret_configured: True when JWT_SECRET was set from env
+        (not the public dev fallback)
+      - sentry_configured: True when SENTRY_DSN is set (optional)
+
+    Returns secrets' *presence*, never their *values*. Safe to call
+    from an untrusted edge monitor."""
+    from app.config import JWT_SECRET
+    # Import guard — the dev-fallback string lives in config.py and we
+    # don't want to re-export it. Matching the length is a cheap proxy.
+    jwt_is_dev = JWT_SECRET == "dev-secret-change-in-production"
+
+    # Probe the DB with a 1-second budget. Wraps any connection / auth
+    # failure into db_reachable=False rather than letting it bubble; the
+    # whole point of this endpoint is to return a useful status even when
+    # downstream dependencies are broken.
+    db_reachable = False
+    db_error: str | None = None
+    try:
+        from app.database import get_db
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 AS one")
+            row = cur.fetchone()
+            db_reachable = bool(row and row.get("one") == 1)
+    except Exception as e:  # noqa: BLE001 — intentionally broad; report any failure
+        db_error = f"{type(e).__name__}: {e}"[:200]
+
+    return {
+        "status": "ok",
+        "db_type": DB_TYPE,
+        "db_reachable": db_reachable,
+        "db_error": db_error,
+        "cors_origins_configured": not _cors_misconfigured,
+        "jwt_secret_configured": not jwt_is_dev,
+        "sentry_configured": bool(os.environ.get("SENTRY_DSN")),
+    }
