@@ -199,6 +199,21 @@ export default function RoutineDetailScreen() {
     }
   };
 
+  const handleClone = async () => {
+    if (!routine) return;
+    try {
+      const clone = await api.cloneRoutine(routine.id);
+      // Navigate straight into the clone in edit mode so the user can
+      // rename it without an extra tap. Use replace so the back button
+      // jumps to the list, not back to the source routine.
+      router.replace(`/workout/${clone.id}`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Failed to clone routine';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not clone', msg);
+    }
+  };
+
   if (!routine) {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
@@ -434,6 +449,20 @@ export default function RoutineDetailScreen() {
             >
               <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
               <Text style={styles.addExerciseText}>Add exercise</Text>
+            </Pressable>
+            {/* Clone: deep-copies this routine into a fresh "(copy)"
+                template. Navigates straight into the clone in edit mode
+                so the user can rename it without an extra tap. Lives
+                above Delete to separate additive actions from the
+                destructive one. */}
+            <Pressable
+              style={({ pressed }) => [styles.cloneRoutineBtn, pressed && { opacity: 0.7 }]}
+              onPress={handleClone}
+              accessibilityRole="button"
+              accessibilityLabel={`Duplicate routine ${routine.name}`}
+            >
+              <Ionicons name="copy-outline" size={18} color={colors.primary} />
+              <Text style={styles.cloneRoutineText}>Duplicate routine</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.deleteRoutineBtn, pressed && { opacity: 0.7 }]}
@@ -969,6 +998,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   addExerciseText: { color: colors.primary, fontWeight: '600', fontSize: 14 },
+  cloneRoutineBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    margin: 10, marginTop: 4,
+    paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  cloneRoutineText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
   deleteRoutineBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     margin: 10, marginTop: 4, marginBottom: 20,
