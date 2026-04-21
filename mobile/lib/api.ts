@@ -112,6 +112,16 @@ api.interceptors.response.use(
     const url: string = error?.config?.url || '';
     const hadAuth = Boolean(error?.config?.headers?.Authorization);
     const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+    // Extend the PIN unlock window on error responses too, not only on
+    // 2xx. A user stuck on a flaky network (airplane-mode train tunnel,
+    // captive wifi) still counts as "actively using the app" — forcing
+    // them to re-enter the PIN mid-workout because their requests
+    // 5xx'd is punishing the wrong failure. Skip when the status is a
+    // real 401 (token is actually dead; re-auth is correct) and skip
+    // on /auth/* endpoints (the unlock window is downstream of auth).
+    if (hadAuth && status !== 401 && !isAuthEndpoint) {
+      maybeTouchUnlock(url);
+    }
     if (status === 401 && hadAuth && !isAuthEndpoint) {
       try {
         if (Platform.OS === 'web') {

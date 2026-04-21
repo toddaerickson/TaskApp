@@ -14,7 +14,9 @@ import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import ImageSearchModal from '@/components/ImageSearchModal';
+import ErrorCard from '@/components/ErrorCard';
 import * as api from '@/lib/api';
+import { describeApiErrorDetailed } from '@/lib/apiErrors';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 
 /** Two-choice conflict prompt. Resolves with the user's decision rather
@@ -65,6 +67,11 @@ export default function RoutineDetailScreen() {
   const router = useRouter();
   const undo = useUndoSnackbar();
   const [routine, setRoutine] = useState<Routine | null>(null);
+  // Tri-state fetch: null + no error = still loading; string = fetch failed;
+  // set routine = loaded. Previous single-state logic left a spinner
+  // running forever on direct-URL / refresh when getRoutine rejected
+  // (404 for a stale id, 401 after token expiry, network blip on mobile).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -73,9 +80,15 @@ export default function RoutineDetailScreen() {
   const reload = useCallback(() => {
     if (!routineId) return;
     const id = Number(routineId);
+    setLoadError(null);
     api.getRoutine(id)
       .then(setRoutine)
-      .catch((e) => console.warn('[routine] getRoutine failed:', e));
+      .catch((e) => {
+        console.warn('[routine] getRoutine failed:', e);
+        setLoadError(describeApiErrorDetailed(e, 'Could not load this routine.'));
+      });
+    // Suggestions are best-effort — a failure here is not a screen-level
+    // error, it just means the "Next: …" hint row doesn't render.
     api.getRoutineSuggestions(id).then(setSuggestions).catch(() => setSuggestions([]));
   }, [routineId]);
   // Reload on focus so returning from a finished session picks up the new
@@ -191,9 +204,18 @@ export default function RoutineDetailScreen() {
     try {
       const session = await api.startSession(routine.id);
       router.replace(`/workout/session/${session.id}`);
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || 'Failed to start';
+    } catch (e) {
+      // Previously this catch surfaced only a generic "Failed to start"
+      // when the server response had no `detail`, which threw away the
+      // HTTP status and the request_id the backend emits (see main.py's
+      // uniform error shape). The resulting Safari alert told the user
+      // nothing and gave us nothing to correlate with server logs.
+      // describeApiErrorDetailed prepends "HTTP {status}" and appends
+      // "(req {id})" when either is present, so the next failure mode
+      // report is actionable — CORS, 5xx, or EXPO_PUBLIC_API_URL misconfig.
+      const msg = describeApiErrorDetailed(e, 'Failed to start session.');
       if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not start', msg);
     } finally {
       setStarting(false);
     }
@@ -214,6 +236,23 @@ export default function RoutineDetailScreen() {
     }
   };
 
+  if (loadError) {
+    // Previously a failed getRoutine left `routine` null and rendered the
+    // spinner below forever — direct URL + stale / revoked / bad-id paths
+    // all looked like an infinite loading state. ErrorCard gives the
+    // user a retry affordance and surfaces the server's status + request
+    // id for debugging.
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Routine' }} />
+        <ErrorCard
+          title="Couldn't load this routine"
+          msg={loadError}
+          retry={reload}
+        />
+      </>
+    );
+  }
   if (!routine) {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
