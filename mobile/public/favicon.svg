@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TaskApp favicon. 32-unit viewBox so it scales crisply from 16px
+  browser-tab to 512px PWA install icon. The design: a rounded
+  primary-blue square with a stylized checkmark + barbell-plate
+  accent — tasks + workouts, the two modules.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="6" fill="#1a73e8"/>
+  <!-- Checkmark -->
+  <path d="M8.5 16.5 l4 4 l9 -9" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

@@ -16,6 +16,31 @@
     "android": {
       "package": "com.taskapp.tasks"
     },
+    "web": {
+      "favicon": "./public/icon-192.png",
+      "bundler": "metro",
+      "name": "TaskApp",
+      "shortName": "TaskApp",
+      "themeColor": "#1a73e8",
+      "backgroundColor": "#f5f6fa",
+      "description": "Tasks + Workouts tracker",
+      "display": "standalone",
+      "orientation": "portrait",
+      "startUrl": "/",
+      "scope": "/",
+      "meta": [
+        {"name": "theme-color", "content": "#1a73e8"},
+        {"name": "apple-mobile-web-app-capable", "content": "yes"},
+        {"name": "apple-mobile-web-app-status-bar-style", "content": "default"},
+        {"name": "apple-mobile-web-app-title", "content": "TaskApp"},
+        {"name": "mobile-web-app-capable", "content": "yes"}
+      ],
+      "links": [
+        {"rel": "manifest", "href": "/manifest.json"},
+        {"rel": "apple-touch-icon", "href": "/apple-touch-icon.png"},
+        {"rel": "icon", "type": "image/svg+xml", "href": "/favicon.svg"}
+      ]
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
