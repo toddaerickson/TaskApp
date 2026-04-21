@@ -14,6 +14,7 @@ import {
   metricSeries, availableMetrics, filterByRange, sessionsToCsv,
   ExerciseStat, StatPoint, Metric,
 } from '@/lib/progress';
+import StreakHeatmap from '@/components/StreakHeatmap';
 
 const RANGE_OPTIONS: { days: number; label: string }[] = [
   { days: 30, label: '30d' },
@@ -61,12 +62,33 @@ export default function ProgressScreen() {
     }).finally(() => setLoading(false));
   }, []);
 
+  // Sessions windowed by the screen-scoped `rangeDays` selector. All
+  // three summary widgets below (stat cards, weekly bar, heatmap) work
+  // off this subset so the range selector at the top drives the whole
+  // screen, not just the per-exercise chart. rangeDays=0 means "All"
+  // and sessionsInRange === sessions.
+  const sessionsInRange = useMemo(() => {
+    if (!rangeDays || rangeDays <= 0) return sessions;
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return sessions.filter((s) => s.started_at.slice(0, 10) >= cutoffStr);
+  }, [sessions, rangeDays]);
+
   const stats = useMemo(
     () => aggregateByExercise(sessions, exercises),
     [sessions, exercises],
   );
-  const weekly = useMemo(() => weeklyCounts(sessions, 12), [sessions]);
-  const totalSets = useMemo(() => sessions.reduce((n, s) => n + (s.sets?.length ?? 0), 0), [sessions]);
+  // Weekly chart shows 12 bars when the range is >= 12w, otherwise it
+  // compresses to the range width (rounded up to whole weeks) so the
+  // chart doesn't show empty weeks outside the selected window.
+  const weeks = rangeDays > 0 ? Math.max(4, Math.min(12, Math.ceil(rangeDays / 7))) : 12;
+  const weekly = useMemo(() => weeklyCounts(sessionsInRange, weeks), [sessionsInRange, weeks]);
+  const totalSets = useMemo(
+    () => sessionsInRange.reduce((n, s) => n + (s.sets?.length ?? 0), 0),
+    [sessionsInRange],
+  );
 
   useEffect(() => {
     if (selectedExId === null && stats.length > 0) setSelectedExId(stats[0].exercise_id);
@@ -162,16 +184,56 @@ export default function ProgressScreen() {
         }}
       />
 
+      {/* Global date-range selector. Drives the stat cards, weekly bar,
+          heatmap, and per-exercise chart below. The per-exercise card
+          has its own metric toggle but no longer its own date range —
+          everything shares this window so the story on the page is
+          consistent. */}
+      <View
+        style={[styles.metricRow, styles.globalRangeRow]}
+        accessibilityRole="radiogroup"
+        accessibilityLabel="Date range"
+      >
+        {RANGE_OPTIONS.map((r) => {
+          const active = rangeDays === r.days;
+          return (
+            <Pressable
+              key={r.days}
+              style={[styles.rangeChip, active && styles.rangeChipActive]}
+              onPress={() => setRangeDays(r.days)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={r.label === '1y' ? '1 year' : r.label === 'All' ? 'All time' : `${r.days} days`}
+            >
+              <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
+                {r.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.statRow}>
-        <StatCard label="Sessions" value={String(sessions.length)} />
+        <StatCard label="Sessions" value={String(sessionsInRange.length)} />
         <StatCard label="Sets logged" value={String(totalSets)} />
         <StatCard label="Exercises used" value={String(stats.length)} />
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle} accessibilityRole="header">Sessions per week</Text>
-        <Text style={styles.cardSub}>Last 12 weeks</Text>
+        <Text style={styles.cardSub}>Last {weeks} weeks</Text>
         <BarChart data={weekly} height={140} />
+      </View>
+
+      {/* Streak heatmap. Always renders a 365-day grid anchored to
+          today; the selected rangeDays greys out everything older than
+          the cutoff so the visual focus matches the stat cards above. */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle} accessibilityRole="header">Streak heatmap</Text>
+        <Text style={styles.cardSub}>
+          Daily session count · {rangeDays > 0 ? `last ${rangeDays}d highlighted` : 'full year'}
+        </Text>
+        <StreakHeatmap sessions={sessions} rangeDays={rangeDays} />
       </View>
 
       <View style={styles.card}>
@@ -243,30 +305,8 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {/* Date-range toggle. 0 days = "All". */}
-        <View
-          style={styles.metricRow}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="Date range"
-        >
-          {RANGE_OPTIONS.map((r) => {
-            const active = rangeDays === r.days;
-            return (
-              <Pressable
-                key={r.days}
-                style={[styles.rangeChip, active && styles.rangeChipActive]}
-                onPress={() => setRangeDays(r.days)}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={r.label === '1y' ? '1 year' : r.label === 'All' ? 'All time' : `${r.days} days`}
-              >
-                <Text style={[styles.rangeChipText, active && styles.rangeChipTextActive]}>
-                  {r.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* Date-range selector moved to screen scope at the top; the
+            global one drives this chart too via the `rangeDays` state. */}
 
         {selectedStat && selectedMetric && (
           <LineChart
@@ -463,6 +503,12 @@ const styles = StyleSheet.create({
   metricRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
     marginTop: 8,
+  },
+  // Screen-scoped date-range selector sits outside a card, anchored to
+  // the top of the scroll view so it reads as "drives the whole page"
+  // rather than "scoped to the card below."
+  globalRangeRow: {
+    paddingHorizontal: 12, paddingTop: 12, marginTop: 0,
   },
   metricChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
