@@ -557,6 +557,17 @@ export async function deleteRoutine(id: number) {
   await api.delete(`/routines/${id}`);
 }
 
+/** Deep-copy a routine into a fresh template. Returns the full hydrated
+ *  new routine so the caller can navigate directly into it. Name gets a
+ *  " (copy)" suffix server-side — clients don't prompt for a name, the
+ *  user renames inline in the detail screen if desired. Return type
+ *  stays inferred (untyped from the server) so we don't duplicate the
+ *  Routine shape that lives in lib/stores.ts. */
+export async function cloneRoutine(id: number) {
+  const { data } = await api.post(`/routines/${id}/clone`);
+  return data;
+}
+
 export async function addExerciseToRoutine(routineId: number, payload: RoutineExerciseCreatePayload) {
   const { data } = await api.post(`/routines/${routineId}/exercises`, payload);
   return data;
