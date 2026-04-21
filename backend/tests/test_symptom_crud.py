@@ -93,29 +93,10 @@ def test_delete_user_exercise_unreferenced_is_200(client):
     assert r.status_code == 200
 
 
-def test_delete_user_exercise_returns_409_when_referenced(client):
-    tok = client.post("/auth/register", json={"email": "u@x.com", "password": "pw1234567"}).json()["access_token"]
-    ex = client.post(
-        "/exercises", headers=_h(tok),
-        json={"name": "Lunge", "measurement": "reps", "primary_muscle": "quad"},
-    ).json()
-    # Routine referencing the exercise
-    client.post(
-        "/routines", headers=_h(tok),
-        json={"name": "R", "exercises": [{"exercise_id": ex["id"], "target_sets": 3, "target_reps": 10}]},
-    )
-    r = client.delete(f"/exercises/{ex['id']}", headers=_h(tok))
-    assert r.status_code == 409
-    assert "1 routine" in r.json()["detail"]
-
-    # After removing from the routine, delete succeeds.
-    routines = client.get("/routines", headers=_h(tok)).json()
-    routine = routines["items"] if isinstance(routines, dict) and "items" in routines else routines
-    routine_id = routine[0]["id"]
-    client.delete(f"/routines/{routine_id}", headers=_h(tok))
-
-    r2 = client.delete(f"/exercises/{ex['id']}", headers=_h(tok))
-    assert r2.status_code == 200
+# (The former 409-on-referenced test was removed when the backend
+# switched to soft-delete. Routine references are now harmless — the
+# exercise row stays in the table when archived. See
+# test_exercise_soft_delete.py for the new behavior.)
 
 
 def test_delete_global_exercise_succeeds_for_authenticated_user(client, seeded_globals):
