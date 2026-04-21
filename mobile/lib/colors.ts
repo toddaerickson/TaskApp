@@ -30,7 +30,10 @@ export const colors = {
   warningSoft: '#f0ad4e',
   danger: '#e74c3c',
   dangerText: '#a52a1a',     // ≥ 6.22:1 on every surface
-  accent: '#f39c12',   // keystone / starred
+  // Priority (was "keystone") + starred tasks. Warm dark gold — reads as
+  // "important" without competing with the warning/danger oranges and
+  // reds. Matches the gold-star intuition the UI already used.
+  accent: '#d4a017',
   violet: '#8e44ad',   // tag badges
   group: '#6c5ce7',    // group-by pill
 

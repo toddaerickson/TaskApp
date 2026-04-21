@@ -12,8 +12,8 @@ reminders, starred items, and fast search. `(auth)/register` → `(tabs)/tasks`
 gets you from zero to an inbox in about a minute.
 
 **Workouts** — routines composed of exercises, with sets (weight / reps /
-duration / RPE per set), keystone markers, phased progressions, and per-set
-pain tracking for rehab. Highlights:
+duration / RPE per set), priority markers (the "don't skip" moves),
+phased progressions, and per-set pain tracking for rehab. Highlights:
 - **Routine CRUD** — Quick-start template strip, "New routine" modal,
   exercise picker (search by name / slug), inline edit of sets/reps/weight
   via tappable dose chips, reorder / remove, portable JSON import.
