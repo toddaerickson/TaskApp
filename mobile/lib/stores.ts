@@ -254,6 +254,10 @@ export interface Exercise {
   difficulty: number; is_bodyweight: boolean; measurement: string;
   instructions?: string; cue?: string; contraindications?: string;
   images: ExerciseImage[];
+  /** ISO timestamp when archived. NULL / undefined = active. Default
+   *  list endpoint hides archived rows; pass include_archived=true to
+   *  see them. */
+  archived_at?: string | null;
 }
 export interface RoutineExercise {
   id: number; routine_id: number; exercise_id: number; sort_order: number;

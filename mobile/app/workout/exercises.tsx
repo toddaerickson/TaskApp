@@ -49,10 +49,11 @@ export default function ExerciseLibraryScreen() {
   const [all, setAll] = useState<Exercise[] | null>(null);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryKey>('all');
+  const [showArchived, setShowArchived] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Inline-rowError per exercise id — set when a delete-409 surfaced so
-  // the user sees "Used in N routines…" right below the offending row.
+  // Inline-rowError per exercise id — surfaces backend 403 messages
+  // (cross-user delete attempt) or unexpected failures under the row.
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [pendingDelete, setPendingDelete] = useState<Set<number>>(new Set());
 
@@ -65,12 +66,15 @@ export default function ExerciseLibraryScreen() {
 
   const reload = () => {
     setErr(null);
-    api.getExercises()
+    api.getExercises({ include_archived: showArchived })
       .then(setAll)
       .catch((e) => setErr(e?.message || 'Failed to load exercises'));
   };
 
-  useEffect(reload, []);
+  // Refetch when the user flips the archived toggle so the server does
+  // the filtering rather than the client (keeps payload small on
+  // libraries with many archived rows).
+  useEffect(reload, [showArchived]);
 
   const visible = useMemo(() => {
     if (!all) return [];
@@ -128,14 +132,16 @@ export default function ExerciseLibraryScreen() {
           await api.deleteExercise(ex.id);
           reload();
         } catch (e: any) {
+          // Server now soft-deletes, so referenced exercises no longer
+          // 409 — the one error that still reaches us is 403 on a
+          // cross-user delete attempt (impossible in single-user
+          // self-hosted, but kept for safety).
           const status = e?.response?.status;
           const detail = e?.response?.data?.detail;
-          if (status === 409 && detail) {
-            setRowError((prev) => ({ ...prev, [ex.id]: detail }));
-          } else if (status === 403) {
+          if (status === 403) {
             setRowError((prev) => ({
               ...prev,
-              [ex.id]: 'Global exercises are read-only. Create your own copy to edit.',
+              [ex.id]: detail || "Can't archive this exercise.",
             }));
           } else if (detail) {
             setRowError((prev) => ({ ...prev, [ex.id]: detail }));
@@ -149,6 +155,16 @@ export default function ExerciseLibraryScreen() {
         }
       },
     });
+  };
+
+  const handleRestore = async (ex: Exercise) => {
+    try {
+      await api.restoreExercise(ex.id);
+      reload();
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail || 'Restore failed';
+      setRowError((prev) => ({ ...prev, [ex.id]: detail }));
+    }
   };
 
   return (
@@ -192,6 +208,29 @@ export default function ExerciseLibraryScreen() {
         })}
       </ScrollView>
 
+      {/* Archived toggle. Server filters by default; flipping this
+          refetches with include_archived=true so the user sees both
+          active and archived rows inline, with Restore affordances on
+          the archived ones. */}
+      <View style={styles.archivedRow}>
+        <Pressable
+          onPress={() => setShowArchived((v) => !v)}
+          style={[styles.archivedToggle, showArchived && styles.archivedToggleOn]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: showArchived }}
+          accessibilityLabel="Show archived exercises"
+        >
+          <Ionicons
+            name={showArchived ? 'eye' : 'eye-off-outline'}
+            size={14}
+            color={showArchived ? '#fff' : colors.textMuted}
+          />
+          <Text style={[styles.archivedToggleText, showArchived && styles.archivedToggleTextOn]}>
+            {showArchived ? 'Showing archived' : 'Show archived'}
+          </Text>
+        </Pressable>
+      </View>
+
       {!all && !err && (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       )}
@@ -206,45 +245,65 @@ export default function ExerciseLibraryScreen() {
           ) : (
             visible.map((ex) => {
               const isGlobal = ex.user_id === null;
+              const isArchived = !!ex.archived_at;
               return (
                 <View key={ex.id}>
-                  <View style={styles.row}>
+                  <View style={[styles.row, isArchived && styles.rowArchived]}>
                     {ex.images[0]?.url ? (
-                      <Image source={{ uri: ex.images[0].url }} style={styles.thumb} />
+                      <Image
+                        source={{ uri: ex.images[0].url }}
+                        style={[styles.thumb, isArchived && styles.thumbArchived]}
+                      />
                     ) : (
                       <View style={[styles.thumb, styles.thumbPlaceholder]}>
                         <Ionicons name="barbell-outline" size={20} color={colors.textMuted} />
                       </View>
                     )}
                     <View style={styles.rowText}>
-                      <Text style={styles.rowName}>{ex.name}</Text>
+                      <Text style={[styles.rowName, isArchived && styles.rowNameArchived]}>
+                        {ex.name}
+                      </Text>
                       <Text style={styles.rowMeta}>
                         {ex.primary_muscle || ex.category} · {ex.measurement}
                         {isGlobal ? ' · global' : ''}
+                        {isArchived ? ' · archived' : ''}
                       </Text>
                     </View>
-                    {/* Edit + delete affordances on every row. Backend
-                        allows globals to be edited and deleted for the
-                        single-user self-hosted case; a cross-user
-                        exercise is still blocked server-side. */}
-                    <Pressable
-                      onPress={() => openEdit(ex)}
-                      hitSlop={8}
-                      style={styles.iconBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${ex.name}`}
-                    >
-                      <Ionicons name="pencil" size={16} color={colors.primary} />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => handleDelete(ex)}
-                      hitSlop={8}
-                      style={styles.iconBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete ${ex.name}`}
-                    >
-                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                    </Pressable>
+                    {isArchived ? (
+                      // Archived rows show a Restore affordance instead
+                      // of edit/delete. Un-archiving reveals the row on
+                      // the default list again.
+                      <Pressable
+                        onPress={() => handleRestore(ex)}
+                        hitSlop={8}
+                        style={styles.iconBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Restore ${ex.name}`}
+                      >
+                        <Ionicons name="refresh" size={16} color={colors.primary} />
+                      </Pressable>
+                    ) : (
+                      <>
+                        <Pressable
+                          onPress={() => openEdit(ex)}
+                          hitSlop={8}
+                          style={styles.iconBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Edit ${ex.name}`}
+                        >
+                          <Ionicons name="pencil" size={16} color={colors.primary} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleDelete(ex)}
+                          hitSlop={8}
+                          style={styles.iconBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Archive ${ex.name}`}
+                        >
+                          <Ionicons name="archive-outline" size={16} color={colors.danger} />
+                        </Pressable>
+                      </>
+                    )}
                   </View>
                   {rowError[ex.id] && (
                     <Text style={styles.rowErrorText}>{rowError[ex.id]}</Text>
@@ -376,6 +435,23 @@ const styles = StyleSheet.create({
     color: colors.danger, fontSize: 12,
     paddingHorizontal: 12, paddingBottom: 8, marginTop: -2,
   },
+  rowArchived: { opacity: 0.55 },
+  thumbArchived: { opacity: 0.6 },
+  rowNameArchived: { textDecorationLine: 'line-through' },
+  archivedRow: {
+    flexDirection: 'row', justifyContent: 'flex-end',
+    paddingHorizontal: 12, paddingBottom: 4,
+  },
+  archivedToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border,
+    cursor: 'pointer' as any,
+  },
+  archivedToggleOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  archivedToggleText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
+  archivedToggleTextOn: { color: '#fff' },
 
   editOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
