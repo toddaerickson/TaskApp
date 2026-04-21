@@ -10,6 +10,7 @@ import { useTaskStore, Task, Reminder } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import { formatReminderChip } from '@/lib/taskReminder';
 import FiltersSheet from '@/components/FiltersSheet';
+import SortPopover from '@/components/SortPopover';
 
 // Status values that GTD treats as "not acting on right now" — when
 // "Hide deferred" is on, rows with these statuses are dropped locally.
@@ -41,6 +42,20 @@ const COLUMNS: { key: SortKey; label: string; flex: number }[] = [
   { key: 'due_date', label: 'Due', flex: 0.7 },
   { key: 'starred', label: 'Star', flex: 0.4 },
   { key: 'repeat_type', label: 'Repeat', flex: 0.6 },
+];
+
+// Rows that appear in the SortPopover. Same keys as the desktop
+// column-tap cycle (COLUMNS above) so both surfaces write to the same
+// `sorts` state.
+const SORT_OPTIONS: { key: SortKey; label: string; icon: keyof typeof import('@expo/vector-icons').Ionicons.glyphMap }[] = [
+  { key: 'folder', label: 'Folder', icon: 'folder-outline' },
+  { key: 'title', label: 'Alphabetical', icon: 'text' },
+  { key: 'priority', label: 'Priority', icon: 'flag-outline' },
+  { key: 'status', label: 'Status', icon: 'radio-button-on' },
+  { key: 'start_date', label: 'Start date', icon: 'calendar-outline' },
+  { key: 'due_date', label: 'Due date', icon: 'calendar' },
+  { key: 'starred', label: 'Starred', icon: 'star-outline' },
+  { key: 'repeat_type', label: 'Repeat', icon: 'repeat' },
 ];
 
 const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
@@ -166,6 +181,7 @@ export default function TasksScreen() {
   // because the backend filter is a single-status match; extending
   // that to a NOT-IN set is more cost than the local pass is worth.
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [hideDeferred, setHideDeferred] = useState(false);
 
   const nextActionsOn = filters.status === 'next_action';
@@ -312,6 +328,25 @@ export default function TasksScreen() {
           <Ionicons name="options-outline" size={14} color={activeSheetFilters > 0 ? '#fff' : '#666'} />
           <Text style={activeSheetFilters > 0 ? styles.filterTextActive : styles.filterText}>
             {activeSheetFilters > 0 ? `Filters (${activeSheetFilters})` : 'Filters'}
+          </Text>
+        </Pressable>
+
+        {/* Sort popover. Toodledo-style 3-level (FIRST/SECOND/THIRD
+            tabs + direction arrows). Writes to the same `sorts` state
+            the desktop column-tap uses; both surfaces stay in sync. */}
+        <Pressable
+          style={[styles.filterChip, sorts.length > 0 && styles.filterChipActive]}
+          onPress={() => setSortOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            sorts.length > 0
+              ? `Open sort, ${sorts.length} level${sorts.length === 1 ? '' : 's'} active`
+              : 'Open sort'
+          }
+        >
+          <Ionicons name="swap-vertical" size={14} color={sorts.length > 0 ? '#fff' : '#666'} />
+          <Text style={sorts.length > 0 ? styles.filterTextActive : styles.filterText}>
+            {sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
           </Text>
         </Pressable>
 
@@ -597,6 +632,17 @@ export default function TasksScreen() {
         hideDeferred={hideDeferred}
         onHideDeferredChange={setHideDeferred}
         onClearAll={clearAllSheetFilters}
+      />
+
+      <SortPopover
+        visible={sortOpen}
+        onClose={() => setSortOpen(false)}
+        options={SORT_OPTIONS}
+        sorts={sorts}
+        onChange={(next) => {
+          setSorts(next);
+          savePref(STORAGE_KEY_SORTS, next);
+        }}
       />
     </View>
   );
