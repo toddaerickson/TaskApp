@@ -116,3 +116,24 @@ def test_delete_user_exercise_returns_409_when_referenced(client):
 
     r2 = client.delete(f"/exercises/{ex['id']}", headers=_h(tok))
     assert r2.status_code == 200
+
+
+def test_delete_global_exercise_succeeds_for_authenticated_user(client, seeded_globals):
+    # Single-user self-hosted: the "global" / shared library is really just
+    # pre-seeded personal data. The delete endpoint allows removing it as
+    # long as no routine references the exercise.
+    tok = client.post("/auth/register", json={"email": "u@x.com", "password": "pw1234567"}).json()["access_token"]
+    r = client.delete(f"/exercises/{seeded_globals['wall']}", headers=_h(tok))
+    assert r.status_code == 200
+
+
+def test_delete_another_users_exercise_returns_403(client):
+    # Globals are fair game but someone else's user-owned exercise is not.
+    t1 = client.post("/auth/register", json={"email": "u1@x.com", "password": "pw1234567"}).json()["access_token"]
+    ex = client.post(
+        "/exercises", headers=_h(t1),
+        json={"name": "Mine", "measurement": "reps"},
+    ).json()
+    t2 = client.post("/auth/register", json={"email": "u2@x.com", "password": "pw1234567"}).json()["access_token"]
+    r = client.delete(f"/exercises/{ex['id']}", headers=_h(t2))
+    assert r.status_code == 403

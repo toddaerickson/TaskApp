@@ -140,8 +140,11 @@ def delete_exercise(exercise_id: int, user_id: int = Depends(get_current_user_id
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Exercise not found")
-        if row["user_id"] != user_id:
-            raise HTTPException(403, "Cannot delete a global exercise")
+        # Allow deleting globals (user_id IS NULL) OR the caller's own
+        # exercises. Single-user self-hosted: every row in the library is
+        # effectively theirs to prune. Matches update_exercise's guard.
+        if row["user_id"] is not None and row["user_id"] != user_id:
+            raise HTTPException(403, "Cannot delete another user's exercise")
         # Guard against orphaning routine rows. The user has to remove the
         # exercise from its routines first; we surface the count in the
         # error body so the mobile UI can render "Used in N routines".

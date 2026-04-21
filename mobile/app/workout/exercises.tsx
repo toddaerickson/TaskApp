@@ -31,10 +31,24 @@ const MEASUREMENT_OPTIONS: { value: Measurement; label: string }[] = [
   { value: 'distance', label: 'Distance' },
 ];
 
+// Category filter chips. Values match the backend category strings seeded
+// by seed_workouts.py (rehab / strength / mobility / cardio / general).
+// 'all' is a sentinel that disables category filtering.
+type CategoryKey = 'all' | 'rehab' | 'strength' | 'mobility' | 'cardio' | 'general';
+const CATEGORIES: { value: CategoryKey; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'rehab', label: 'Rehab' },
+  { value: 'strength', label: 'Strength' },
+  { value: 'mobility', label: 'Mobility' },
+  { value: 'cardio', label: 'Cardio' },
+  { value: 'general', label: 'General' },
+];
+
 export default function ExerciseLibraryScreen() {
   const undo = useUndoSnackbar();
   const [all, setAll] = useState<Exercise[] | null>(null);
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<CategoryKey>('all');
   const [err, setErr] = useState<string | null>(null);
 
   // Inline-rowError per exercise id — set when a delete-409 surfaced so
@@ -61,8 +75,9 @@ export default function ExerciseLibraryScreen() {
   const visible = useMemo(() => {
     if (!all) return [];
     return filterExercises(all, query)
+      .filter((ex) => category === 'all' || ex.category === category)
       .filter((ex) => !pendingDelete.has(ex.id));
-  }, [all, query, pendingDelete]);
+  }, [all, query, category, pendingDelete]);
 
   const openEdit = (ex: Exercise) => {
     setEditing(ex);
@@ -151,6 +166,32 @@ export default function ExerciseLibraryScreen() {
         accessibilityLabel="Search exercises"
       />
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.catRow}
+        accessibilityRole="tablist"
+        accessibilityLabel="Filter by category"
+      >
+        {CATEGORIES.map((c) => {
+          const on = category === c.value;
+          return (
+            <Pressable
+              key={c.value}
+              onPress={() => setCategory(c.value)}
+              style={[styles.catChip, on && styles.catChipActive]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={c.label}
+            >
+              <Text style={[styles.catChipText, on && styles.catChipTextActive]}>
+                {c.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {!all && !err && (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       )}
@@ -182,28 +223,28 @@ export default function ExerciseLibraryScreen() {
                         {isGlobal ? ' · global' : ''}
                       </Text>
                     </View>
-                    {!isGlobal && (
-                      <>
-                        <Pressable
-                          onPress={() => openEdit(ex)}
-                          hitSlop={8}
-                          style={styles.iconBtn}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Edit ${ex.name}`}
-                        >
-                          <Ionicons name="pencil" size={16} color={colors.primary} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDelete(ex)}
-                          hitSlop={8}
-                          style={styles.iconBtn}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Delete ${ex.name}`}
-                        >
-                          <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                        </Pressable>
-                      </>
-                    )}
+                    {/* Edit + delete affordances on every row. Backend
+                        allows globals to be edited and deleted for the
+                        single-user self-hosted case; a cross-user
+                        exercise is still blocked server-side. */}
+                    <Pressable
+                      onPress={() => openEdit(ex)}
+                      hitSlop={8}
+                      style={styles.iconBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${ex.name}`}
+                    >
+                      <Ionicons name="pencil" size={16} color={colors.primary} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleDelete(ex)}
+                      hitSlop={8}
+                      style={styles.iconBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${ex.name}`}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                    </Pressable>
                   </View>
                   {rowError[ex.id] && (
                     <Text style={styles.rowErrorText}>{rowError[ex.id]}</Text>
@@ -299,6 +340,18 @@ const styles = StyleSheet.create({
     fontSize: 15, backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.border, borderRadius: 8,
   },
+  catRow: {
+    flexDirection: 'row', gap: 6,
+    paddingHorizontal: 12, paddingBottom: 6,
+  },
+  catChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    cursor: 'pointer' as any,
+  },
+  catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  catChipText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
+  catChipTextActive: { color: '#fff' },
   list: { flex: 1, paddingHorizontal: 12 },
   empty: {
     textAlign: 'center', marginTop: 32, color: colors.textMuted, fontStyle: 'italic',

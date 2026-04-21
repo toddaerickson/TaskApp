@@ -22,10 +22,14 @@ def test_global_exercises_visible_to_any_user(auth_client, seeded_globals):
     assert "wall_ankle_dorsiflexion" in slugs
 
 
-def test_user_cannot_delete_global_exercise(auth_client, seeded_globals):
+def test_user_can_delete_global_exercise(auth_client, seeded_globals):
+    """Single-user self-hosted: the seeded "global" library is effectively
+    the user's own pre-populated data. The 403 guard on global delete
+    was dropped to unblock pruning/renaming. Cross-user-owned deletes
+    still 403 (covered in test_symptom_crud.py)."""
     c, tok, _ = auth_client
     r = c.delete(f"/exercises/{seeded_globals['wall']}", headers=_h(tok))
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 def test_user_can_edit_global_exercise(auth_client, seeded_globals):
