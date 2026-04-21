@@ -1,7 +1,7 @@
 import { colors } from "@/lib/colors";
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet,
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput,
   Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -184,6 +184,29 @@ export default function TasksScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [hideDeferred, setHideDeferred] = useState(false);
 
+  // Search box. The TextInput is controlled locally for instant-feel
+  // typing, and we debounce 300ms before pushing to filters.search (→
+  // server LIKE query). Without the debounce every keystroke triggers
+  // a fresh /tasks fetch which is wasteful and feels laggy on cellular.
+  const [searchInput, setSearchInput] = useState(filters.search || '');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onSearchChange = (v: string) => {
+    setSearchInput(v);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setFilters({ search: v.trim() || undefined });
+    }, 300);
+  };
+  const clearSearch = () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearchInput('');
+    setFilters({ search: undefined });
+  };
+  useEffect(() => () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  }, []);
+
   const nextActionsOn = filters.status === 'next_action';
   const hideFuture = !!filters.hide_future_start;
   const activeSheetFilters = (hideFuture ? 1 : 0) + (hideDeferred ? 1 : 0);
@@ -197,12 +220,15 @@ export default function TasksScreen() {
     setFilters({ hide_future_start: undefined });
   };
   const clearEverything = () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearchInput('');
     setHideDeferred(false);
     setFilters({
       hide_future_start: undefined,
       status: undefined,
       starred: undefined,
       completed: false,
+      search: undefined,
     });
   };
 
@@ -277,6 +303,34 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Search row. Sits above the chip bar — most users want
+          search-as-scope rather than search-as-chip. Clearing returns
+          filters.search to undefined so the backend drops the LIKE. */}
+      <View style={styles.searchRow}>
+        <Ionicons name="search" size={14} color={colors.textMuted} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          value={searchInput}
+          onChangeText={onSearchChange}
+          placeholder="Search tasks by title or note"
+          placeholderTextColor="#bbb"
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="Search tasks"
+          returnKeyType="search"
+        />
+        {searchInput.length > 0 && (
+          <Pressable
+            onPress={clearSearch}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
+            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+          </Pressable>
+        )}
+      </View>
+
       {/* Filter bar */}
       <View style={styles.filterBar}>
         <Pressable
@@ -424,8 +478,9 @@ export default function TasksScreen() {
       ) : sortedTasks.length === 0 ? (
         // Split empty-state copy: filters-zero vs real-zero. "Nothing on
         // your plate" is encouraging when you're actually done; it's
-        // misleading when three filter chips are quietly hiding things.
-        (nextActionsOn || activeSheetFilters > 0) ? (
+        // misleading when three filter chips (or a search query) are
+        // quietly hiding things.
+        (nextActionsOn || activeSheetFilters > 0 || !!filters.search) ? (
           <View style={styles.empty}>
             <Ionicons name="funnel-outline" size={56} color="#d0d7e2" />
             <Text style={styles.emptyTitle}>No matches</Text>
@@ -657,6 +712,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center',
     zIndex: 100, overflow: 'visible' as any,
+  },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+  },
+  searchIcon: { marginLeft: 2 },
+  searchInput: {
+    flex: 1, fontSize: 16,   // 16px to avoid iPhone Safari input-zoom.
+    paddingVertical: 2, color: '#222',
+    // Cast via `any` — RN-web's TextInput accepts the CSS outlineStyle
+    // property to suppress the browser's default focus ring, but it's
+    // not in RN's TextStyle type. Keeps web focus subtle without the
+    // thick blue outline.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
   },
   filterChip: {
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
