@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS routine_exercises (
     tempo TEXT,
     keystone BOOLEAN DEFAULT 0,
     notes TEXT,
+    target_rpe INTEGER,
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -435,6 +436,10 @@ def init_db():
             # phase_id references a real phase; orphaned values are
             # ignored safely.
             ("phase_id", "INTEGER"),
+            # RPE target per working set. NULL = no target set; session
+            # screen falls back to the last-logged RPE when suggesting.
+            # 1-10 range enforced at the Pydantic layer (RoutineExerciseCreate).
+            ("target_rpe", "INTEGER"),
         ])
         _ensure_columns(cur, "workout_sessions", [
             # Session-time snapshot of the routine's tracks_symptoms. See

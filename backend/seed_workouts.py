@@ -511,6 +511,48 @@ EXERCISES = [
             f"{_BASE}/Plank/0.jpg",
         ],
     },
+    {
+        "slug": "bench_press",
+        "name": "Bench Press",
+        "category": "strength",
+        "primary_muscle": "chest / triceps / front delts",
+        "equipment": "barbell + bench",
+        "difficulty": 3,
+        "is_bodyweight": False,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Lie back on a flat bench, eyes under the bar. Grip just wider "
+            "than shoulder-width, wrists stacked over elbows. Unrack, "
+            "settle over the mid-chest. Lower under control to touch the "
+            "lower chest, then press the bar back up and slightly back."
+        ),
+        "cue": "Shoulder blades pinned; feet drive through the floor.",
+        "images": [
+            f"{_BASE}/Barbell_Bench_Press_-_Medium_Grip/0.jpg",
+            f"{_BASE}/Barbell_Bench_Press_-_Medium_Grip/1.jpg",
+        ],
+    },
+    {
+        "slug": "overhead_press",
+        "name": "Overhead Press",
+        "category": "strength",
+        "primary_muscle": "shoulders / triceps",
+        "equipment": "barbell",
+        "difficulty": 3,
+        "is_bodyweight": False,
+        "measurement": "reps_weight",
+        "instructions": (
+            "Standing with bar at the front rack, elbows slightly ahead "
+            "of the bar. Brace core and glutes. Press the bar straight "
+            "up; tuck the chin as the bar passes the face, then push "
+            "the head 'through' at lockout. Lower under control."
+        ),
+        "cue": "Squeeze glutes + ribs down — no hyperextension on the press.",
+        "images": [
+            f"{_BASE}/Standing_Military_Press/0.jpg",
+            f"{_BASE}/Standing_Military_Press/1.jpg",
+        ],
+    },
 ]
 
 
