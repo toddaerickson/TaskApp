@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
@@ -29,6 +29,9 @@ class RoutineExerciseUpdate(BaseModel):
     # distinguishes "field omitted" from "field sent as null" — so clients
     # need to explicitly send phase_id: null to clear it.
     phase_id: Optional[int] = None
+    # Target RPE 1-10, Null clears it. Bounded so stale clients can't
+    # punch in a 42 and have it stick.
+    target_rpe: Optional[int] = Field(default=None, ge=1, le=10)
     # See RoutineUpdate.expected_updated_at — same story for per-exercise rows.
     expected_updated_at: Optional[datetime] = None
 
@@ -145,11 +148,11 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
             cur.execute(
                 """INSERT INTO routine_exercises
                 (routine_id, exercise_id, sort_order, target_sets, target_reps, target_weight,
-                 target_duration_sec, rest_sec, tempo, keystone, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 target_duration_sec, rest_sec, tempo, keystone, notes, target_rpe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (rid, ex.exercise_id, ex.sort_order if ex.sort_order is not None else idx,
                  ex.target_sets, ex.target_reps, ex.target_weight, ex.target_duration_sec,
-                 ex.rest_sec, ex.tempo, bool(ex.keystone), ex.notes),
+                 ex.rest_sec, ex.tempo, bool(ex.keystone), ex.notes, ex.target_rpe),
             )
         cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
         return _hydrate_routine(cur, cur.fetchone())
@@ -227,13 +230,16 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
                 """INSERT INTO routine_exercises
                 (routine_id, exercise_id, sort_order, target_sets, target_reps,
                  target_weight, target_duration_sec, rest_sec, tempo, keystone,
-                 notes, phase_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 notes, phase_id, target_rpe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     new_id, re["exercise_id"], re["sort_order"],
                     re["target_sets"], re["target_reps"], re["target_weight"],
                     re["target_duration_sec"], re["rest_sec"], re["tempo"],
                     bool(re["keystone"]), re["notes"], new_phase_id,
+                    # Legacy rows that predate target_rpe read as None via
+                    # dict.get — safe on both SQLite (DictRow) and PG.
+                    re.get("target_rpe"),
                 ),
             )
 
@@ -406,11 +412,11 @@ def add_exercise(routine_id: int, req: RoutineExerciseCreate, user_id: int = Dep
         cur.execute(
             """INSERT INTO routine_exercises
             (routine_id, exercise_id, sort_order, target_sets, target_reps, target_weight,
-             target_duration_sec, rest_sec, tempo, keystone, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             target_duration_sec, rest_sec, tempo, keystone, notes, target_rpe)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (routine_id, req.exercise_id, req.sort_order or 0, req.target_sets, req.target_reps,
              req.target_weight, req.target_duration_sec, req.rest_sec, req.tempo,
-             bool(req.keystone), req.notes),
+             bool(req.keystone), req.notes, req.target_rpe),
         )
         re_id = cur.lastrowid
         cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (re_id,))
@@ -423,7 +429,7 @@ def add_exercise(routine_id: int, req: RoutineExerciseCreate, user_id: int = Dep
 _ROUTINE_EXERCISE_UPDATE_COLUMNS = {
     "sort_order", "target_sets", "target_reps", "target_weight",
     "target_duration_sec", "rest_sec", "tempo", "keystone", "notes",
-    "phase_id", "updated_at",
+    "phase_id", "target_rpe", "updated_at",
 }
 
 

@@ -267,6 +267,9 @@ export interface RoutineExercise {
   /** Null = applies in every phase (warmups, cooldowns). Set = only surfaces
    *  when that phase is active. */
   phase_id?: number | null;
+  /** Target RPE per working set, 1-10. Null = no target — session logger
+   *  uses whatever the user types inline. Enforces bounds server-side. */
+  target_rpe?: number | null;
   /** Optimistic concurrency token — send back in expected_updated_at on save. */
   updated_at?: string | null;
 }

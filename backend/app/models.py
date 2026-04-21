@@ -310,6 +310,10 @@ class RoutineExerciseCreate(BaseModel):
     # Null means the exercise applies in every phase (e.g. a warmup the
     # user runs on every session regardless of progression).
     phase_id: Optional[int] = None
+    # Target RPE per working set, 1-10. Null = no target; session logger
+    # falls back to whatever the user types inline. Bounded here so bogus
+    # values from an old client land as a 422 instead of persisting.
+    target_rpe: Optional[int] = Field(default=None, ge=1, le=10)
 
 class RoutineExerciseResponse(RoutineExerciseCreate):
     id: int
