@@ -169,6 +169,10 @@ def hydrate_sessions_full(cur, session_rows: list[dict]) -> list[dict]:
     grouped: dict[int, list[dict]] = {sid: [] for sid in session_ids}
     for s in sets:
         s["completed"] = bool(s["completed"])
+        # is_warmup comes back as 0/1 from SQLite and True/False from PG;
+        # coerce to bool so the Pydantic SessionSetResponse serializes
+        # consistently on both.
+        s["is_warmup"] = bool(s.get("is_warmup"))
         grouped[s["session_id"]].append(s)
     for sess in session_rows:
         sess["sets"] = grouped.get(sess["id"], [])

@@ -214,6 +214,12 @@ CREATE TABLE IF NOT EXISTS session_sets (
     -- session has tracks_symptoms=TRUE; strength sessions leave NULL and
     -- the progression dispatcher falls through to the RPE path.
     pain_score INTEGER CHECK (pain_score BETWEEN 0 AND 10),
+    -- Per-set laterality: 'left' | 'right' | NULL (bilateral). Stored as
+    -- TEXT rather than an ENUM so SQLite + PG share the same path.
+    side TEXT,
+    -- Warmup sets: excluded from volume + progression suggestion. Default
+    -- FALSE so pre-column rows behave exactly as before.
+    is_warmup BOOLEAN DEFAULT FALSE,
     completed BOOLEAN DEFAULT TRUE,
     notes TEXT
 );
