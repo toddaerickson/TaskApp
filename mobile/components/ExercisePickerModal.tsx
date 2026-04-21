@@ -24,6 +24,7 @@ import { colors } from '@/lib/colors';
 import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
+import ImageSearchModal from '@/components/ImageSearchModal';
 
 
 type Measurement = 'reps' | 'reps_weight' | 'duration' | 'distance';
@@ -54,6 +55,13 @@ export function ExercisePickerModal({
   const [newMuscle, setNewMuscle] = useState('');
   const [newBodyweight, setNewBodyweight] = useState(true);
   const [creating, setCreating] = useState(false);
+  // Post-create interstitial: when non-null, the picker shows an
+  // "Add an image?" prompt for the freshly-created exercise. Find opens
+  // the image-search modal; Skip calls onPick and returns to the routine.
+  // Avoids the Settings → Exercise library detour the user previously
+  // needed just to attach an image to a brand-new exercise.
+  const [justCreated, setJustCreated] = useState<Exercise | null>(null);
+  const [imageSearchOpen, setImageSearchOpen] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -77,6 +85,8 @@ export function ExercisePickerModal({
       setNewMuscle('');
       setNewBodyweight(true);
       setCreating(false);
+      setJustCreated(null);
+      setImageSearchOpen(false);
     }
   }, [visible]);
 
@@ -94,10 +104,10 @@ export function ExercisePickerModal({
         is_bodyweight: newBodyweight,
         // slug is omitted — server auto-derives from name.
       });
-      // Hand the new exercise straight to the caller so it lands in the
-      // routine in one flow. The caller will close the modal via the
-      // same onPick callback.
-      onPick(created);
+      // Show the "Add an image?" interstitial instead of immediately
+      // handing back to the caller. Skip → onPick, Find → opens the
+      // image-search modal which completes the flow via onSaved below.
+      setJustCreated(created);
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || 'Could not create exercise';
       if (Platform.OS === 'web') window.alert(msg);
@@ -106,6 +116,48 @@ export function ExercisePickerModal({
       setCreating(false);
     }
   };
+
+  const finishCreated = async () => {
+    // Re-fetch the exercise so any images just attached are on the
+    // object we hand to the caller. Falls back to the original row
+    // if the refetch fails (rare — same process, same auth).
+    if (!justCreated) return;
+    try {
+      const fresh = await api.getExercise(justCreated.id);
+      onPick(fresh);
+    } catch {
+      onPick(justCreated);
+    }
+  };
+
+  // Interstitial: shown right after a successful create. Gives the user
+  // an inline path to attach an image without detouring through Settings.
+  const interstitial = justCreated && (
+    <View style={styles.interstitial}>
+      <Ionicons name="checkmark-circle" size={48} color={colors.success} />
+      <Text style={styles.interstitialTitle}>Created "{justCreated.name}"</Text>
+      <Text style={styles.interstitialSub}>Want to add an image now?</Text>
+      <View style={styles.interstitialActions}>
+        <Pressable
+          style={styles.interstitialSkip}
+          onPress={finishCreated}
+          accessibilityRole="button"
+          accessibilityLabel="Skip and add exercise without image"
+        >
+          <Text style={styles.interstitialSkipText}>Skip</Text>
+        </Pressable>
+        <Pressable
+          style={styles.interstitialFind}
+          onPress={() => setImageSearchOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Find an image for this exercise"
+        >
+          <Ionicons name="sparkles" size={16} color="#fff" />
+          <Text style={styles.interstitialFindText}>Find image</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 
   return (
     <Modal
@@ -116,17 +168,20 @@ export function ExercisePickerModal({
     >
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>Add exercise</Text>
+          <Text style={styles.title}>{justCreated ? 'Exercise created' : 'Add exercise'}</Text>
           <Pressable
-            onPress={onClose}
+            onPress={justCreated ? finishCreated : onClose}
             style={styles.closeBtn}
             accessibilityRole="button"
-            accessibilityLabel="Close exercise picker"
+            accessibilityLabel={justCreated ? 'Done' : 'Close exercise picker'}
           >
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
         </View>
 
+        {interstitial}
+
+        {!justCreated && (
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -137,7 +192,10 @@ export function ExercisePickerModal({
           style={styles.search}
           accessibilityLabel="Search exercises"
         />
+        )}
 
+        {!justCreated && (
+        <>
         {/* Create-new affordance. Expandable row — when collapsed it
             reads as a single "Create new exercise" Pressable; when
             expanded it grows a name / measurement / muscle form. */}
@@ -279,7 +337,19 @@ export function ExercisePickerModal({
             )}
           </ScrollView>
         )}
+        </>
+        )}
       </View>
+
+      {justCreated && (
+        <ImageSearchModal
+          visible={imageSearchOpen}
+          exerciseId={justCreated.id}
+          exerciseName={justCreated.name}
+          onClose={() => setImageSearchOpen(false)}
+          onSaved={finishCreated}
+        />
+      )}
     </Modal>
   );
 }
@@ -371,4 +441,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fce8e8',
   },
   errorText: { color: colors.dangerText, fontSize: 13 },
+
+  interstitial: {
+    alignItems: 'center', gap: 10,
+    padding: 24, margin: 16,
+    backgroundColor: colors.surface, borderRadius: 12,
+  },
+  interstitialTitle: { fontSize: 17, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  interstitialSub: { fontSize: 14, color: colors.textMuted, textAlign: 'center', marginBottom: 8 },
+  interstitialActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  interstitialSkip: {
+    paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8,
+    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: '#fff', cursor: 'pointer' as any,
+  },
+  interstitialSkipText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+  interstitialFind: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: colors.primary, cursor: 'pointer' as any,
+  },
+  interstitialFindText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

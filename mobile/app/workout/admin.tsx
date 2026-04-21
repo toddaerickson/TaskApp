@@ -1,14 +1,14 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Image, ActivityIndicator, Platform, Modal,
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Image, ActivityIndicator, Platform,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
-import type { ImageCandidate } from '@/lib/api';
 import { RoutineImportCard } from '@/components/RoutineImportCard';
+import ImageSearchModal from '@/components/ImageSearchModal';
 
 const SAMPLE = `# Paste one row per URL: slug<TAB>url
 # Or multiple URLs per slug on one row: slug<TAB>url1<TAB>url2
@@ -390,10 +390,6 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [candidates, setCandidates] = useState<ImageCandidate[]>([]);
-  const [searchQ, setSearchQ] = useState(exercise.name);
-  const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [name, setName] = useState(exercise.name);
   const [instructions, setInstructions] = useState(exercise.instructions || '');
   const [cue, setCue] = useState(exercise.cue || '');
@@ -446,41 +442,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
     }
   };
 
-  const runSearch = async (q: string) => {
-    setSearching(true);
-    setCandidates([]);
-    setSelected(new Set());
-    try {
-      const results = await api.searchExerciseImages(exercise.id, q || undefined, 8);
-      setCandidates(results);
-    } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Search failed');
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const openPicker = () => {
-    setSearchQ(exercise.name);
-    setPickerOpen(true);
-    runSearch(exercise.name);
-  };
-
-  const saveSelected = async () => {
-    if (selected.size === 0) { setPickerOpen(false); return; }
-    setBusy(true);
-    try {
-      for (const u of selected) {
-        await api.addExerciseImage(exercise.id, u);
-      }
-      setPickerOpen(false);
-      onChange();
-    } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Save failed');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const openPicker = () => setPickerOpen(true);
 
   return (
     <View style={styles.exRow}>
@@ -589,94 +551,13 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
         </Pressable>
       </View>
 
-      <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>Find image for {exercise.name}</Text>
-              <Pressable
-                onPress={() => setPickerOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close image picker"
-              >
-                <Ionicons name="close" size={22} color="#888" />
-              </Pressable>
-            </View>
-
-            <View style={styles.searchRow}>
-              <TextInput
-                value={searchQ}
-                onChangeText={setSearchQ}
-                style={styles.searchInput}
-                placeholder="Search query"
-                accessibilityLabel="Image search query"
-                autoCapitalize="none"
-                onSubmitEditing={() => runSearch(searchQ)}
-              />
-              <Pressable
-                style={styles.searchGoBtn}
-                onPress={() => runSearch(searchQ)}
-                disabled={searching}
-                accessibilityRole="button"
-                accessibilityLabel="Run image search"
-              >
-                <Ionicons name="search" size={16} color="#fff" />
-              </Pressable>
-            </View>
-
-            {searching ? (
-              <ActivityIndicator style={{ marginTop: 30 }} size="large" color={colors.primary} />
-            ) : candidates.length === 0 ? (
-              <Text style={styles.modalEmpty}>No results. Try a different query.</Text>
-            ) : (
-              <ScrollView contentContainerStyle={styles.candidateGrid}>
-                {candidates.map((c) => {
-                  const isSel = selected.has(c.url);
-                  return (
-                    <Pressable
-                      key={c.url}
-                      style={[styles.candidateCard, isSel && styles.candidateCardSel]}
-                      onPress={() => {
-                        const next = new Set(selected);
-                        if (isSel) next.delete(c.url); else next.add(c.url);
-                        setSelected(next);
-                      }}
-                    >
-                      <Image
-                        source={{ uri: c.thumb || c.url }}
-                        style={styles.candidateImg}
-                        resizeMode="cover"
-                      />
-                      {isSel && (
-                        <View style={styles.candidateCheck}>
-                          <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                        </View>
-                      )}
-                      {c.source && (
-                        <Text style={styles.candidateSource} numberOfLines={1}>{c.source}</Text>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            <View style={styles.modalFooter}>
-              <Text style={styles.selCount}>
-                {selected.size} selected
-              </Text>
-              <Pressable
-                style={[styles.saveSelBtn, (selected.size === 0 || busy) && { opacity: 0.5 }]}
-                onPress={saveSelected}
-                disabled={selected.size === 0 || busy}
-              >
-                <Ionicons name="cloud-download" size={14} color="#fff" />
-                <Text style={styles.saveSelText}>{busy ? 'Saving…' : `Save ${selected.size}`}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ImageSearchModal
+        visible={pickerOpen}
+        exerciseId={exercise.id}
+        exerciseName={exercise.name}
+        onClose={() => setPickerOpen(false)}
+        onSaved={onChange}
+      />
     </View>
   );
 }
