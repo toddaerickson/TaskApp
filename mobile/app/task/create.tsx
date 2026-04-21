@@ -76,6 +76,9 @@ export default function CreateTaskScreen() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [addingTag, setAddingTag] = useState(false);
+  // Inline title-error state. Replaces Alert.alert which is a silent
+  // no-op on Expo web (the reported "empty title silently fails" bug).
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   // GTD brain-dump mode. Toggles the header between "One task" and
   // "Add multiple"; the latter swaps the title field for a multiline
@@ -114,7 +117,11 @@ export default function CreateTaskScreen() {
   ];
 
   const handleSave = async () => {
-    if (!title.trim()) return Alert.alert('Error', 'Title is required');
+    if (!title.trim()) {
+      setTitleError('Title is required.');
+      return;
+    }
+    setTitleError(null);
     setSaving(true);
     try {
       await createTask({
@@ -131,7 +138,9 @@ export default function CreateTaskScreen() {
       });
       router.back();
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.detail || 'Failed to create task');
+      const msg = e?.response?.data?.detail || 'Failed to create task';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Error', msg);
     } finally {
       setSaving(false);
     }
@@ -264,14 +273,15 @@ export default function CreateTaskScreen() {
       {/* Title */}
       <Text style={styles.label}>Task</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, titleError && styles.inputError]}
         placeholder="What needs to be done?"
         accessibilityLabel="Task title"
         value={title}
-        onChangeText={setTitle}
+        onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
         autoFocus
         placeholderTextColor="#bbb"
       />
+      {titleError && <Text style={styles.errorText}>{titleError}</Text>}
 
       {/* Folder — dropdown replaces the chip strip */}
       <Text style={styles.label}>Folder</Text>
@@ -518,6 +528,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', padding: 16 },
   label: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 16, marginBottom: 6, textTransform: 'uppercase' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
+  inputError: { borderColor: colors.danger, borderWidth: 1.5 },
+  errorText: { color: colors.danger, fontSize: 13, marginTop: 4 },
 
   chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
 
