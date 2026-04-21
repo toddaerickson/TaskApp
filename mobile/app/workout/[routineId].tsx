@@ -268,7 +268,18 @@ export default function RoutineDetailScreen() {
           ),
         }}
       />
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        contentContainerStyle={
+          // The absolute-positioned footer's CTA is ~82px tall; add the iOS
+          // home-indicator inset on web so the last exercise card stays
+          // scrollable past the green Start button on iPhones. Cast through
+          // any because RN types reject the CSS string, but RN-web forwards
+          // it to the DOM verbatim.
+          Platform.OS === 'web'
+            ? ({ paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' } as any)
+            : { paddingBottom: 120 }
+        }
+      >
         {editMode ? (
           <RoutineHeaderEdit routine={routine} onSaved={reload} />
         ) : (
@@ -1104,7 +1115,14 @@ const styles = StyleSheet.create({
 
   footer: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee',
+    padding: 16,
+    // Keep the Start-workout button above the iPhone home indicator on web
+    // by reserving the safe-area inset at the bottom. max(16, inset) so
+    // devices without a home bar still get the original 16px padding.
+    ...(Platform.OS === 'web'
+      ? ({ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' } as any)
+      : null),
+    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee',
   },
   startBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

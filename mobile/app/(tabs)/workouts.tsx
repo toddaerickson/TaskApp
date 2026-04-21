@@ -1,13 +1,14 @@
 import { colors } from "@/lib/colors";
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput,
+  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput, Platform,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import ReminderSheet from '@/components/ReminderSheet';
+import SortPopover, { SortLevel } from '@/components/SortPopover';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
@@ -27,10 +28,104 @@ const GOAL_OPTIONS = [
   { value: 'cardio', label: 'Cardio' },
 ];
 
+// The filter-chip row mirrors the Tasks tab: "All" plus one chip per goal.
+// Keeping the value "all" off the Routine.goal enum so a goal mis-match
+// on the server side (new goal added without an update here) never hides
+// the row — we only filter when the user picks a concrete goal chip.
+const GOAL_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All' },
+  ...GOAL_OPTIONS,
+];
+
+type SortKey = 'name' | 'goal' | 'last_performed' | 'created';
+
+const SORT_OPTIONS: { key: SortKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'name', label: 'Name', icon: 'text' },
+  { key: 'goal', label: 'Goal', icon: 'flag-outline' },
+  { key: 'last_performed', label: 'Last performed', icon: 'calendar' },
+  { key: 'created', label: 'Created', icon: 'calendar-outline' },
+];
+
+type GroupKey = 'none' | 'goal';
+
+const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
+  { key: 'none', label: 'None' },
+  { key: 'goal', label: 'Goal' },
+];
+
+// localStorage keys. Web-only persistence; native always falls back to
+// the default sort (name asc) on cold start. Separate keys from the
+// Tasks tab so the two lists can diverge (e.g. group-by=goal on
+// routines, group-by=folder on tasks).
+const STORAGE_KEY_SORTS = 'taskapp_routine_sorts';
+const STORAGE_KEY_GROUP = 'taskapp_routine_groupBy';
+const STORAGE_KEY_GOAL = 'taskapp_routine_goalFilter';
+
+function loadPref<T>(key: string, fallback: T): T {
+  if (Platform.OS !== 'web') return fallback;
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : fallback;
+  } catch { return fallback; }
+}
+function savePref(key: string, value: unknown) {
+  if (Platform.OS !== 'web') return;
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota/full */ }
+}
+
+function getSortValue(
+  r: Routine,
+  lastPerformedByRoutine: Map<number, string>,
+  key: SortKey,
+): string {
+  switch (key) {
+    case 'name': return r.name.toLowerCase();
+    case 'goal': return r.goal;
+    // Never-performed routines sort to the end. ISO strings compare
+    // lexically so "zzz" beats any real timestamp.
+    case 'last_performed': return lastPerformedByRoutine.get(r.id) || 'zzz';
+    case 'created': return r.created_at || 'zzz';
+    default: return '';
+  }
+}
+
+function compareRoutines(
+  a: Routine,
+  b: Routine,
+  sorts: SortLevel<SortKey>[],
+  lastPerformedByRoutine: Map<number, string>,
+): number {
+  for (const { key, dir } of sorts) {
+    const av = getSortValue(a, lastPerformedByRoutine, key);
+    const bv = getSortValue(b, lastPerformedByRoutine, key);
+    let cmp = av.localeCompare(bv);
+    if (dir === 'desc') cmp = -cmp;
+    if (cmp !== 0) return cmp;
+  }
+  return 0;
+}
+
 export default function WorkoutsScreen() {
   const router = useRouter();
   const { routines, isLoading, loadRoutines } = useWorkoutStore();
   const [recent, setRecent] = useState<WorkoutSession[]>([]);
+
+  // Search / filter / sort / group state. Search is client-side because
+  // routine counts are small (<30 typical) and the pagination path from
+  // the store already fetches everything. The other three mirror the
+  // Tasks tab so the two list screens feel parallel.
+  const [search, setSearch] = useState('');
+  const [goalFilter, setGoalFilter] = useState<string>(() =>
+    loadPref(STORAGE_KEY_GOAL, 'all')
+  );
+  const [sorts, setSorts] = useState<SortLevel<SortKey>[]>(() =>
+    loadPref(STORAGE_KEY_SORTS, [{ key: 'name' as SortKey, dir: 'asc' as const }])
+  );
+  const [groupBy, setGroupBy] = useState<GroupKey>(() =>
+    loadPref(STORAGE_KEY_GROUP, 'none' as GroupKey)
+  );
+  const [sortOpen, setSortOpen] = useState(false);
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
 
   // "New routine" mini-modal. The previous empty state pointed users at
   // the seed script / Track symptoms; neither made sense for a self-
@@ -75,6 +170,95 @@ export default function WorkoutsScreen() {
 
   const streak = computeStreak(recent);
 
+  // Map routine_id → most recent started_at across the fetched recents
+  // window. Used by the "Last performed" sort and by the card meta line.
+  // Rebuild whenever the recents list changes, not every render.
+  const lastPerformedByRoutine = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const s of recent) {
+      if (!s.routine_id) continue;
+      const prev = m.get(s.routine_id);
+      if (!prev || s.started_at > prev) m.set(s.routine_id, s.started_at);
+    }
+    return m;
+  }, [recent]);
+
+  // Apply search + goal filter + sort, then bucket into groups. Groups is
+  // always an array of { key, label, items }. When groupBy is 'none' we
+  // emit a single unlabeled bucket so the renderer has one code path.
+  const visibleGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = routines.filter((r) => {
+      if (goalFilter !== 'all' && r.goal !== goalFilter) return false;
+      if (!q) return true;
+      // Search hits name + notes. Case-insensitive substring, no fancy
+      // tokenization — a 10-item list doesn't need it.
+      return (
+        r.name.toLowerCase().includes(q)
+        || (r.notes ?? '').toLowerCase().includes(q)
+      );
+    });
+
+    const sorted = sorts.length === 0
+      ? filtered
+      : [...filtered].sort((a, b) => compareRoutines(a, b, sorts, lastPerformedByRoutine));
+
+    if (groupBy === 'none') {
+      return [{ key: 'all', label: '', items: sorted }];
+    }
+    const buckets = new Map<string, { label: string; items: Routine[] }>();
+    for (const r of sorted) {
+      const key = r.goal || 'general';
+      const label = (GOAL_OPTIONS.find((g) => g.value === key)?.label) ?? key;
+      if (!buckets.has(key)) buckets.set(key, { label, items: [] });
+      buckets.get(key)!.items.push(r);
+    }
+    // Preserve GOAL_OPTIONS order for deterministic group ordering; any
+    // unrecognized goal (shouldn't happen today, but defensive) trails.
+    const ordered: { key: string; label: string; items: Routine[] }[] = [];
+    for (const g of GOAL_OPTIONS) {
+      const b = buckets.get(g.value);
+      if (b) { ordered.push({ key: g.value, ...b }); buckets.delete(g.value); }
+    }
+    for (const [key, b] of buckets) ordered.push({ key, ...b });
+    return ordered;
+  }, [routines, search, goalFilter, sorts, groupBy, lastPerformedByRoutine]);
+
+  // Flatten groups into a FlatList-friendly row array so one FlatList can
+  // render both group headers and routine cards. Alternative (SectionList)
+  // would also work but changes keying + the empty-state branch below.
+  type Row =
+    | { type: 'header'; key: string; label: string; count: number }
+    | { type: 'card'; key: string; routine: Routine };
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const g of visibleGroups) {
+      if (groupBy !== 'none') {
+        out.push({ type: 'header', key: `h-${g.key}`, label: g.label, count: g.items.length });
+      }
+      for (const r of g.items) out.push({ type: 'card', key: `r-${r.id}`, routine: r });
+    }
+    return out;
+  }, [visibleGroups, groupBy]);
+
+  const handleGoalFilter = (value: string) => {
+    setGoalFilter(value);
+    savePref(STORAGE_KEY_GOAL, value);
+  };
+  const handleGroupChange = (value: GroupKey) => {
+    setGroupBy(value);
+    savePref(STORAGE_KEY_GROUP, value);
+    setGroupDropdownOpen(false);
+  };
+  const handleSortsChange = (next: SortLevel<SortKey>[]) => {
+    setSorts(next);
+    savePref(STORAGE_KEY_SORTS, next);
+  };
+
+  const activeGroupLabel = GROUP_OPTIONS.find((g) => g.key === groupBy)?.label ?? 'None';
+  const totalVisible = rows.reduce((n, r) => n + (r.type === 'card' ? 1 : 0), 0);
+  const filtersActive = search.trim().length > 0 || goalFilter !== 'all';
+
   const openCreate = () => {
     setNewName('');
     setNewGoal('general');
@@ -118,7 +302,9 @@ export default function WorkoutsScreen() {
             <Text style={styles.newBtnText}>New routine</Text>
           </Pressable>
           <Text style={styles.headerCount}>
-            {routines.length} routine{routines.length === 1 ? '' : 's'}
+            {filtersActive
+              ? `${totalVisible} / ${routines.length}`
+              : `${routines.length} routine${routines.length === 1 ? '' : 's'}`}
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -153,32 +339,147 @@ export default function WorkoutsScreen() {
         </View>
       </View>
 
+      {/* Search row. Matches the Tasks tab shape — single input with a
+          magnifier icon. 16px font to avoid iPhone Safari's zoom-on-
+          focus. */}
+      <View style={styles.searchRow}>
+        <Ionicons name="search" size={16} color="#888" style={styles.searchIcon} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search routines…"
+          placeholderTextColor="#bbb"
+          style={styles.searchInput}
+          accessibilityLabel="Search routines"
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={16} color="#bbb" />
+          </Pressable>
+        )}
+      </View>
+
+      {/* Filter + sort + group bar. Wraps on narrow screens so chips don't
+          squeeze into a vertical column. Order: goal chips, Sort, Group
+          by — same rhythm as the Tasks tab. */}
+      <View style={styles.filterBar}>
+        {GOAL_FILTER_OPTIONS.map((g) => {
+          const active = goalFilter === g.value;
+          // Per-goal accent color when active — matches the goal dot on
+          // each card so the filter state feels connected to the rows
+          // it's narrowing.
+          const bg = g.value === 'all' ? colors.primary : (GOAL_COLORS[g.value] ?? colors.primary);
+          return (
+            <Pressable
+              key={g.value}
+              onPress={() => handleGoalFilter(g.value)}
+              style={[
+                styles.filterChip,
+                active && { backgroundColor: bg, borderColor: bg },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={active ? `Goal filter: ${g.label} (active)` : `Filter by goal: ${g.label}`}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={active ? styles.filterTextActive : styles.filterText}>{g.label}</Text>
+            </Pressable>
+          );
+        })}
+
+        <Pressable
+          style={[styles.filterChip, sorts.length > 0 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+          onPress={() => setSortOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            sorts.length > 0
+              ? `Open sort, ${sorts.length} level${sorts.length === 1 ? '' : 's'} active`
+              : 'Open sort'
+          }
+        >
+          <Ionicons name="swap-vertical" size={14} color={sorts.length > 0 ? '#fff' : '#666'} />
+          <Text style={sorts.length > 0 ? styles.filterTextActive : styles.filterText}>
+            {sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
+          </Text>
+        </Pressable>
+
+        <View style={styles.groupByContainer}>
+          <Pressable
+            style={[styles.filterChip, groupBy !== 'none' && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+            onPress={() => setGroupDropdownOpen(!groupDropdownOpen)}
+            accessibilityRole="button"
+            accessibilityLabel={`Group by ${activeGroupLabel}. Tap to change.`}
+          >
+            <Ionicons name="layers-outline" size={14} color={groupBy !== 'none' ? '#fff' : '#666'} />
+            <Text style={groupBy !== 'none' ? styles.filterTextActive : styles.filterText}>
+              Group: {activeGroupLabel}
+            </Text>
+            <Ionicons
+              name={groupDropdownOpen ? 'chevron-up' : 'chevron-down'}
+              size={12}
+              color={groupBy !== 'none' ? '#fff' : '#666'}
+            />
+          </Pressable>
+          {groupDropdownOpen && (
+            <View style={styles.dropdown}>
+              {GROUP_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
+                  onPress={() => handleGroupChange(opt.key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: groupBy === opt.key }}
+                >
+                  <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+
       {isLoading ? (
         <View style={{ padding: 12 }}>
           <SkeletonList count={4} variant="card" />
         </View>
       ) : (
         <FlatList
-          data={routines}
-          keyExtractor={(r) => String(r.id)}
+          data={rows}
+          keyExtractor={(row) => row.key}
           contentContainerStyle={{ padding: 12 }}
           renderItem={({ item }) => {
-            const lastSession = recent.find((s) => s.routine_id === item.id);
-            const reminderLabel = formatReminder(item.reminder_time, item.reminder_days);
+            if (item.type === 'header') {
+              return (
+                <View style={styles.groupHeader}>
+                  <Text style={styles.groupHeaderText}>{item.label}</Text>
+                  <View style={styles.groupCount}>
+                    <Text style={styles.groupCountText}>{item.count}</Text>
+                  </View>
+                </View>
+              );
+            }
+            const r = item.routine;
+            const lastStarted = lastPerformedByRoutine.get(r.id);
+            const reminderLabel = formatReminder(r.reminder_time, r.reminder_days);
             const scheduled = Boolean(reminderLabel);
             return (
               <Pressable
                 style={styles.card}
-                onPress={() => router.push(`/workout/${item.id}`)}
+                onPress={() => router.push(`/workout/${r.id}`)}
                 accessibilityRole="button"
-                accessibilityLabel={`Open routine ${item.name}`}
+                accessibilityLabel={`Open routine ${r.name}`}
               >
-                <View style={[styles.goalDot, { backgroundColor: GOAL_COLORS[item.goal] || '#999' }]} />
+                <View style={[styles.goalDot, { backgroundColor: GOAL_COLORS[r.goal] || '#999' }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{item.name}</Text>
+                  <Text style={styles.cardTitle}>{r.name}</Text>
                   <Text style={styles.cardMeta}>
-                    {item.exercises.length} exercises · {item.goal}
-                    {lastSession && ` · last ${formatRel(lastSession.started_at)}`}
+                    {r.exercises.length} exercises · {r.goal}
+                    {lastStarted && ` · last ${formatRel(lastStarted)}`}
                   </Text>
                   {reminderLabel && (
                     <View style={styles.reminderRow}>
@@ -186,19 +487,19 @@ export default function WorkoutsScreen() {
                       <Text style={styles.reminderText} numberOfLines={1}>{reminderLabel}</Text>
                     </View>
                   )}
-                  {item.notes ? <Text style={styles.cardNotes} numberOfLines={2}>{item.notes}</Text> : null}
+                  {r.notes ? <Text style={styles.cardNotes} numberOfLines={2}>{r.notes}</Text> : null}
                 </View>
                 <Pressable
                   // Swallow the tap so it doesn't bubble to the card's
                   // onPress (which would navigate instead of opening
                   // the sheet).
-                  onPress={(e) => { e.stopPropagation(); setReminderTarget(item); }}
+                  onPress={(e) => { e.stopPropagation(); setReminderTarget(r); }}
                   style={styles.alarmBtn}
                   accessibilityRole="button"
                   accessibilityLabel={
                     scheduled
-                      ? `Edit reminder for ${item.name}: ${reminderLabel}`
-                      : `Set reminder for ${item.name}`
+                      ? `Edit reminder for ${r.name}: ${reminderLabel}`
+                      : `Set reminder for ${r.name}`
                   }
                   hitSlop={8}
                 >
@@ -213,25 +514,56 @@ export default function WorkoutsScreen() {
             );
           }}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="barbell-outline" size={64} color="#d0d7e2" />
-              <Text style={styles.emptyTitle}>No routines yet</Text>
-              <Text style={styles.emptyHint}>
-                Routines group exercises you do together. Create one and add moves from the library.
-              </Text>
-              <Pressable
-                style={styles.emptyCta}
-                onPress={openCreate}
-                accessibilityRole="button"
-                accessibilityLabel="Create your first routine"
-              >
-                <Ionicons name="add" size={16} color="#fff" />
-                <Text style={styles.emptyCtaText}>Create routine</Text>
-              </Pressable>
-            </View>
+            // Split the empty state: filters-zero vs real-zero. "No
+            // routines yet" + CTA is encouraging on first visit, but
+            // misleading when a user is staring at 20 real routines
+            // filtered down to 0 by a search. Mirrors the Tasks tab.
+            filtersActive ? (
+              <View style={styles.empty}>
+                <Ionicons name="funnel-outline" size={56} color="#d0d7e2" />
+                <Text style={styles.emptyTitle}>No matches</Text>
+                <Text style={styles.emptyHint}>
+                  Nothing fits your current search or goal filter.
+                </Text>
+                <Pressable
+                  style={styles.emptyCta}
+                  onPress={() => { setSearch(''); handleGoalFilter('all'); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear filters"
+                >
+                  <Ionicons name="refresh" size={16} color="#fff" />
+                  <Text style={styles.emptyCtaText}>Clear filters</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.empty}>
+                <Ionicons name="barbell-outline" size={64} color="#d0d7e2" />
+                <Text style={styles.emptyTitle}>No routines yet</Text>
+                <Text style={styles.emptyHint}>
+                  Routines group exercises you do together. Create one and add moves from the library.
+                </Text>
+                <Pressable
+                  style={styles.emptyCta}
+                  onPress={openCreate}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create your first routine"
+                >
+                  <Ionicons name="add" size={16} color="#fff" />
+                  <Text style={styles.emptyCtaText}>Create routine</Text>
+                </Pressable>
+              </View>
+            )
           }
         />
       )}
+
+      <SortPopover
+        visible={sortOpen}
+        onClose={() => setSortOpen(false)}
+        options={SORT_OPTIONS}
+        sorts={sorts}
+        onChange={handleSortsChange}
+      />
 
       <Modal
         visible={createOpen}
@@ -385,6 +717,71 @@ const styles = StyleSheet.create({
     padding: 6, borderRadius: 8,
     backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
   },
+
+  // Search + filter + group row. Mirrors the Tasks tab for muscle-memory
+  // parity — same chip radii, same input styling, same chevron behavior.
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+  },
+  searchIcon: { marginLeft: 2 },
+  searchInput: {
+    flex: 1,
+    // 16px to avoid iPhone Safari's input-zoom-on-focus. Anything
+    // smaller and the page zooms in when the user taps.
+    fontSize: 16,
+    paddingVertical: 2, color: '#222',
+    // Cast via `any` — RN-web's TextInput accepts outlineStyle to
+    // suppress the browser focus ring, but it's not in RN's TextStyle
+    // type. Keeps web focus unobtrusive.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+  },
+  filterBar: {
+    flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#eee',
+    alignItems: 'center',
+    // Dropdowns on web need the bar to leak its children outside its
+    // bounds; `overflow: visible` + high zIndex lets the Group-by
+    // dropdown render above the card list.
+    zIndex: 100, overflow: 'visible' as any,
+  },
+  filterChip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e3e7ee',
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    cursor: 'pointer' as any,
+  },
+  filterText: { fontSize: 12, color: '#555', fontWeight: '600' },
+  filterTextActive: { fontSize: 12, color: '#fff', fontWeight: '700' },
+
+  groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
+  dropdown: {
+    position: 'absolute' as any, top: 34, left: 0, zIndex: 9999,
+    backgroundColor: '#fff', borderRadius: 8, padding: 4,
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 10, minWidth: 150, borderWidth: 1, borderColor: '#d0d0d0',
+  },
+  dropdownItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+    cursor: 'pointer' as any,
+  },
+  dropdownItemActive: { backgroundColor: '#f0f4ff' },
+  dropdownText: { fontSize: 13, color: '#333' },
+  dropdownTextActive: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+
+  groupHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, paddingHorizontal: 12, marginBottom: 4, marginTop: 4,
+    backgroundColor: '#e8eef7', borderRadius: 6,
+  },
+  groupHeaderText: { fontSize: 12, fontWeight: '700', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  groupCount: {
+    backgroundColor: '#d0ddf0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+  },
+  groupCountText: { fontSize: 11, color: colors.primary, fontWeight: '700' },
 
   card: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
