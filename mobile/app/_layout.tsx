@@ -91,9 +91,14 @@ function RootLayout() {
     try { router.replace('/(auth)/login'); } catch { /* router not ready yet */ }
   };
 
-  // Re-lock when the unlock window expires. Two triggers:
-  //   1. App returns to foreground after >15 min in background.
-  //   2. App stays open past the 15-min mark (polled every 30s).
+  // Re-lock on foreground transition after the unlock window expired.
+  // Previously this also polled every 30s while the app was open, which
+  // kicked users to PinGate mid-workout if the timeout elapsed while
+  // they were logging sets. User-visible regression. The foreground
+  // check alone is the right security/UX balance: if you walk away and
+  // come back past the window, re-enter PIN; if you're actively using
+  // the app (and pin.ts's touchUnlock in the axios interceptor extends
+  // the window on every request), you stay unlocked.
   useEffect(() => {
     if (!unlocked) return;
     const recheck = async () => {
@@ -102,8 +107,7 @@ function RootLayout() {
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') recheck();
     });
-    const id = setInterval(recheck, 30_000);
-    return () => { sub.remove(); clearInterval(id); };
+    return () => { sub.remove(); };
   }, [unlocked]);
 
   if (unlocked === null) return null;

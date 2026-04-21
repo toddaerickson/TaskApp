@@ -73,13 +73,40 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// Active-use extends the PIN unlock window. Any successful authed API
+// call calls touchUnlock() so a user who's continuously interacting
+// doesn't get kicked to PinGate mid-session when the 8-hour window
+// expires. The re-lock on AppState foreground transition (see
+// _layout.tsx) still catches a real "walked away and came back" case.
+//
+// Deliberately fire-and-forget: we don't want response delivery to
+// wait on a SecureStore write. Also skip on /auth/* endpoints so a
+// failed login doesn't refresh a window the user no longer has.
+function maybeTouchUnlock(url: string) {
+  if (url.includes('/auth/login') || url.includes('/auth/register')) return;
+  // Lazy require so the module stays tree-shakeable. Platform-safe.
+  // Swallow errors: the worst case is that the user re-enters their
+  // PIN eight hours from now, not nine.
+  try {
+    const pin = require('./pin');
+    pin.touchUnlock?.().catch(() => { /* noop */ });
+  } catch {
+    /* noop */
+  }
+}
+
 // Global 401 handler. If the server rejects a request that carried an
 // Authorization header, the stored token is dead — clear it and let the
 // UI layer (subscribed via sessionExpiry) show a modal + route to /login.
 // 401s on /auth/login itself are expected (wrong password) — skip those
 // so we don't trigger the expired-session flow on a fresh login attempt.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const url: string = response?.config?.url || '';
+    const hadAuth = Boolean(response?.config?.headers?.Authorization);
+    if (hadAuth) maybeTouchUnlock(url);
+    return response;
+  },
   async (error) => {
     const status = error?.response?.status;
     const url: string = error?.config?.url || '';
