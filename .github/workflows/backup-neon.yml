@@ -1,0 +1,153 @@
+name: Nightly Neon backup
+
+# Independent off-site backup of the production Postgres DB. Runs on a
+# fixed schedule + allows manual dispatch for ad-hoc dumps during a
+# recovery drill or before a risky migration.
+#
+# Output: a GPG-symmetric-encrypted custom-format pg_dump file attached
+# to a GitHub Release tagged `backup-YYYY-MM-DD`. Releases are
+# immutable once created; restore via `backend/scripts/restore_from_dump.sh`
+# or the manual procedure in docs/DISASTER_RECOVERY.md.
+#
+# Why GitHub Releases and not S3 / R2 / off-cloud: free, no new IAM to
+# manage, audit trail via the Releases UI, different blast radius from
+# Neon + Fly. For a single-user app with small DB, Releases is the
+# right tool. Re-evaluate if the dump ever exceeds a few GB or the
+# repo goes public (the encrypted file would still be safe but the
+# existence of nightly Releases is observable).
+#
+# Required repo secrets (Settings → Secrets → Actions):
+#   NEON_READONLY_DATABASE_URL  — connection string for a READ-ONLY
+#       Neon role. Create this role with `CREATE ROLE backup ... LOGIN`
+#       + `GRANT CONNECT ON DATABASE ... TO backup` + `GRANT USAGE ON
+#       SCHEMA public TO backup` + `GRANT SELECT ON ALL TABLES IN
+#       SCHEMA public TO backup`. Don't reuse the app's role — the
+#       blast radius of a leaked GitHub Actions secret should be
+#       "read a nightly dump," not "drop the DB."
+#
+#   BACKUP_PASSPHRASE           — GPG symmetric key for the dumps.
+#       32+ random characters. Store it here + in the operator's
+#       password manager. WITHOUT THIS PASSPHRASE, EVERY BACKUP IS
+#       A BRICK — document prominently (and we do, in
+#       docs/DISASTER_RECOVERY.md).
+
+on:
+  schedule:
+    # 07:00 UTC every day — ~02:00 Eastern, off-peak. Avoid 00:00 / 06:00
+    # because GitHub schedules those slots heavily and often defers.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional label for the Release (e.g. "pre-migration")'
+        required: false
+        default: ''
+
+# Permissions: we need to write Releases. `contents: write` is the
+# minimum required scope — explicitly narrow so a compromised workflow
+# can't do arbitrary pushes.
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    # No timeout-minutes because dumps are small; the default 6h is fine.
+    # If the DB grows past a few GB, revisit both timeout and storage.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgres client + gpg
+        # postgresql-client gives us pg_dump on Ubuntu. gnupg is
+        # pre-installed on GH runners; belt-and-suspenders.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client gnupg
+
+      - name: Verify pg_dump version
+        # Dumps created with newer pg_dump can't be restored by older
+        # pg_restore. Log the version so a restore mismatch is
+        # diagnosable from the Actions log alone.
+        run: pg_dump --version
+
+      - name: Dump + encrypt
+        env:
+          NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        # --format=custom produces a compressed binary dump that
+        # pg_restore can selectively restore from (per-table, per-schema).
+        # Streamed through gpg so the plaintext never lands on disk.
+        # AES256 + SHA256 are the conservative defaults.
+        run: |
+          set -euo pipefail
+          if [ -z "$NEON_URL" ]; then
+            echo "::error::NEON_READONLY_DATABASE_URL secret is not set." >&2
+            exit 1
+          fi
+          if [ -z "$PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE secret is not set." >&2
+            exit 1
+          fi
+          pg_dump --format=custom --no-owner --no-privileges "$NEON_URL" \
+            | gpg --symmetric --cipher-algo AES256 \
+                  --s2k-digest-algo SHA256 --s2k-count 65536 \
+                  --batch --passphrase-fd 3 --output backup.dump.gpg \
+                  3<<<"$PASSPHRASE"
+          ls -lh backup.dump.gpg
+          # Sanity: empty or near-empty dumps mean something is wrong
+          # (role lost SELECT grants, DB empty, whatever). Fail loudly
+          # rather than ship a brick. 1 KB is smaller than a single
+          # empty-schema custom-format pg_dump header.
+          size=$(stat -c%s backup.dump.gpg)
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::Backup file suspiciously small ($size bytes). Failing." >&2
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          TAG="backup-${DATE}"
+          # If today's release already exists (another run), append a
+          # suffix so we don't clobber the earlier dump. Second runs
+          # are rare; typically only during a manual dispatch after
+          # the scheduled one already fired.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG="${TAG}-$(date -u +%H%M)"
+          fi
+          TITLE="DB backup $DATE"
+          if [ -n "$NOTE" ]; then
+            TITLE="$TITLE ($NOTE)"
+          fi
+          gh release create "$TAG" backup.dump.gpg \
+            --title "$TITLE" \
+            --notes "Automated nightly backup. Restore with \`backend/scripts/restore_from_dump.sh\` — see docs/DISASTER_RECOVERY.md for the full runbook. Requires \`BACKUP_PASSPHRASE\` to decrypt." \
+            --latest=false
+
+      - name: Prune old backups (>30 days)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Delete Release tags older than 30 days. Matches the
+        # 30-day retention policy documented in DISASTER_RECOVERY.md.
+        # If you need a longer history for audit, increase RETENTION_DAYS
+        # here AND update the doc so the two stay in sync.
+        run: |
+          set -euo pipefail
+          RETENTION_DAYS=30
+          CUTOFF=$(date -u -d "$RETENTION_DAYS days ago" +%Y-%m-%d)
+          gh release list --limit 200 --json tagName,createdAt \
+            | jq -r --arg cutoff "$CUTOFF" '
+                .[]
+                | select(.tagName | startswith("backup-"))
+                | select(.createdAt < $cutoff)
+                | .tagName
+              ' \
+            | while read -r tag; do
+                [ -z "$tag" ] && continue
+                echo "Pruning old backup: $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
