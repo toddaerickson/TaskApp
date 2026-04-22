@@ -8,7 +8,7 @@ Single source of truth for how to restore production after a data-loss event. Li
           Client (iPhone Safari, laptop browser)
                │
                ▼
-        https://taskapp.vercel.app
+        https://taskapp-workout.vercel.app
         (Vercel Hobby, Expo web static assets)
                │
                ▼
@@ -143,7 +143,7 @@ Recovery window: **2-4 hours**. Use when losing both the Fly app and the Neon pr
    fly secrets set \
      DATABASE_URL="..." \
      JWT_SECRET="$(openssl rand -hex 48)" \
-     CORS_ORIGINS="https://taskapp.vercel.app" \
+     CORS_ORIGINS="https://taskapp-workout.vercel.app" \
      -a taskapp-workout
    fly deploy -a taskapp-workout
    ```

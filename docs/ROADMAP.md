@@ -4,11 +4,11 @@ Running log of merged PRs + open items. Living document, edited as work lands.
 
 ## Infrastructure
 
-- **Frontend**: [taskapp.vercel.app](https://taskapp.vercel.app) (Vercel Hobby, one production domain alias)
+- **Frontend**: [taskapp-workout.vercel.app](https://taskapp-workout.vercel.app) (Vercel Hobby, one production domain alias)
 - **Backend**: [taskapp-workout.fly.dev](https://taskapp-workout.fly.dev) (Fly.io, 1 machine, `min_machines_running = 0` — cold starts after idle)
 - **Database**: Neon Postgres (prod) / SQLite (local dev)
 
-Required Fly secrets: `CORS_ORIGINS` (= `https://taskapp.vercel.app`), `JWT_SECRET`, `DATABASE_URL`.
+Required Fly secrets: `CORS_ORIGINS` (= `https://taskapp-workout.vercel.app`), `JWT_SECRET`, `DATABASE_URL`.
 Required Vercel env: `EXPO_PUBLIC_API_URL` (= `https://taskapp-workout.fly.dev`).
 
 Diagnostic: `curl https://taskapp-workout.fly.dev/health/detailed` reports presence of each secret plus DB reachability.

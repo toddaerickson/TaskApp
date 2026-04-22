@@ -165,7 +165,8 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 # CORS: allow local dev origins + anything in CORS_ORIGINS env (comma-
 # separated). Set CORS_ORIGINS to your deployed frontend URL in prod, e.g.
-# `https://taskapp.vercel.app,https://taskapp-teric.vercel.app`.
+# `https://taskapp-workout.vercel.app` (comma-separated if multiple
+# origins — add preview domains one at a time as needed).
 _extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 _origins = [
     "http://localhost:8081",    # expo web
