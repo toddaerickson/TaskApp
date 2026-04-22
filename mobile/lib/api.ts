@@ -36,20 +36,19 @@ if (
   );
 }
 
-const api = axios.create({ baseURL: BASE_URL });
+const api = axios.create({ baseURL: BASE_URL, timeout: 30_000 });
 
-// Retry flaky GETs only. Writes (POST/PUT/DELETE/PATCH) are intentionally
-// NOT retried: a dropped connection after the server accepted a mutation
-// would double-post on retry. The default `isNetworkOrIdempotentRequestError`
-// already covers network errors + 5xx; we tighten it to GET only so we
-// don't retry idempotent writes either.
+// Retry on network errors (ECONNREFUSED, ETIMEDOUT) for ALL methods — the
+// request never reached the server so it's safe to resend. For server errors
+// (5xx), only retry GETs to avoid double-posting mutations.
 axiosRetry(api, {
   retries: 3,
   retryDelay: axiosRetry.exponentialDelay,
   retryCondition: (error) => {
+    if (axiosRetry.isNetworkError(error)) return true;
     const method = (error.config?.method ?? '').toLowerCase();
     if (method !== 'get') return false;
-    return axiosRetry.isNetworkOrIdempotentRequestError(error);
+    return axiosRetry.isRetryableError(error);
   },
 });
 

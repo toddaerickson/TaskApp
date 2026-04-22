@@ -11,6 +11,7 @@ rewritten to `%s` at execute time, and `lastrowid` is resolved via
 import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from app.config import DATABASE_URL, DB_TYPE
 
@@ -123,15 +124,54 @@ def _get_sqlite_connection():
     return conn
 
 
+_NO_RETRY_PGCODES = {"28P01", "28000", "3D000", "42501"}
+
+
 def _get_pg_connection():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=10,
+        options="-c statement_timeout=30000",
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+    )
     conn.autocommit = False
     return _CompatConnection(conn)
 
 
+def _get_pg_health_connection():
+    """Fast-path connection for health probes — no retry, short timeout."""
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=3,
+    )
+    conn.autocommit = True
+    return conn
+
+
 @contextmanager
 def get_db():
-    conn = _get_pg_connection() if DB_TYPE == "postgresql" else _get_sqlite_connection()
+    if DB_TYPE != "postgresql":
+        conn = _get_sqlite_connection()
+    else:
+        max_retries, delay = 3, 0.5
+        conn = None
+        for attempt in range(max_retries):
+            try:
+                conn = _get_pg_connection()
+                break
+            except Exception as exc:
+                pgcode = getattr(exc, "pgcode", None)
+                if pgcode in _NO_RETRY_PGCODES or attempt == max_retries - 1:
+                    raise
+                log.warning("DB connect attempt %d failed (%s), retrying in %.1fs",
+                            attempt + 1, exc, delay)
+                time.sleep(delay)
+                delay *= 2
     try:
         yield conn
     except Exception:

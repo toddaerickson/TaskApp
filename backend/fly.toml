@@ -27,15 +27,15 @@ primary_region = "iad"   # pick closer to you if desired
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0   # Fly will spin up on request; free-tier-friendly.
+  min_machines_running = 1   # Always-on; uses free-tier allowance, eliminates cold start.
   processes = ["app"]
 
   [[http_service.checks]]
     interval = "30s"
-    timeout = "5s"
+    timeout = "10s"      # room for Neon cold-start wake-up
     method = "GET"
     path = "/health"
-    grace_period = "10s"
+    grace_period = "30s"  # covers deploy + Neon double cold start
 
 [[vm]]
   size = "shared-cpu-1x"
