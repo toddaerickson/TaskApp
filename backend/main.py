@@ -42,10 +42,11 @@ log = logging.getLogger("taskapp")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: initialize DB schema (idempotent — uses CREATE IF NOT EXISTS).
+    import time as _time
+    t0 = _time.monotonic()
     init_db()
+    log.info("DB initialized in %.1fs (type=%s)", _time.monotonic() - t0, DB_TYPE)
     yield
-    # No shutdown work currently.
 
 
 app = FastAPI(title="TaskApp API", version="1.0.0", lifespan=lifespan)
@@ -219,7 +220,24 @@ app.include_router(admin_routes.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    if DB_TYPE != "postgresql":
+        return {"status": "ok"}
+    try:
+        from app.database import _get_pg_health_connection
+        conn = _get_pg_health_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 AS one")
+            cur.fetchone()
+        finally:
+            conn.close()
+        return {"status": "ok"}
+    except Exception as e:
+        log.warning("Health check DB probe failed: %s", e)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "detail": "db_unreachable"},
+        )
 
 
 @app.get("/health/detailed")
