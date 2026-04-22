@@ -132,7 +132,6 @@ def _get_pg_connection():
         DATABASE_URL,
         cursor_factory=psycopg2.extras.RealDictCursor,
         connect_timeout=10,
-        options="-c statement_timeout=30000",
         keepalives=1,
         keepalives_idle=30,
         keepalives_interval=10,
