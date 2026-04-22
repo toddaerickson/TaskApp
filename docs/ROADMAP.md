@@ -13,6 +13,8 @@ Required Vercel env: `EXPO_PUBLIC_API_URL` (= `https://taskapp-workout.fly.dev`)
 
 Diagnostic: `curl https://taskapp-workout.fly.dev/health/detailed` reports presence of each secret plus DB reachability.
 
+**Disaster recovery**: see [`docs/DISASTER_RECOVERY.md`](./DISASTER_RECOVERY.md) for the full runbook (Neon PITR restore, backup-dump restore, full rebuild on fresh Fly+Vercel, quarterly drill process).
+
 ## Recently merged
 
 ### Workouts post-audit roadmap (PRs #77–#85)
