@@ -22,6 +22,7 @@ import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import ImageSearchModal from '@/components/ImageSearchModal';
 
 type Measurement = 'reps' | 'reps_weight' | 'duration' | 'distance';
 const MEASUREMENT_OPTIONS: { value: Measurement; label: string }[] = [
@@ -63,6 +64,7 @@ export default function ExerciseLibraryScreen() {
   const [eMuscle, setEMuscle] = useState('');
   const [eMeasurement, setEMeasurement] = useState<Measurement>('reps');
   const [eBusy, setEBusy] = useState(false);
+  const [imageSearchOpen, setImageSearchOpen] = useState(false);
 
   const reload = () => {
     setErr(null);
@@ -374,6 +376,46 @@ export default function ExerciseLibraryScreen() {
               accessibilityLabel="Primary muscle"
             />
 
+            {/* Image management */}
+            <Text style={styles.fieldLabel}>Images</Text>
+            {editing && editing.images.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
+                {editing.images.map((img) => (
+                  <View key={img.id} style={styles.imageThumbWrap}>
+                    <Image source={{ uri: img.url }} style={styles.imageThumb} />
+                    <Pressable
+                      style={styles.imageDeleteBtn}
+                      onPress={async () => {
+                        await api.deleteExerciseImage(img.id);
+                        reload();
+                        setEditing((prev) =>
+                          prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
+                        );
+                      }}
+                      hitSlop={4}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove image"
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.noImageText}>No images yet.</Text>
+            )}
+            <Pressable
+              style={styles.findImageBtn}
+              onPress={() => setImageSearchOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={editing?.images.length ? 'Find another image' : 'Add image'}
+            >
+              <Ionicons name="sparkles" size={14} color={colors.primary} />
+              <Text style={styles.findImageText}>
+                {editing?.images.length ? 'Find another image' : 'Add image'}
+              </Text>
+            </Pressable>
+
             <Pressable
               style={[styles.saveBtn, (!eName.trim() || eBusy) && { opacity: 0.5 }]}
               onPress={submitEdit}
@@ -386,6 +428,23 @@ export default function ExerciseLibraryScreen() {
           </View>
         </View>
       </Modal>
+
+      {editing && (
+        <ImageSearchModal
+          visible={imageSearchOpen}
+          exerciseId={editing.id}
+          exerciseName={editing.name}
+          onClose={() => setImageSearchOpen(false)}
+          onSaved={() => {
+            reload();
+            // Refresh the editing exercise so the image strip updates
+            api.getExercises({ include_archived: showArchived }).then((exs) => {
+              const updated = exs.find((e: Exercise) => e.id === editing.id);
+              if (updated) setEditing(updated);
+            });
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -486,4 +545,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  imageStrip: { flexGrow: 0, marginBottom: 4 },
+  imageThumbWrap: { position: 'relative', marginRight: 8 },
+  imageThumb: { width: 72, height: 72, borderRadius: 6, backgroundColor: colors.borderSoft },
+  imageDeleteBtn: {
+    position: 'absolute', top: -6, right: -6,
+    backgroundColor: '#fff', borderRadius: 10,
+  },
+  noImageText: { fontSize: 13, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
+  findImageBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 8, cursor: 'pointer' as any,
+  },
+  findImageText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
 });

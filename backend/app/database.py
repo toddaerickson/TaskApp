@@ -484,19 +484,34 @@ def init_db():
         # added tracks_symptoms / is_warmup as INTEGER instead of BOOLEAN.
         # PG can cast 0/1 → bool safely. SQLite ignores column types so
         # this is a no-op there.
+        #
+        # The previous version wrapped this in EXCEPTION WHEN others THEN
+        # NULL which silently swallowed failures — including when the
+        # column's DEFAULT was incompatible with the type change. Now we
+        # drop the default first, convert, then re-add it.
         if DB_TYPE == "postgresql":
             for tbl, col in [
                 ("routines", "tracks_symptoms"),
                 ("workout_sessions", "tracks_symptoms"),
                 ("session_sets", "is_warmup"),
             ]:
-                cur.execute(f"""
-                    DO $$ BEGIN
-                        ALTER TABLE {tbl} ALTER COLUMN {col}
-                            TYPE BOOLEAN USING {col}::boolean;
-                    EXCEPTION WHEN others THEN NULL;
-                    END $$;
-                """)
+                # Check if the column is still integer-typed before altering.
+                cur.execute(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name = %s AND column_name = %s",
+                    (tbl, col),
+                )
+                row = cur.fetchone()
+                if row and row["data_type"] == "integer":
+                    log.info("Converting %s.%s from INTEGER to BOOLEAN", tbl, col)
+                    cur.execute(f"ALTER TABLE {tbl} ALTER COLUMN {col} DROP DEFAULT")
+                    cur.execute(
+                        f"ALTER TABLE {tbl} ALTER COLUMN {col} "
+                        f"TYPE BOOLEAN USING {col}::boolean"
+                    )
+                    cur.execute(
+                        f"ALTER TABLE {tbl} ALTER COLUMN {col} SET DEFAULT FALSE"
+                    )
 
 
 def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:

@@ -39,7 +39,20 @@ export function describeApiError(e: unknown, fallback = 'Something went wrong. T
   const err = e as AxiosError<ErrorBody>;
 
   if (!err?.response) {
-    return "Can't reach the server. Check your internet connection or try again shortly.";
+    // Distinguish between timeout, DNS, connection refused, and generic
+    // network failures so the error message actually helps diagnose.
+    const code = (err as any)?.code as string | undefined;
+    const msg = err?.message ?? '';
+    if (code === 'ECONNABORTED' || msg.includes('timeout')) {
+      return 'Request timed out. The server may be waking up — try again in a few seconds.';
+    }
+    if (code === 'ECONNREFUSED') {
+      return 'Connection refused. The server may be restarting.';
+    }
+    if (code === 'ERR_NETWORK' || msg.includes('Network Error')) {
+      return 'Network error — check your internet connection or try again shortly.';
+    }
+    return `Can't reach the server (${code || msg || 'unknown'}). Check your connection or try again.`;
   }
 
   const body = err.response.data;
