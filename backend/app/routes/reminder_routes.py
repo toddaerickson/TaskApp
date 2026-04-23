@@ -66,10 +66,10 @@ def upcoming_reminders(
         cur.execute("""
             SELECT r.* FROM reminders r
             JOIN tasks t ON t.id = r.task_id
-            WHERE t.user_id = ? AND NOT r.reminded
+            WHERE t.user_id = ? AND r.reminded = ?
             ORDER BY r.remind_at ASC
             LIMIT ?
-        """, (user_id, limit))
+        """, (user_id, False, limit))
         rows = cur.fetchall()
         for r in rows:
             r["reminded"] = bool(r["reminded"])
