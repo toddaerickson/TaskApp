@@ -446,13 +446,7 @@ def init_db():
             # that didn't pass expected_updated_at still succeed. New
             # writes populate it from now() in the UPDATE statements.
             ("updated_at", "TEXT"),
-            # Pain-monitored progression: when TRUE, sessions started
-            # from this routine snapshot the flag and get per-set pain
-            # capture + Silbernagel-style advance/hold/back-off in the
-            # suggestion engine. Existing rows get 0 (off) so strength
-            # routines are untouched. INTEGER not BOOLEAN for SQLite
-            # portability; the app layer coerces to bool.
-            ("tracks_symptoms", "INTEGER NOT NULL DEFAULT 0"),
+            ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
         _ensure_columns(cur, "routine_exercises", [
             ("updated_at", "TEXT"),
@@ -462,10 +456,7 @@ def init_db():
             ("target_rpe", "INTEGER"),
         ])
         _ensure_columns(cur, "workout_sessions", [
-            # Session-time snapshot of the routine's tracks_symptoms. See
-            # the matching column on routines for why this is a snapshot
-            # rather than a live lookup.
-            ("tracks_symptoms", "INTEGER NOT NULL DEFAULT 0"),
+            ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
         _ensure_columns(cur, "session_sets", [
             # Per-set pain score 0-10. Only written when the parent
@@ -477,10 +468,7 @@ def init_db():
             # historical default — pre-column rows read that way.
             # Stored as TEXT, not an enum, so SQLite + PG share a path.
             ("side", "TEXT"),
-            # Warmup flag. Warmup sets shouldn't push the progression
-            # suggestion or count toward volume. Default FALSE (0 on
-            # SQLite INTEGER) so existing rows behave exactly as before.
-            ("is_warmup", "INTEGER NOT NULL DEFAULT 0"),
+            ("is_warmup", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
         _ensure_columns(cur, "exercises", [
             # Soft-delete marker. Pre-feature rows get NULL which reads
@@ -489,10 +477,26 @@ def init_db():
             ("archived_at", "TEXT"),
         ])
         _ensure_columns(cur, "exercise_images", [
-            # Phase 6.3: content hash for dedup. Existing rows get NULL and
-            # the partial unique index skips them; new inserts supply a hash.
             ("content_hash", "TEXT"),
         ])
+
+        # Fix column types on databases where _ensure_columns originally
+        # added tracks_symptoms / is_warmup as INTEGER instead of BOOLEAN.
+        # PG can cast 0/1 → bool safely. SQLite ignores column types so
+        # this is a no-op there.
+        if DB_TYPE == "postgresql":
+            for tbl, col in [
+                ("routines", "tracks_symptoms"),
+                ("workout_sessions", "tracks_symptoms"),
+                ("session_sets", "is_warmup"),
+            ]:
+                cur.execute(f"""
+                    DO $$ BEGIN
+                        ALTER TABLE {tbl} ALTER COLUMN {col}
+                            TYPE BOOLEAN USING {col}::boolean;
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """)
 
 
 def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:
