@@ -9,22 +9,6 @@ from datetime import date, time, datetime
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _validate_iso_date_opt(v: Optional[str]) -> Optional[str]:
-    """ISO-8601 date validator shared by any Pydantic field that stores a
-    date as a string (phase_start_date, scheduling hints, etc.). Empty
-    string or None → None (clears the field). Any other value must parse
-    via date.fromisoformat, otherwise the field raises ValueError so the
-    caller gets a 422 instead of silently storing "not-a-date" and then
-    failing at render time."""
-    if v is None or v == "":
-        return None
-    try:
-        date.fromisoformat(v)
-    except ValueError as e:
-        raise ValueError(f"must be an ISO date (YYYY-MM-DD): {e}")
-    return v
-
-
 # --- Auth ---
 class RegisterRequest(BaseModel):
     email: str
@@ -307,9 +291,6 @@ class RoutineExerciseCreate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = False
     notes: Optional[str] = None
-    # Null means the exercise applies in every phase (e.g. a warmup the
-    # user runs on every session regardless of progression).
-    phase_id: Optional[int] = None
     # Target RPE per working set, 1-10. Null = no target; session logger
     # falls back to whatever the user types inline. Bounded here so bogus
     # values from an old client land as a 422 instead of persisting.
@@ -320,27 +301,6 @@ class RoutineExerciseResponse(RoutineExerciseCreate):
     routine_id: int
     updated_at: Optional[datetime] = None
     exercise: Optional[ExerciseResponse] = None
-
-
-class PhaseCreate(BaseModel):
-    label: str
-    order_idx: int
-    duration_weeks: int
-    notes: Optional[str] = None
-
-class PhaseUpdate(BaseModel):
-    label: Optional[str] = None
-    order_idx: Optional[int] = None
-    duration_weeks: Optional[int] = None
-    notes: Optional[str] = None
-
-class PhaseResponse(BaseModel):
-    id: int
-    routine_id: int
-    label: str
-    order_idx: int
-    duration_weeks: int
-    notes: Optional[str] = None
 
 
 class RoutineCreate(BaseModel):
@@ -363,19 +323,11 @@ class RoutineUpdate(BaseModel):
     sort_order: Optional[int] = None
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
-    # ISO date "YYYY-MM-DD". Marks when phase 0 of a phased routine
-    # begins. Null = routine is not phased.
-    phase_start_date: Optional[str] = None
     tracks_symptoms: Optional[bool] = None
     # Optimistic concurrency (Phase 7.4). When present, server returns 409
     # if the row's current updated_at has moved past this value since the
     # client's last GET. Omit to opt out (silent last-write-wins).
     expected_updated_at: Optional[datetime] = None
-
-    @field_validator("phase_start_date")
-    @classmethod
-    def _v_phase_start_date(cls, v: Optional[str]) -> Optional[str]:
-        return _validate_iso_date_opt(v)
 
 class RoutineResponse(BaseModel):
     id: int
@@ -386,31 +338,17 @@ class RoutineResponse(BaseModel):
     sort_order: int
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
-    phase_start_date: Optional[str] = None
     tracks_symptoms: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
     exercises: list[RoutineExerciseResponse] = []
-    phases: list[PhaseResponse] = []
-    # Server-resolved current phase based on phase_start_date + durations.
-    # Null when the routine has no phases or phase_start_date is null.
-    current_phase_id: Optional[int] = None
 
 
 # Portable JSON format for routine import/export. Uses `slug` instead of
 # `exercise_id` so a routine authored against one user's library survives
 # import into another user's library — as long as the seeded slugs match.
-# `phase_idx` is a 0-based pointer into `phases[]`; null = applies in
-# every phase. Resolved server-side to a real phase_id after the phases
-# are created.
-class RoutineImportPhase(BaseModel):
-    label: str
-    duration_weeks: int = Field(ge=1, le=520)
-    notes: Optional[str] = None
-
 class RoutineImportExercise(BaseModel):
     slug: str
-    phase_idx: Optional[int] = None
     target_sets: Optional[int] = 1
     target_reps: Optional[int] = None
     target_weight: Optional[float] = None
@@ -424,19 +362,11 @@ class RoutineImportRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     goal: Optional[str] = "general"
     notes: Optional[str] = None
-    phase_start_date: Optional[str] = None  # "YYYY-MM-DD"; null = flat
-    # Caps are well above realistic authoring (a Curovate protocol tops out
-    # at 4-6 phases and ~30 exercises). They exist to keep a malicious or
+    # Cap is well above realistic authoring. Exists to keep a malicious or
     # confused client from building a `slug IN (?,?...)` lookup that
     # exceeds SQLite's 32,766 parameter cap — the request would 500 mid-
     # transaction and take a handler worker with it.
-    phases: list[RoutineImportPhase] = Field(default_factory=list, max_length=20)
     exercises: list[RoutineImportExercise] = Field(default_factory=list, max_length=200)
-
-    @field_validator("phase_start_date")
-    @classmethod
-    def _v_phase_start_date(cls, v: Optional[str]) -> Optional[str]:
-        return _validate_iso_date_opt(v)
 
 
 class SessionSetCreate(BaseModel):

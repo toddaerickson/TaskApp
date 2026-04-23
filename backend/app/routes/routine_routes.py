@@ -8,7 +8,6 @@ from typing import Optional
 from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
-    PhaseCreate, PhaseUpdate, PhaseResponse,
     RoutineImportRequest,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
@@ -25,10 +24,6 @@ class RoutineExerciseUpdate(BaseModel):
     tempo: Optional[str] = None
     keystone: Optional[bool] = None
     notes: Optional[str] = None
-    # Null = unassign (applies in every phase). Pydantic's exclude_unset
-    # distinguishes "field omitted" from "field sent as null" — so clients
-    # need to explicitly send phase_id: null to clear it.
-    phase_id: Optional[int] = None
     # Target RPE 1-10, Null clears it. Bounded so stale clients can't
     # punch in a 42 and have it stick.
     target_rpe: Optional[int] = Field(default=None, ge=1, le=10)
@@ -70,9 +65,6 @@ def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool
 class RoutineReorderRequest(BaseModel):
     routine_exercise_ids: list[int]
 
-
-class PhaseReorderRequest(BaseModel):
-    phase_ids: list[int]
 
 router = APIRouter(prefix="/routines", tags=["routines"])
 
@@ -160,11 +152,10 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
 
 @router.post("/{routine_id}/clone", response_model=RoutineResponse)
 def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
-    """Deep-copy a routine the user owns: the routines row, all its
-    routine_phases, and all routine_exercises (with phase_id remapped
-    into the new phase ids). Session history is NOT copied — the clone
-    is a fresh template. The new routine's name is "{original} (copy)"
-    so the user can recognise it in the list without retyping anything.
+    """Deep-copy a routine the user owns: the routines row and all
+    routine_exercises. Session history is NOT copied — the clone is a
+    fresh template. The new routine's name is "{original} (copy)" so
+    the user can recognise it in the list without retyping anything.
 
     Runs in a single transaction (get_db commits on success, rolls back
     on exception) so a failure mid-copy never leaves a zombie routine
@@ -179,10 +170,8 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
         if not src:
             raise HTTPException(404, "Routine not found")
 
-        # Insert the new routines row. phase_start_date intentionally
-        # stays null — a clone is a template until the user assigns
-        # their own start. Reminders are not copied (a duplicated
-        # reminder is almost always noise).
+        # Insert the new routines row. Reminders are not copied (a
+        # duplicated reminder is almost always noise).
         cur.execute(
             """INSERT INTO routines
                (user_id, name, goal, notes, sort_order, tracks_symptoms)
@@ -198,47 +187,24 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
         )
         new_id = cur.lastrowid
 
-        # Phases next so routine_exercises can FK the cloned ids.
-        cur.execute(
-            "SELECT * FROM routine_phases WHERE routine_id = ? "
-            "ORDER BY order_idx ASC, id ASC",
-            (routine_id,),
-        )
-        old_to_new_phase: dict[int, int] = {}
-        for ph in cur.fetchall():
-            cur.execute(
-                "INSERT INTO routine_phases "
-                "(routine_id, label, order_idx, duration_weeks, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (new_id, ph["label"], ph["order_idx"], ph["duration_weeks"], ph["notes"]),
-            )
-            old_to_new_phase[ph["id"]] = cur.lastrowid
-
-        # Exercises in source order. phase_id is remapped through the
-        # old_to_new_phase dict; unmapped / null stays null so a clone
-        # of a flat routine remains flat.
+        # Exercises in source order.
         cur.execute(
             "SELECT * FROM routine_exercises WHERE routine_id = ? "
             "ORDER BY sort_order ASC, id ASC",
             (routine_id,),
         )
         for re in cur.fetchall():
-            new_phase_id = (
-                old_to_new_phase.get(re["phase_id"]) if re["phase_id"] is not None else None
-            )
             cur.execute(
                 """INSERT INTO routine_exercises
                 (routine_id, exercise_id, sort_order, target_sets, target_reps,
                  target_weight, target_duration_sec, rest_sec, tempo, keystone,
-                 notes, phase_id, target_rpe)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 notes, target_rpe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     new_id, re["exercise_id"], re["sort_order"],
                     re["target_sets"], re["target_reps"], re["target_weight"],
                     re["target_duration_sec"], re["rest_sec"], re["tempo"],
-                    bool(re["keystone"]), re["notes"], new_phase_id,
-                    # Legacy rows that predate target_rpe read as None via
-                    # dict.get — safe on both SQLite (DictRow) and PG.
+                    bool(re["keystone"]), re["notes"],
                     re.get("target_rpe"),
                 ),
             )
@@ -250,11 +216,9 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
 @router.post("/import", response_model=RoutineResponse)
 def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current_user_id)):
     """Create a routine from a portable JSON template. Resolves slugs to
-    exercise ids (rejecting unknown slugs), creates phases in declaration
-    order, then routine_exercises with phase_idx → phase_id remapping.
-    All-or-nothing: a single bad slug or out-of-range phase_idx 400s
-    before any rows are written, so the user never lands with a half-
-    imported routine."""
+    exercise ids (rejecting unknown slugs), then creates routine_exercises.
+    All-or-nothing: a single bad slug 400s before any rows are written,
+    so the user never lands with a half-imported routine."""
     if not req.exercises:
         raise HTTPException(400, "Routine must include at least one exercise")
 
@@ -278,14 +242,8 @@ def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current
                 400, f"Unknown exercise slug(s): {', '.join(sorted(set(missing)))}"
             )
 
-        # Validate phase_idx + measurement compatibility before writing.
-        n_phases = len(req.phases)
+        # Validate measurement compatibility before writing.
         for i, ex in enumerate(req.exercises):
-            if ex.phase_idx is not None and not (0 <= ex.phase_idx < n_phases):
-                raise HTTPException(
-                    400, f"exercises[{i}].phase_idx={ex.phase_idx} out of range "
-                         f"(have {n_phases} phase(s))"
-                )
             row = slug_to_row[ex.slug]
             measurement = row["measurement"]
             has_reps = ex.target_reps is not None
@@ -299,41 +257,27 @@ def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current
                     400, f"'{ex.slug}' is a reps exercise — set target_reps"
                 )
 
-        # Insert routine + phases + exercises in one transaction (get_db
-        # commits on success, rolls back on exception). phase_start_date
-        # is null when the import omits it — the routine stays "flat".
+        # Insert routine + exercises in one transaction (get_db commits
+        # on success, rolls back on exception).
         cur.execute(
             """INSERT INTO routines
-               (user_id, name, goal, notes, sort_order, phase_start_date)
-               VALUES (?, ?, ?, ?, 0, ?)""",
-            (user_id, req.name, req.goal or "general", req.notes,
-             req.phase_start_date),
+               (user_id, name, goal, notes, sort_order)
+               VALUES (?, ?, ?, ?, 0)""",
+            (user_id, req.name, req.goal or "general", req.notes),
         )
         rid = cur.lastrowid
 
-        # Phases first so routine_exercises can FK to them.
-        idx_to_phase_id: dict[int, int] = {}
-        for idx, ph in enumerate(req.phases):
-            cur.execute(
-                "INSERT INTO routine_phases "
-                "(routine_id, label, order_idx, duration_weeks, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rid, ph.label, idx, ph.duration_weeks, ph.notes),
-            )
-            idx_to_phase_id[idx] = cur.lastrowid
-
         for idx, ex in enumerate(req.exercises):
-            phase_id = idx_to_phase_id.get(ex.phase_idx) if ex.phase_idx is not None else None
             cur.execute(
                 """INSERT INTO routine_exercises
                 (routine_id, exercise_id, sort_order, target_sets, target_reps,
                  target_weight, target_duration_sec, rest_sec, tempo, keystone,
-                 notes, phase_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (rid, slug_to_row[ex.slug]["id"], idx,
                  ex.target_sets, ex.target_reps, ex.target_weight,
                  ex.target_duration_sec, ex.rest_sec, ex.tempo,
-                 bool(ex.keystone), ex.notes, phase_id),
+                 bool(ex.keystone), ex.notes),
             )
 
         cur.execute("SELECT * FROM routines WHERE id = ?", (rid,))
@@ -342,7 +286,7 @@ def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current
 
 _ROUTINE_UPDATE_COLUMNS = {
     "name", "goal", "notes", "sort_order",
-    "reminder_time", "reminder_days", "phase_start_date",
+    "reminder_time", "reminder_days",
     "tracks_symptoms", "updated_at",
 }
 
@@ -379,9 +323,8 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
         if fields:
             # Always bump updated_at alongside the caller's fields.
             fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
-            # Allow-list the columns. See _PHASE_UPDATE_COLUMNS for the
-            # same reasoning — hardens the dynamic UPDATE against a
-            # future Pydantic config that lets extra fields through.
+            # Allow-list the columns — hardens the dynamic UPDATE against
+            # a future Pydantic config that lets extra fields through.
             fields = {k: v for k, v in fields.items() if k in _ROUTINE_UPDATE_COLUMNS}
             if "tracks_symptoms" in fields:
                 fields["tracks_symptoms"] = int(bool(fields["tracks_symptoms"]))
@@ -431,7 +374,7 @@ def add_exercise(routine_id: int, req: RoutineExerciseCreate, user_id: int = Dep
 _ROUTINE_EXERCISE_UPDATE_COLUMNS = {
     "sort_order", "target_sets", "target_reps", "target_weight",
     "target_duration_sec", "rest_sec", "tempo", "keystone", "notes",
-    "phase_id", "target_rpe", "updated_at",
+    "target_rpe", "updated_at",
 }
 
 
@@ -453,21 +396,6 @@ def update_routine_exercise(
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
-        # phase_id must belong to this routine (null always allowed — it
-        # means "applies in every phase"). Without this check, a client
-        # could point phase_id at a phase in a different routine (their
-        # own or, if they guessed the id, someone else's) — not a data
-        # leak since the reference is write-only, but an integrity bug
-        # that would surface as silently-hidden exercises (phase_id
-        # never matches the active phase id) and as dangling FKs when
-        # the referenced phase is later deleted.
-        if "phase_id" in fields and fields["phase_id"] is not None:
-            cur.execute(
-                "SELECT 1 FROM routine_phases WHERE id = ? AND routine_id = ?",
-                (fields["phase_id"], row["routine_id"]),
-            )
-            if not cur.fetchone():
-                raise HTTPException(400, "phase_id does not belong to this routine")
         if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
             cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
             current = cur.fetchone()
@@ -483,9 +411,9 @@ def update_routine_exercise(
             )
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
-        # Allow-list the columns that can be updated. See the matching
-        # note on _PHASE_UPDATE_COLUMNS — protects the dynamic UPDATE
-        # from future Pydantic configs that let extra fields through.
+        # Allow-list the columns that can be updated — protects the
+        # dynamic UPDATE from future Pydantic configs that let extra
+        # fields through.
         fields = {k: v for k, v in fields.items() if k in _ROUTINE_EXERCISE_UPDATE_COLUMNS}
         if fields:
             fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
@@ -627,219 +555,3 @@ def remove_exercise(routine_exercise_id: int, user_id: int = Depends(get_current
             raise HTTPException(404, "Not found")
         cur.execute("DELETE FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
     return {"ok": True}
-
-
-# --- Phases (Curovate-style progression) ---
-#
-# A routine without phase rows behaves exactly as before. Creating the
-# first phase doesn't auto-assign any existing exercises — the client
-# walks through them in the editor and calls PUT /routines/exercises/:id
-# with a phase_id. Setting phase_start_date via PUT /routines/:id flips
-# the routine into "phased mode" (current_phase_id becomes non-null in
-# responses). That two-step is deliberate: a routine can accumulate
-# draft phases without visibly switching modes until it's ready.
-
-def _own_routine_or_404(cur, routine_id: int, user_id: int) -> None:
-    cur.execute("SELECT id FROM routines WHERE id = ? AND user_id = ?",
-                (routine_id, user_id))
-    if not cur.fetchone():
-        raise HTTPException(404, "Routine not found")
-
-
-def _own_phase_or_404(cur, routine_id: int, phase_id: int, user_id: int) -> None:
-    """Raise 404 unless the (routine, phase, user) triple is consistent.
-    The JOIN through routines enforces that the phase belongs to a
-    routine the user owns — same shape as `_own_routine_or_404`."""
-    cur.execute(
-        "SELECT 1 FROM routine_phases p "
-        "JOIN routines r ON r.id = p.routine_id "
-        "WHERE p.id = ? AND p.routine_id = ? AND r.user_id = ?",
-        (phase_id, routine_id, user_id),
-    )
-    if not cur.fetchone():
-        raise HTTPException(404, "Phase not found")
-
-
-@router.get("/{routine_id}/phases", response_model=list[PhaseResponse])
-def list_phases(routine_id: int, user_id: int = Depends(get_current_user_id)):
-    with get_db() as conn:
-        cur = conn.cursor()
-        _own_routine_or_404(cur, routine_id, user_id)
-        cur.execute(
-            "SELECT * FROM routine_phases WHERE routine_id = ? "
-            "ORDER BY order_idx ASC, id ASC",
-            (routine_id,),
-        )
-        return cur.fetchall()
-
-
-@router.post("/{routine_id}/phases", response_model=PhaseResponse)
-def create_phase(
-    routine_id: int,
-    req: PhaseCreate,
-    user_id: int = Depends(get_current_user_id),
-):
-    if req.duration_weeks < 1:
-        raise HTTPException(400, "duration_weeks must be >= 1")
-    with get_db() as conn:
-        cur = conn.cursor()
-        _own_routine_or_404(cur, routine_id, user_id)
-        # Order_idx collision surfaces as a 409 from the UNIQUE constraint.
-        # We do a pre-check so the error is actionable rather than an opaque
-        # IntegrityError; the race is harmless because the user resolves it
-        # with a different index anyway.
-        cur.execute(
-            "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ?",
-            (routine_id, req.order_idx),
-        )
-        if cur.fetchone():
-            raise HTTPException(409, "order_idx already used for this routine")
-        cur.execute(
-            "INSERT INTO routine_phases (routine_id, label, order_idx, duration_weeks, notes) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (routine_id, req.label, req.order_idx, req.duration_weeks, req.notes),
-        )
-        pid = cur.lastrowid
-        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (pid,))
-        return cur.fetchone()
-
-
-_PHASE_UPDATE_COLUMNS = {"label", "order_idx", "duration_weeks", "notes"}
-
-
-@router.put("/{routine_id}/phases/{phase_id}", response_model=PhaseResponse)
-def update_phase(
-    routine_id: int,
-    phase_id: int,
-    req: PhaseUpdate,
-    user_id: int = Depends(get_current_user_id),
-):
-    with get_db() as conn:
-        cur = conn.cursor()
-        _own_phase_or_404(cur, routine_id, phase_id, user_id)
-        # Allow-list the columns that can be updated so the dynamic
-        # UPDATE can never interpolate a column name that wasn't
-        # hand-approved here — a future change to PhaseUpdate (say,
-        # model_config=ConfigDict(extra="allow")) can't open a SQLi
-        # surface without a matching edit to this set.
-        fields = {
-            k: v for k, v in req.model_dump(exclude_unset=True).items()
-            if k in _PHASE_UPDATE_COLUMNS
-        }
-        if "duration_weeks" in fields and (fields["duration_weeks"] or 0) < 1:
-            raise HTTPException(400, "duration_weeks must be >= 1")
-        if "order_idx" in fields:
-            cur.execute(
-                "SELECT 1 FROM routine_phases WHERE routine_id = ? AND order_idx = ? AND id != ?",
-                (routine_id, fields["order_idx"], phase_id),
-            )
-            if cur.fetchone():
-                raise HTTPException(409, "order_idx already used for this routine")
-        if fields:
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            cur.execute(
-                f"UPDATE routine_phases SET {sets} WHERE id = ?",
-                tuple(list(fields.values()) + [phase_id]),
-            )
-        cur.execute("SELECT * FROM routine_phases WHERE id = ?", (phase_id,))
-        return cur.fetchone()
-
-
-@router.delete("/{routine_id}/phases/{phase_id}")
-def delete_phase(
-    routine_id: int,
-    phase_id: int,
-    user_id: int = Depends(get_current_user_id),
-):
-    """Delete a phase. Any routine_exercises pinned to it fall back to
-    NULL (apply-in-every-phase) rather than being deleted — the user's
-    exercise work stays even if they tear down the progression."""
-    with get_db() as conn:
-        cur = conn.cursor()
-        _own_phase_or_404(cur, routine_id, phase_id, user_id)
-        cur.execute(
-            "UPDATE routine_exercises SET phase_id = NULL WHERE phase_id = ?",
-            (phase_id,),
-        )
-        cur.execute("DELETE FROM routine_phases WHERE id = ?", (phase_id,))
-    return {"ok": True}
-
-
-@router.post("/{routine_id}/phases/reorder", response_model=list[PhaseResponse])
-def reorder_phases(
-    routine_id: int,
-    req: PhaseReorderRequest,
-    user_id: int = Depends(get_current_user_id),
-):
-    """Atomically reorder the phases of a routine. Body: `phase_ids` in
-    the desired order (index 0 = phase 0). The previous client-side
-    "3-step dance" to skirt UNIQUE(routine_id, order_idx) was not
-    transactional — a failed second call left a phase parked at a
-    negative order_idx permanently. Here we do the whole move inside
-    one DB transaction: first shift every phase in the routine to a
-    guaranteed-unique temporary index (negative of its primary key),
-    then set the final indices. Uniqueness is preserved at every
-    intermediate step so the UNIQUE constraint never fires."""
-    with get_db() as conn:
-        cur = conn.cursor()
-        _own_routine_or_404(cur, routine_id, user_id)
-
-        # Duplicates first so a payload like [1, 1] reports the actual
-        # problem ("contains duplicates") instead of the misleading
-        # set-equality error ("must contain every phase id").
-        if len(req.phase_ids) != len(set(req.phase_ids)):
-            raise HTTPException(400, "phase_ids contains duplicates")
-        cur.execute(
-            "SELECT id FROM routine_phases WHERE routine_id = ?",
-            (routine_id,),
-        )
-        existing = {r["id"] for r in cur.fetchall()}
-        if set(req.phase_ids) != existing:
-            raise HTTPException(
-                400, "phase_ids must contain every phase id for this routine, exactly once"
-            )
-
-        # Two-pass within a single transaction (get_db commits on success,
-        # rolls back on any exception). Pass 1 parks every phase at a
-        # guaranteed-unique negative index keyed on its primary id. Pass 2
-        # assigns the final 0..N-1 positions. UNIQUE(routine_id, order_idx)
-        # holds across both passes because negatives and non-negatives
-        # never collide.
-        #
-        # Pass 1 is scoped to req.phase_ids (not WHERE routine_id alone)
-        # specifically to handle a concurrent insert: if another request
-        # adds a new phase between the validator's SELECT above and this
-        # UPDATE, an unscoped Pass 1 would park that phase at -id and
-        # Pass 2 wouldn't restore it (the loop only knows the validated
-        # ids). Scoping leaves the new phase alone with the order_idx
-        # the inserting request assigned.
-        if req.phase_ids:
-            placeholders = ",".join("?" * len(req.phase_ids))
-            cur.execute(
-                f"UPDATE routine_phases "
-                f"SET order_idx = -id "
-                f"WHERE routine_id = ? AND id IN ({placeholders})",
-                (routine_id, *req.phase_ids),
-            )
-            for new_idx, phase_id in enumerate(req.phase_ids):
-                cur.execute(
-                    "UPDATE routine_phases SET order_idx = ? WHERE id = ? AND routine_id = ?",
-                    (new_idx, phase_id, routine_id),
-                )
-                # Concurrent-delete guard: validator's SELECT saw this
-                # phase, but it may have been deleted by another request
-                # before this UPDATE. rowcount=0 means the row is gone;
-                # 409 to roll back the whole transaction (get_db rolls
-                # on exception) so the caller sees the pre-reorder state
-                # on reload rather than a silently-truncated list.
-                if cur.rowcount == 0:
-                    raise HTTPException(
-                        409,
-                        f"phase_id {phase_id} was deleted during reorder; reload and retry",
-                    )
-        cur.execute(
-            "SELECT * FROM routine_phases WHERE routine_id = ? "
-            "ORDER BY order_idx ASC, id ASC",
-            (routine_id,),
-        )
-        return cur.fetchall()

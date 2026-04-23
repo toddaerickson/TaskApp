@@ -1,9 +1,9 @@
 """POST /routines/import — portable JSON template ingestion.
 
-Verifies the all-or-nothing contract (one bad slug or out-of-range
-phase_idx 400s before any rows are written), the slug→id resolution,
-the phase_idx→phase_id remapping, and the measurement compatibility
-check that catches "logged a 30s hold as 30 reps" mistakes."""
+Verifies the all-or-nothing contract (one bad slug 400s before any
+rows are written), the slug→id resolution, and the measurement
+compatibility check that catches "logged a 30s hold as 30 reps"
+mistakes."""
 
 
 def _h(tok):
@@ -30,45 +30,9 @@ def test_import_minimal_flat_routine(auth_client, seeded_globals):
     body = r.json()
     assert body["name"] == "Imported Routine"
     assert body["goal"] == "rehab"
-    assert body["phase_start_date"] is None
     assert len(body["exercises"]) == 1
     assert body["exercises"][0]["exercise"]["slug"] == "wall_ankle_dorsiflexion"
     assert body["exercises"][0]["target_duration_sec"] == 30
-    # No phases declared → none created.
-    assert body["phases"] == []
-
-
-def test_import_with_phases_remaps_phase_idx(auth_client, seeded_globals):
-    c, tok, _ = auth_client
-    payload = {
-        "name": "Phased Import",
-        "goal": "rehab",
-        "phase_start_date": "2026-04-20",
-        "phases": [
-            {"label": "Foundation", "duration_weeks": 2},
-            {"label": "Loading", "duration_weeks": 6},
-        ],
-        "exercises": [
-            {"slug": "wall_ankle_dorsiflexion", "phase_idx": None,
-             "target_duration_sec": 30, "target_sets": 2},  # warmup, every phase
-            {"slug": "single_leg_glute_bridge", "phase_idx": 0,
-             "target_reps": 10, "target_sets": 2},
-            {"slug": "single_leg_glute_bridge", "phase_idx": 1,
-             "target_reps": 15, "target_sets": 3, "keystone": True},
-        ],
-    }
-    r = c.post("/routines/import", headers=_h(tok), json=payload)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["phase_start_date"] == "2026-04-20"
-    assert len(body["phases"]) == 2
-    p0_id = next(p["id"] for p in body["phases"] if p["order_idx"] == 0)
-    p1_id = next(p["id"] for p in body["phases"] if p["order_idx"] == 1)
-    by_slug_phase = {(e["exercise"]["slug"], e["phase_id"]): e for e in body["exercises"]}
-    assert (("wall_ankle_dorsiflexion", None) in by_slug_phase)
-    assert (("single_leg_glute_bridge", p0_id) in by_slug_phase)
-    assert (("single_leg_glute_bridge", p1_id) in by_slug_phase)
-    assert by_slug_phase[("single_leg_glute_bridge", p1_id)]["keystone"] is True
 
 
 def test_import_rejects_unknown_slug_atomically(auth_client, seeded_globals):
@@ -83,23 +47,6 @@ def test_import_rejects_unknown_slug_atomically(auth_client, seeded_globals):
     assert r.status_code == 400
     assert "definitely_not_a_real_slug" in r.json()["detail"]
     # No routine landed.
-    assert c.get("/routines", headers=_h(tok)).json() == []
-
-
-def test_import_rejects_out_of_range_phase_idx(auth_client, seeded_globals):
-    c, tok, _ = auth_client
-    payload = {
-        "name": "Bad Phase Ref",
-        "phases": [{"label": "Only", "duration_weeks": 2}],
-        "exercises": [{
-            "slug": "wall_ankle_dorsiflexion",
-            "phase_idx": 5,  # out of range
-            "target_duration_sec": 30,
-        }],
-    }
-    r = c.post("/routines/import", headers=_h(tok), json=payload)
-    assert r.status_code == 400
-    assert "phase_idx" in r.json()["detail"]
     assert c.get("/routines", headers=_h(tok)).json() == []
 
 
@@ -124,28 +71,10 @@ def test_import_requires_at_least_one_exercise(auth_client, seeded_globals):
     assert r.status_code == 400
 
 
-def test_import_rejects_bad_phase_start_date(auth_client, seeded_globals):
-    """phase_start_date must be a real ISO date. A free-form string
-    (old behavior) used to pass Pydantic and silently store a broken
-    routine — phased at the DB level but with the resolver bailing
-    on the bad date so the banner never shows."""
-    c, tok, _ = auth_client
-    body = _minimal()
-    body["phase_start_date"] = "not-a-date"
-    r = c.post("/routines/import", headers=_h(tok), json=body)
-    assert r.status_code == 422
-
-    # Empty string is normalized to None (same as omitting the field).
-    body["phase_start_date"] = ""
-    ok = c.post("/routines/import", headers=_h(tok), json=body)
-    assert ok.status_code == 200
-    assert ok.json()["phase_start_date"] is None
-
-
 def test_import_caps_list_sizes(auth_client, seeded_globals):
-    """max_length on phases / exercises keeps a confused or malicious
-    client from building a slug IN (?,?,...) query that exceeds the
-    SQLite parameter cap (32,766) and takes a worker down."""
+    """max_length on exercises keeps a confused or malicious client from
+    building a slug IN (?,?,...) query that exceeds the SQLite parameter
+    cap (32,766) and takes a worker down."""
     c, tok, _ = auth_client
 
     too_many_exercises = {
@@ -155,12 +84,6 @@ def test_import_caps_list_sizes(auth_client, seeded_globals):
                       for _ in range(201)],
     }
     r = c.post("/routines/import", headers=_h(tok), json=too_many_exercises)
-    assert r.status_code == 422
-
-    too_many_phases = _minimal()
-    too_many_phases["phases"] = [{"label": f"P{i}", "duration_weeks": 1}
-                                 for i in range(21)]
-    r = c.post("/routines/import", headers=_h(tok), json=too_many_phases)
     assert r.status_code == 422
 
 

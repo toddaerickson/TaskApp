@@ -387,9 +387,6 @@ export interface RoutineExerciseCreatePayload {
   tempo?: string | null;
   keystone?: boolean;
   notes?: string | null;
-  /** null = "all phases" (every phase the routine has). Server-side
-   *  default for rows created before the phase editor shipped. */
-  phase_id?: number | null;
   /** Target RPE per working set, 1-10. Null clears. Server enforces
    *  the 1-10 bound via Pydantic Field(ge=1, le=10). */
   target_rpe?: number | null;
@@ -413,9 +410,6 @@ export interface RoutineCreatePayload {
   exercises?: RoutineExerciseCreatePayload[];
 }
 export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {
-  /** ISO date "YYYY-MM-DD". Sets phase 0's start date so the server can
-   *  resolve current_phase_id. Send null to un-phase. */
-  phase_start_date?: string | null;
   /** Optimistic concurrency: ISO timestamp of the routine when the client
    *  last read it. Server returns 409 if the row has moved past it. Omit
    *  to opt out (silent last-write-wins). */
@@ -557,9 +551,9 @@ export async function createRoutine(payload: RoutineCreatePayload) {
 }
 
 /** Import a routine from the portable JSON template. Server validates
- *  slugs, phase_idx ranges, and measurement compatibility — same checks
- *  the client runs in routineImport.parseAndValidate, but trustworthy
- *  even if the client was bypassed. */
+ *  slugs and measurement compatibility — same checks the client runs
+ *  in routineImport.parseAndValidate, but trustworthy even if the
+ *  client was bypassed. */
 export async function importRoutine(payload: unknown) {
   const { data } = await api.post('/routines/import', payload);
   return data;
@@ -587,42 +581,6 @@ export async function addExerciseToRoutine(routineId: number, payload: RoutineEx
 
 export async function removeExerciseFromRoutine(routineExerciseId: number) {
   await api.delete(`/routines/exercises/${routineExerciseId}`);
-}
-
-// ---- Phases (Curovate-style progression) ----------------------------------
-// A routine with zero phases behaves as it always has. Creating phases
-// doesn't flip the routine into "phased mode" until `phase_start_date`
-// is set via updateRoutine(id, { phase_start_date: "YYYY-MM-DD" }).
-
-export interface RoutinePhasePayload {
-  label: string;
-  order_idx: number;
-  duration_weeks: number;
-  notes?: string | null;
-}
-export type RoutinePhaseUpdatePayload = Partial<RoutinePhasePayload>;
-
-export async function createPhase(routineId: number, payload: RoutinePhasePayload) {
-  const { data } = await api.post(`/routines/${routineId}/phases`, payload);
-  return data;
-}
-
-export async function updatePhase(
-  routineId: number, phaseId: number, payload: RoutinePhaseUpdatePayload,
-) {
-  const { data } = await api.put(`/routines/${routineId}/phases/${phaseId}`, payload);
-  return data;
-}
-
-export async function deletePhase(routineId: number, phaseId: number) {
-  await api.delete(`/routines/${routineId}/phases/${phaseId}`);
-}
-
-export async function reorderPhases(routineId: number, phaseIds: number[]) {
-  const { data } = await api.post(
-    `/routines/${routineId}/phases/reorder`, { phase_ids: phaseIds },
-  );
-  return data;
 }
 
 // --- Workouts: Sessions ---

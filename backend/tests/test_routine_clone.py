@@ -3,7 +3,7 @@
 Verifies:
   - the clone is a new row owned by the same user
   - name gets the "(copy)" suffix
-  - exercises + phases copy over with phase_id remapped
+  - exercises copy over
   - session history is NOT copied (clone is a template, not a session log)
   - cross-user isolation (can't clone someone else's routine)
 """
@@ -54,59 +54,6 @@ def test_clone_minimal_flat_routine(auth_client, seeded_globals):
     assert clone["exercises"][0]["target_sets"] == 2
     assert clone["exercises"][0]["target_reps"] == 8
 
-    # Phases list is empty (source had none).
-    assert clone["phases"] == []
-
-
-def test_clone_copies_phases_and_remaps_phase_id(auth_client, seeded_globals):
-    c, tok, _ = auth_client
-    src = _minimal_routine(c, tok, tracks_symptoms=True)
-
-    # Two phases.
-    r = c.post(
-        f"/routines/{src['id']}/phases",
-        headers=_h(tok),
-        json={"label": "Foundation", "order_idx": 0, "duration_weeks": 2},
-    )
-    assert r.status_code == 200, r.text
-    ph0_id = r.json()["id"]
-    r = c.post(
-        f"/routines/{src['id']}/phases",
-        headers=_h(tok),
-        json={"label": "Loading", "order_idx": 1, "duration_weeks": 6},
-    )
-    assert r.status_code == 200, r.text
-
-    # Exercise pinned to phase 0.
-    exlist = c.get("/exercises", headers=_h(tok)).json()
-    ex_id = exlist[0]["id"]
-    r = c.post(
-        f"/routines/{src['id']}/exercises",
-        headers=_h(tok),
-        json={"exercise_id": ex_id, "target_sets": 1, "target_reps": 5},
-    )
-    re_id = r.json()["id"]
-    c.put(
-        f"/routines/exercises/{re_id}",
-        headers=_h(tok),
-        json={"phase_id": ph0_id},
-    )
-
-    # Clone.
-    r = c.post(f"/routines/{src['id']}/clone", headers=_h(tok))
-    assert r.status_code == 200, r.text
-    clone = r.json()
-
-    # Phase labels + order preserved; ids are fresh.
-    assert [p["label"] for p in clone["phases"]] == ["Foundation", "Loading"]
-    assert all(p["id"] != ph0_id for p in clone["phases"])
-
-    # Exercise phase_id was remapped into a phase that belongs to the
-    # clone — not the original. Otherwise the routine detail screen
-    # would show it "in Foundation" but tapping into the clone's
-    # Foundation would show an empty exercise list.
-    cloned_phase_ids = {p["id"] for p in clone["phases"]}
-    assert clone["exercises"][0]["phase_id"] in cloned_phase_ids
 
 
 def test_clone_does_not_copy_session_history(auth_client, seeded_globals):

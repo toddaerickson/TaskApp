@@ -21,7 +21,8 @@ export default function TabLayout() {
       // which duplicated the tab label. Removing those titles freed vertical
       // space; this keeps "which tab am I on" obvious without the duplicate.
       tabBarActiveBackgroundColor: 'rgba(26,115,232,0.10)',
-      headerStyle: { backgroundColor: colors.primary },
+      headerStyle: { backgroundColor: colors.primary, height: 56 } as any,
+      headerTitleStyle: { fontSize: 17, fontWeight: '600' },
       headerTintColor: '#fff',
       // Mobile Safari covers the bottom of the viewport with its own chrome,
       // which was clipping the tab labels' descenders. Reserve enough vertical

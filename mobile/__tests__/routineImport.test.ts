@@ -35,27 +35,6 @@ describe('parseAndValidate', () => {
     const result = parseAndValidate(json, catalog);
     expect(result.errors).toEqual([]);
     expect(result.preview!.totals.exercises).toBe(1);
-    expect(result.preview!.totals.phases).toBe(0);
-  });
-
-  test('phased routine remaps phase_idx in preview output', () => {
-    const json = JSON.stringify({
-      name: 'Phased',
-      phase_start_date: '2026-04-20',
-      phases: [
-        { label: 'A', duration_weeks: 2 },
-        { label: 'B', duration_weeks: 4 },
-      ],
-      exercises: [
-        { slug: goodSlugDuration, phase_idx: null, target_duration_sec: 30 },
-        { slug: goodSlugReps, phase_idx: 0, target_reps: 10 },
-        { slug: goodSlugReps, phase_idx: 1, target_reps: 15 },
-      ],
-    });
-    const result = parseAndValidate(json, catalog);
-    expect(result.errors).toEqual([]);
-    expect(result.preview!.totals.phases).toBe(2);
-    expect(result.preview!.totals.minutesPerPhase).toHaveLength(2);
   });
 
   test('invalid JSON returns parser error', () => {
@@ -81,16 +60,6 @@ describe('parseAndValidate', () => {
     expect(result.errors.some((e) => e.includes('unknown slug "nope_not_real"'))).toBe(true);
   });
 
-  test('out-of-range phase_idx is rejected', () => {
-    const json = JSON.stringify({
-      name: 'Bad',
-      phases: [{ label: 'Only', duration_weeks: 2 }],
-      exercises: [{ slug: goodSlugDuration, phase_idx: 5, target_duration_sec: 30 }],
-    });
-    const result = parseAndValidate(json, catalog);
-    expect(result.errors.some((e) => e.includes('phase_idx=5 out of range'))).toBe(true);
-  });
-
   test('measurement mismatch (duration ex without target_duration_sec) is rejected', () => {
     const json = JSON.stringify({
       name: 'Bad',
@@ -110,25 +79,18 @@ describe('parseAndValidate', () => {
 describe('serializeRoutine round trip', () => {
   test('serialize(routine) → parseAndValidate has zero errors', () => {
     const routine = {
-      name: 'Rehab Phased',
+      name: 'Rehab Routine',
       goal: 'rehab',
       notes: 'Test routine',
-      phase_start_date: '2026-04-20',
-      phases: [
-        { id: 100, label: 'Foundation', order_idx: 0, duration_weeks: 2, notes: null },
-        { id: 200, label: 'Loading', order_idx: 1, duration_weeks: 6, notes: null },
-      ],
       exercises: [
         {
           exercise: { slug: goodSlugDuration },
-          phase_id: null,
           target_sets: 2,
           target_duration_sec: 30,
           rest_sec: 30,
         },
         {
           exercise: { slug: goodSlugReps },
-          phase_id: 200,
           target_sets: 3,
           target_reps: 15,
           rest_sec: 60,
@@ -137,12 +99,9 @@ describe('serializeRoutine round trip', () => {
       ],
     };
     const exported = serializeRoutine(routine);
-    // Round-trip: server phase_id 200 (order_idx 1) becomes phase_idx 1.
-    expect(exported.exercises[1].phase_idx).toBe(1);
 
     const reparsed = parseAndValidate(JSON.stringify(exported), catalog);
     expect(reparsed.errors).toEqual([]);
-    expect(reparsed.preview!.totals.phases).toBe(2);
     expect(reparsed.preview!.totals.exercises).toBe(2);
   });
 });

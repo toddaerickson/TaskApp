@@ -47,7 +47,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: keyof typeof Ionicons.g
   { key: 'created', label: 'Created', icon: 'calendar-outline' },
 ];
 
-type GroupKey = 'none' | 'goal' | 'day' | 'phase' | 'lastPerformed';
+type GroupKey = 'none' | 'goal' | 'day' | 'lastPerformed';
 
 const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   { key: 'none', label: 'None' },
@@ -56,10 +56,6 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   // buckets — the user's mental model is "what's on my plate today", so
   // duplication is the right call. Unscheduled routines trail in "No day".
   { key: 'day', label: 'Scheduled day' },
-  // Phase-grouped surfaces Curovate-style progression at a glance:
-  // routines in their "Loading" phase cluster together; flat routines
-  // trail in "No phase".
-  { key: 'phase', label: 'Phase' },
   // Recency bucket rather than an exact date — today / this week / this
   // month / older / never. "Last performed" sort already exists; this
   // groups the same signal by recency bin.
