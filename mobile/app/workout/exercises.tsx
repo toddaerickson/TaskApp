@@ -171,152 +171,148 @@ export default function ExerciseLibraryScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Exercise library' }} />
 
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search by name or slug"
-        placeholderTextColor="#bbb"
-        autoCorrect={false}
-        autoCapitalize="none"
-        style={styles.search}
-        accessibilityLabel="Search exercises"
-      />
+      {/* Non-scrollable header: search + category chips + archived toggle.
+          Pinned to content height so the list below gets all remaining space. */}
+      <View style={styles.header}>
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search by name or slug"
+          placeholderTextColor="#bbb"
+          autoCorrect={false}
+          autoCapitalize="none"
+          style={styles.search}
+          accessibilityLabel="Search exercises"
+        />
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.catRow}
-        accessibilityRole="tablist"
-        accessibilityLabel="Filter by category"
-      >
-        {CATEGORIES.map((c) => {
-          const on = category === c.value;
-          return (
-            <Pressable
-              key={c.value}
-              onPress={() => setCategory(c.value)}
-              style={[styles.catChip, on && styles.catChipActive]}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={c.label}
-            >
-              <Text
-                style={[styles.catChipText, on && styles.catChipTextActive]}
-                numberOfLines={1}
-              >
-                {c.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {/* Archived toggle. Server filters by default; flipping this
-          refetches with include_archived=true so the user sees both
-          active and archived rows inline, with Restore affordances on
-          the archived ones. */}
-      <View style={styles.archivedRow}>
-        <Pressable
-          onPress={() => setShowArchived((v) => !v)}
-          style={[styles.archivedToggle, showArchived && styles.archivedToggleOn]}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: showArchived }}
-          accessibilityLabel="Show archived exercises"
+        <View
+          style={styles.catRow}
+          accessibilityRole="tablist"
+          accessibilityLabel="Filter by category"
         >
-          <Ionicons
-            name={showArchived ? 'eye' : 'eye-off-outline'}
-            size={14}
-            color={showArchived ? '#fff' : colors.textMuted}
-          />
-          <Text style={[styles.archivedToggleText, showArchived && styles.archivedToggleTextOn]}>
-            {showArchived ? 'Showing archived' : 'Show archived'}
-          </Text>
-        </Pressable>
-      </View>
+          {CATEGORIES.map((c) => {
+            const on = category === c.value;
+            return (
+              <Pressable
+                key={c.value}
+                onPress={() => setCategory(c.value)}
+                style={[styles.catChip, on && styles.catChipActive]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={c.label}
+              >
+                <Text
+                  style={[styles.catChipText, on && styles.catChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {c.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-      {!all && !err && (
-        <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
-      )}
-      {err && <Text style={styles.error}>{err}</Text>}
-
-      {all && (
-        <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 40 }}>
-          {visible.length === 0 ? (
-            <Text style={styles.empty}>
-              {query ? `No exercises match "${query.trim()}"` : 'No exercises in the library yet.'}
+        <View style={styles.archivedRow}>
+          <Pressable
+            onPress={() => setShowArchived((v) => !v)}
+            style={[styles.archivedToggle, showArchived && styles.archivedToggleOn]}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: showArchived }}
+            accessibilityLabel="Show archived exercises"
+          >
+            <Ionicons
+              name={showArchived ? 'eye' : 'eye-off-outline'}
+              size={14}
+              color={showArchived ? '#fff' : colors.textMuted}
+            />
+            <Text style={[styles.archivedToggleText, showArchived && styles.archivedToggleTextOn]}>
+              {showArchived ? 'Showing archived' : 'Show archived'}
             </Text>
-          ) : (
-            visible.map((ex) => {
-              const isGlobal = ex.user_id === null;
-              const isArchived = !!ex.archived_at;
-              return (
-                <View key={ex.id}>
-                  <View style={[styles.row, isArchived && styles.rowArchived]}>
-                    {ex.images[0]?.url ? (
-                      <Image
-                        source={{ uri: ex.images[0].url }}
-                        style={[styles.thumb, isArchived && styles.thumbArchived]}
-                      />
-                    ) : (
-                      <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                        <Ionicons name="barbell-outline" size={20} color={colors.textMuted} />
+          </Pressable>
+        </View>
+      </View>
+        <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 40 }}>
+        {!all && !err && (
+          <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
+        )}
+        {err && <Text style={styles.error}>{err}</Text>}
+
+        {all && (
+          <>
+            {visible.length === 0 ? (
+              <Text style={styles.empty}>
+                {query ? `No exercises match "${query.trim()}"` : 'No exercises in the library yet.'}
+              </Text>
+            ) : (
+              visible.map((ex) => {
+                const isGlobal = ex.user_id === null;
+                const isArchived = !!ex.archived_at;
+                return (
+                  <View key={ex.id}>
+                    <View style={[styles.row, isArchived && styles.rowArchived]}>
+                      {ex.images[0]?.url ? (
+                        <Image
+                          source={{ uri: ex.images[0].url }}
+                          style={[styles.thumb, isArchived && styles.thumbArchived]}
+                        />
+                      ) : (
+                        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+                          <Ionicons name="barbell-outline" size={20} color={colors.textMuted} />
+                        </View>
+                      )}
+                      <View style={styles.rowText}>
+                        <Text style={[styles.rowName, isArchived && styles.rowNameArchived]}>
+                          {ex.name}
+                        </Text>
+                        <Text style={styles.rowMeta}>
+                          {ex.primary_muscle || ex.category} · {ex.measurement}
+                          {isGlobal ? ' · global' : ''}
+                          {isArchived ? ' · archived' : ''}
+                        </Text>
                       </View>
-                    )}
-                    <View style={styles.rowText}>
-                      <Text style={[styles.rowName, isArchived && styles.rowNameArchived]}>
-                        {ex.name}
-                      </Text>
-                      <Text style={styles.rowMeta}>
-                        {ex.primary_muscle || ex.category} · {ex.measurement}
-                        {isGlobal ? ' · global' : ''}
-                        {isArchived ? ' · archived' : ''}
-                      </Text>
+                      {isArchived ? (
+                        <Pressable
+                          onPress={() => handleRestore(ex)}
+                          hitSlop={8}
+                          style={styles.iconBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Restore ${ex.name}`}
+                        >
+                          <Ionicons name="refresh" size={16} color={colors.primary} />
+                        </Pressable>
+                      ) : (
+                        <>
+                          <Pressable
+                            onPress={() => openEdit(ex)}
+                            hitSlop={8}
+                            style={styles.iconBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit ${ex.name}`}
+                          >
+                            <Ionicons name="pencil" size={16} color={colors.primary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => handleDelete(ex)}
+                            hitSlop={8}
+                            style={styles.iconBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Archive ${ex.name}`}
+                          >
+                            <Ionicons name="archive-outline" size={16} color={colors.danger} />
+                          </Pressable>
+                        </>
+                      )}
                     </View>
-                    {isArchived ? (
-                      // Archived rows show a Restore affordance instead
-                      // of edit/delete. Un-archiving reveals the row on
-                      // the default list again.
-                      <Pressable
-                        onPress={() => handleRestore(ex)}
-                        hitSlop={8}
-                        style={styles.iconBtn}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Restore ${ex.name}`}
-                      >
-                        <Ionicons name="refresh" size={16} color={colors.primary} />
-                      </Pressable>
-                    ) : (
-                      <>
-                        <Pressable
-                          onPress={() => openEdit(ex)}
-                          hitSlop={8}
-                          style={styles.iconBtn}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Edit ${ex.name}`}
-                        >
-                          <Ionicons name="pencil" size={16} color={colors.primary} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleDelete(ex)}
-                          hitSlop={8}
-                          style={styles.iconBtn}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Archive ${ex.name}`}
-                        >
-                          <Ionicons name="archive-outline" size={16} color={colors.danger} />
-                        </Pressable>
-                      </>
+                    {rowError[ex.id] && (
+                      <Text style={styles.rowErrorText}>{rowError[ex.id]}</Text>
                     )}
                   </View>
-                  {rowError[ex.id] && (
-                    <Text style={styles.rowErrorText}>{rowError[ex.id]}</Text>
-                  )}
-                </View>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </>
+        )}
         </ScrollView>
-      )}
 
       {/* Edit sheet */}
       <Modal
@@ -396,6 +392,7 @@ export default function ExerciseLibraryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  header: { flexShrink: 0, flexGrow: 0 },
   search: {
     margin: 12,
     paddingHorizontal: 12, paddingVertical: 10,
@@ -403,18 +400,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, borderRadius: 8,
   },
   catRow: {
-    flexDirection: 'row', gap: 6,
-    paddingHorizontal: 12, paddingBottom: 6,
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 6,
   },
   catChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    // flexShrink: 0 keeps the chip at its intrinsic width. Without it,
-    // RN-web inside a horizontal ScrollView will shrink each child to
-    // fit the cross-axis on narrow viewports, causing "All / Rehab /
-    // Strength" chips to collapse into tall 1-char-wide vertical bars
-    // on a 414-wide iPhone. (User-reported audit bug.)
-    flexShrink: 0,
     cursor: 'pointer' as any,
   },
   catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -450,6 +441,7 @@ const styles = StyleSheet.create({
   archivedRow: {
     flexDirection: 'row', justifyContent: 'flex-end',
     paddingHorizontal: 12, paddingBottom: 4,
+    flexShrink: 0, flexGrow: 0,
   },
   archivedToggle: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
