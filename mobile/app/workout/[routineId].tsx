@@ -7,9 +7,6 @@ import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-rou
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise, Exercise } from '@/lib/stores';
 import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
-import { getActivePhaseInfo, filterExercisesForPhase } from '@/lib/phases';
-import { PhaseEditor } from '@/components/PhaseEditor';
-import { ExercisePhaseChip } from '@/components/ExercisePhaseChip';
 import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
@@ -44,10 +41,8 @@ function isConflict(err: unknown): err is { response: { status: 409 } } {
   return e?.response?.status === 409;
 }
 
-/** Yes/no confirm dialog for destructive actions. Mirrors the shape in
- *  PhaseEditor.tsx — same web-vs-native split — kept inline here
- *  instead of importing because the two consumers have different
- *  button labels and a shared util would need extra params. */
+/** Yes/no confirm dialog for destructive actions. Web-vs-native split
+ *  kept inline for simplicity. */
 function confirmDestructive(title: string, message: string, destructiveLabel: string): Promise<boolean> {
   return new Promise((resolve) => {
     if (Platform.OS === 'web') {
@@ -162,8 +157,8 @@ export default function RoutineDetailScreen() {
   const handleDeleteRoutine = async () => {
     if (!routine) return;
     const exCount = routine.exercises.length;
-    const body = `This removes "${routine.name}", its phases${
-      exCount ? `, and detaches ${exCount} exercise${exCount === 1 ? '' : 's'}` : ''
+    const body = `This removes "${routine.name}"${
+      exCount ? ` and detaches ${exCount} exercise${exCount === 1 ? '' : 's'}` : ''
     }. Session history stays; exercises themselves remain in your library.`;
     // Keep the hard confirm — deleting a whole routine is a bigger
     // blast radius than dropping one exercise, and an accidental tap
@@ -257,16 +252,7 @@ export default function RoutineDetailScreen() {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
-  // Phase-aware view. On a flat routine (no phases or no start date) this
-  // reduces to routine.exercises and activePhase is null — the banner
-  // isn't rendered and nothing about the old behavior changes.
-  const activePhase = getActivePhaseInfo(routine);
-  // In edit mode we show every exercise — otherwise the user couldn't see
-  // or reassign an exercise that belongs to a different (non-active)
-  // phase. Run mode keeps the phase filter for the banner-matched view.
-  const visibleExercises = editMode
-    ? routine.exercises
-    : filterExercisesForPhase(routine.exercises, routine.current_phase_id ?? null);
+  const visibleExercises = routine.exercises;
 
   const totalMins = Math.round(
     visibleExercises.reduce((sum, re) => {
@@ -338,20 +324,6 @@ export default function RoutineDetailScreen() {
             <Text style={styles.meta}>
               {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
             </Text>
-            {activePhase && (
-              <View style={styles.phaseBanner}>
-                <Ionicons name="flag" size={13} color={colors.primary} />
-                <Text style={styles.phaseBannerText}>
-                  Phase {activePhase.position}/{activePhase.total}: {activePhase.phase.label}
-                  {' · '}
-                  <Text style={styles.phaseBannerDays}>
-                    {activePhase.daysLeft === 0
-                      ? 'final day'
-                      : `${activePhase.daysLeft} day${activePhase.daysLeft === 1 ? '' : 's'} left`}
-                  </Text>
-                </Text>
-              </View>
-            )}
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color={colors.warning} />
@@ -382,16 +354,6 @@ export default function RoutineDetailScreen() {
                     )}
                   </View>
                   <InlineDoseRow re={re} readOnly={editMode} onSaved={reload} />
-                  {editMode && (routine.phases?.length ?? 0) > 0 && (
-                    <View style={{ marginTop: 6 }}>
-                      <ExercisePhaseChip
-                        routineExerciseId={re.id}
-                        currentPhaseId={re.phase_id ?? null}
-                        phases={routine.phases ?? []}
-                        onChanged={reload}
-                      />
-                    </View>
-                  )}
                   {(() => {
                     const sg = suggestions.find((s) => s.routine_exercise_id === re.id);
                     if (!sg || !sg.reason || sg.reason.startsWith('No prior')) return null;
@@ -541,7 +503,6 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
   const [notes, setNotes] = useState(routine.notes || '');
   const [time, setTime] = useState(routine.reminder_time || '');
   const [days, setDays] = useState<Set<DayCode>>(parseDays(routine.reminder_days));
-  const [startDate, setStartDate] = useState(routine.phase_start_date || '');
   // Per-routine rehab flag. Sessions started from this routine snapshot
   // the value at POST time (see PR #47) — flipping it in-flight doesn't
   // mutate running sessions. Future sessions honor the new state.
@@ -552,7 +513,6 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
     || notes !== (routine.notes || '')
     || time !== (routine.reminder_time || '')
     || daysCsv(days) !== (routine.reminder_days || null)
-    || (startDate || null) !== (routine.phase_start_date || null)
     || tracksSymptoms !== !!routine.tracks_symptoms;
 
   const toggleDay = (d: DayCode) => {
@@ -568,7 +528,6 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         name, notes,
         reminder_time: time.trim() || null,
         reminder_days: time.trim() ? daysCsv(days) : null,
-        phase_start_date: startDate.trim() || null,
         tracks_symptoms: tracksSymptoms,
       };
       // Pass the token we read with the routine. Omit when `overwrite`
@@ -586,7 +545,9 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
           await save(true);
         }
       } else {
-        throw e;
+        const msg = describeApiErrorDetailed(e, 'Failed to save routine.');
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('Save failed', msg);
       }
     } finally { setBusy(false); }
   };
@@ -612,37 +573,24 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         autoCapitalize="none"
         style={styles.fieldInput}
       />
-      {!!time && (
-        <>
-          <Text style={styles.fieldLabel}>Days</Text>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            {DAYS.map((d) => {
-              const on = days.has(d);
-              return (
-                <Pressable
-                  key={d}
-                  onPress={() => toggleDay(d)}
-                  style={[styles.dayChip, on && styles.dayChipOn]}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                  accessibilityLabel={`${d} ${on ? 'selected' : 'off'}`}
-                >
-                  <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{d}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      )}
-      <Text style={styles.fieldLabel}>Phase start date (YYYY-MM-DD, blank = not phased)</Text>
-      <TextInput
-        value={startDate}
-        onChangeText={setStartDate}
-        placeholder="2026-04-20"
-        accessibilityLabel="Phase start date in ISO YYYY-MM-DD format"
-        autoCapitalize="none"
-        style={styles.fieldInput}
-      />
+      <Text style={styles.fieldLabel}>Days</Text>
+      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+        {DAYS.map((d) => {
+          const on = days.has(d);
+          return (
+            <Pressable
+              key={d}
+              onPress={() => toggleDay(d)}
+              style={[styles.dayChip, on && styles.dayChipOn]}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on }}
+              accessibilityLabel={`${d} ${on ? 'selected' : 'off'}`}
+            >
+              <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>{d}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       {/* Rehab-mode switch. Two-state Pressable chip (matches the
           day-of-week chips above) rather than a native Switch to stay
           platform-consistent and skip a new dep. The save body
@@ -679,11 +627,6 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         <Ionicons name="save-outline" size={14} color="#fff" />
         <Text style={styles.saveText}>{busy ? 'Saving…' : dirty ? 'Save' : 'No changes'}</Text>
       </Pressable>
-      {/* Phase editor lives below the main save button because its
-          operations hit the phase CRUD endpoints directly (each add /
-          edit / reorder / delete is its own round trip), so it doesn't
-          participate in the routine-level Save flow above. */}
-      <PhaseEditor routine={routine} onChanged={onSaved} />
     </View>
   );
 }
@@ -1080,16 +1023,6 @@ const styles = StyleSheet.create({
   headerEditBtnActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
   headerEditText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   notes: { fontSize: 13, color: '#555', marginTop: 8, fontStyle: 'italic' },
-  phaseBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10,
-    backgroundColor: '#eef4ff',
-    borderLeftWidth: 3, borderLeftColor: colors.primary,
-    borderRadius: 6,
-  },
-  phaseBannerText: { fontSize: 12, color: colors.primary, fontWeight: '600' },
-  phaseBannerDays: { color: colors.primary, fontWeight: '400' },
-
   exCard: {
     backgroundColor: '#fff', margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },

@@ -14,15 +14,9 @@ import { parseAndValidate, Measurement } from '@/lib/routineImport';
 const SAMPLE = `{
   "name": "Achilles Rehab (Silbernagel)",
   "goal": "rehab",
-  "phase_start_date": "2026-04-20",
-  "phases": [
-    { "label": "Pain-free loading", "duration_weeks": 2 },
-    { "label": "Eccentric loading", "duration_weeks": 6 },
-    { "label": "Return to activity", "duration_weeks": 4 }
-  ],
   "exercises": [
-    { "slug": "wall_ankle_dorsiflexion", "phase_idx": null, "target_sets": 2, "target_duration_sec": 30 },
-    { "slug": "single_leg_glute_bridge", "phase_idx": 1, "target_sets": 3, "target_reps": 15, "keystone": true }
+    { "slug": "wall_ankle_dorsiflexion", "target_sets": 2, "target_duration_sec": 30 },
+    { "slug": "single_leg_glute_bridge", "target_sets": 3, "target_reps": 15, "keystone": true }
   ]
 }`;
 
@@ -139,19 +133,13 @@ export function RoutineImportCard({ exercises, onImported }: Props) {
             {result.preview.request.goal}
           </Text>
           <Text style={styles.previewLine}>
-            <Text style={styles.previewLabel}>Phases: </Text>
-            {result.preview.totals.phases || '(flat routine)'}
-          </Text>
-          <Text style={styles.previewLine}>
             <Text style={styles.previewLabel}>Exercises: </Text>
             {result.preview.totals.exercises}
           </Text>
-          {result.preview.totals.minutesPerPhase.length > 1 && (
-            <Text style={styles.previewLine}>
-              <Text style={styles.previewLabel}>Per phase ~min: </Text>
-              {result.preview.totals.minutesPerPhase.join(' / ')}
-            </Text>
-          )}
+          <Text style={styles.previewLine}>
+            <Text style={styles.previewLabel}>~Minutes: </Text>
+            {result.preview.totals.estimatedMinutes}
+          </Text>
         </View>
       )}
 

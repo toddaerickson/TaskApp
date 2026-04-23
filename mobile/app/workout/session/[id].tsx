@@ -9,7 +9,6 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise, WorkoutSession, SessionSet } from '@/lib/stores';
-import { filterExercisesForPhase } from '@/lib/phases';
 import * as api from '@/lib/api';
 import { beep } from '@/lib/timer';
 import { formatTime, severityColor as sevColor } from '@/lib/format';
@@ -274,13 +273,7 @@ export default function ActiveSessionScreen() {
     return <ActivityIndicator style={{ marginTop: 40 }} size="large" color={colors.primary} />;
   }
 
-  // Mirror the detail screen: if the routine is phased, only exercises
-  // assigned to the active phase (or unassigned, meaning "every phase")
-  // apply to this session. Flat routines behave exactly as before.
-  const visibleExercises = filterExercisesForPhase(
-    routine.exercises,
-    routine.current_phase_id ?? null,
-  );
+  const visibleExercises = routine.exercises;
   const totalSets = visibleExercises.reduce((sum, re) => sum + (re.target_sets ?? 1), 0);
   const doneSets = session.sets.length;
   const pct = totalSets > 0 ? Math.min(100, (doneSets / totalSets) * 100) : 0;

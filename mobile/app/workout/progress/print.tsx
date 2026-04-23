@@ -58,18 +58,11 @@ export default function ProgressPrintScreen() {
 
   const rangeLabel = rangeDays > 0 ? `Last ${rangeDays} days` : 'All time';
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Printable report' }} />
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
-
   // Inject a one-off <style> tag on web so the browser's print view
   // hides navigation chrome + scroll artifacts. Cleaned up on unmount
   // so coming back from print doesn't leave the style bound.
+  // NOTE: must be above the early return so hooks run in the same order
+  // on every render (React error #310 if hooks count changes).
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const style = document.createElement('style');
@@ -87,6 +80,15 @@ export default function ProgressPrintScreen() {
     document.head.appendChild(style);
     return () => { style.parentNode?.removeChild(style); };
   }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title: 'Printable report' }} />
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   const triggerPrint = () => {
     if (Platform.OS === 'web') window.print();

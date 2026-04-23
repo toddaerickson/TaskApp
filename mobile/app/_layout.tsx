@@ -30,6 +30,24 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
       viewport.setAttribute('content', `${existing}, viewport-fit=cover`);
     }
   }
+  // Expo SDK 52 ignores web.links in app.json, so the manifest + iOS
+  // install icons declared there never make it into the HTML. Inject them
+  // at runtime so "Add to Home Screen" picks up the PWA metadata.
+  const linkDefs: [string, string, string?][] = [
+    ['manifest', '/manifest.json'],
+    ['apple-touch-icon', '/apple-touch-icon.png'],
+    ['icon', '/favicon.svg', 'image/svg+xml'],
+  ];
+  for (const [rel, href, type] of linkDefs) {
+    if (!document.querySelector(`link[rel="${rel}"][href="${href}"]`)) {
+      const link = document.createElement('link');
+      link.rel = rel;
+      link.href = href;
+      if (type) link.type = type;
+      document.head.appendChild(link);
+    }
+  }
+
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch((err) => {
@@ -141,7 +159,7 @@ function RootLayout() {
 
   return (
     <UndoSnackbarProvider>
-      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary }, headerTintColor: '#fff' }}>
+      <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary, height: 56 } as any, headerTitleStyle: { fontSize: 17, fontWeight: '600' }, headerTintColor: '#fff' }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />

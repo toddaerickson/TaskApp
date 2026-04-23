@@ -4,13 +4,12 @@
  * pulling the whole screen (Zustand, FlatList, ReminderSheet) into
  * the test environment.
  *
- * Five grouping modes: none (handled inline), goal, day, phase,
+ * Four grouping modes: none (handled inline), goal, day,
  * lastPerformed. Returns a deterministic list of { key, label, items }
  * buckets — the renderer just walks it.
  */
 import type { Routine } from './stores';
 import { parseDays, DAYS } from './reminders';
-import { getActivePhaseInfo } from './phases';
 
 export interface RoutineBucket {
   key: string;
@@ -18,7 +17,7 @@ export interface RoutineBucket {
   items: Routine[];
 }
 
-type GroupMode = 'goal' | 'day' | 'phase' | 'lastPerformed';
+type GroupMode = 'goal' | 'day' | 'lastPerformed';
 
 const GOAL_ORDER = ['general', 'strength', 'mobility', 'rehab', 'cardio'] as const;
 const GOAL_LABELS: Record<string, string> = {
@@ -53,7 +52,6 @@ export function bucketRoutines(
 ): RoutineBucket[] {
   if (mode === 'goal') return bucketByGoal(routines);
   if (mode === 'day') return bucketByDay(routines);
-  if (mode === 'phase') return bucketByPhase(routines);
   return bucketByRecency(routines, lastPerformedByRoutine, now);
 }
 
@@ -92,30 +90,6 @@ function bucketByDay(routines: Routine[]): RoutineBucket[] {
     if (items) out.push({ key: d, label: DAY_LABELS[d] ?? d, items });
   }
   if (unscheduled.length) out.push({ key: 'none', label: 'No day', items: unscheduled });
-  return out;
-}
-
-function bucketByPhase(routines: Routine[]): RoutineBucket[] {
-  // Flat routines (no phases or no phase_start_date → activePhase is null)
-  // cluster under "No phase". Phased routines bucket by active phase
-  // label, which Curovate-style programs scale on (Foundation / Loading /
-  // Sport-Specific). Collision on label is fine — two routines both in
-  // "Foundation" belong together from the user's perspective.
-  const map = new Map<string, Routine[]>();
-  const noPhase: Routine[] = [];
-  for (const r of routines) {
-    const info = getActivePhaseInfo(r);
-    if (!info) { noPhase.push(r); continue; }
-    const key = info.phase.label;
-    (map.get(key) ?? map.set(key, []).get(key)!).push(r);
-  }
-  const out: RoutineBucket[] = [];
-  // Iteration order = insertion order in JS Maps, which is the
-  // order the first routine in each phase was encountered. Good
-  // enough — the list is already sorted by the caller, and phase
-  // labels don't have a canonical ranking.
-  for (const [key, items] of map) out.push({ key, label: key, items });
-  if (noPhase.length) out.push({ key: 'none', label: 'No phase', items: noPhase });
   return out;
 }
 

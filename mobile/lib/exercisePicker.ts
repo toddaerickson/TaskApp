@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the ExercisePickerModal. Split out so jest can cover
  * the search-filter logic without the RN runtime (same split pattern as
- * phaseEditor.ts and reminders.ts).
+ * reminders.ts).
  */
 import type { Exercise } from './stores';
 

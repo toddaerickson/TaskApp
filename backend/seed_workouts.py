@@ -581,41 +581,6 @@ ROUTINES["ankle"] = {
     ],
 }
 
-ROUTINES["phased"] = {
-    "name": "Hip/Ankle Rehab (Phased)",
-    "goal": "rehab",
-    "notes": ("3 phases: hip activation → ankle/calf → hip flexor. ~25 min. "
-              "NOTE: no unassisted wall dorsiflexion on right — use banded ankle mob instead."),
-    "exercises": [
-        # Phase 1 — Hip activation (~13 min)
-        ("clamshell_banded", {"target_sets": 3, "target_reps": 15, "rest_sec": 45,
-                               "tempo": "2-2-3-0", "keystone": True,
-                               "notes": "Phase 1. Right side focus. 2s up / 2s hold / 3s down. "
-                                        "If felt in front of hip, reduce range."}),
-        ("banded_lateral_walk", {"target_sets": 3, "target_reps": 10, "rest_sec": 45,
-                                  "notes": "Phase 1. 10 steps each direction, quarter squat, toes forward."}),
-        ("side_lying_hip_abduction", {"target_sets": 3, "target_reps": 12, "rest_sec": 30,
-                                       "notes": "Phase 1. Left side down, lift right leg, toe slightly toward ceiling."}),
-        ("single_leg_glute_bridge", {"target_sets": 3, "target_reps": 12, "rest_sec": 45,
-                                      "notes": "Phase 1. Per side, focus right."}),
-        # Phase 2 — Ankle/calf (~9 min)
-        ("banded_ankle_mobilization", {"target_sets": 1, "target_duration_sec": 120, "rest_sec": 0,
-                                        "keystone": True,
-                                        "notes": "Phase 2. Right ankle. REPLACES wall stretch on the right."}),
-        ("seated_soleus_stretch", {"target_sets": 1, "target_duration_sec": 90, "rest_sec": 0,
-                                    "notes": "Phase 2. Lean forward, knee over toes, heel planted."}),
-        ("eccentric_calf_raise_straight", {"target_sets": 3, "target_reps": 15, "rest_sec": 60,
-                                            "tempo": "0-0-3-0", "notes": "Phase 2. 3-sec descent."}),
-        ("eccentric_calf_raise_bent", {"target_sets": 3, "target_reps": 15, "rest_sec": 60,
-                                        "tempo": "0-0-3-0", "notes": "Phase 2. Knee bent."}),
-        ("plantar_fascia_roll", {"target_sets": 1, "target_duration_sec": 120, "rest_sec": 0,
-                                  "notes": "Phase 2. Right foot."}),
-        # Phase 3 — Hip flexor (~3 min)
-        ("half_kneeling_hip_flexor", {"target_sets": 2, "target_duration_sec": 90, "rest_sec": 15,
-                                       "notes": "Phase 3. Both sides, priority right. Squeeze glute first."}),
-    ],
-}
-
 ROUTINES["rotator_reset"] = {
     "name": "Hip External Rotator Reset",
     "goal": "rehab",

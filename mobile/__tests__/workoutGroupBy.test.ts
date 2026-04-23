@@ -12,9 +12,6 @@ function mkRoutine(overrides: Partial<Routine> & { id: number; name: string }): 
     created_at: '2026-01-01T00:00:00Z',
     reminder_time: overrides.reminder_time,
     reminder_days: overrides.reminder_days,
-    phase_start_date: overrides.phase_start_date,
-    phases: overrides.phases,
-    current_phase_id: overrides.current_phase_id,
     tracks_symptoms: false,
     updated_at: null,
     exercises: [] as RoutineExercise[],
@@ -57,49 +54,6 @@ describe('bucketRoutines — day', () => {
       expect.objectContaining({ key: 'none', label: 'No day' }),
     );
     expect(out[out.length - 1].items.map((r) => r.name)).toEqual(['Unscheduled']);
-  });
-});
-
-describe('bucketRoutines — phase', () => {
-  it('buckets flat routines under "No phase"', () => {
-    const routines = [mkRoutine({ id: 1, name: 'Flat' })];
-    const out = bucketRoutines(routines, 'phase', new Map(), new Date('2026-04-21'));
-    expect(out).toEqual([
-      expect.objectContaining({ key: 'none', label: 'No phase' }),
-    ]);
-  });
-
-  it('buckets phased routines by active-phase label', () => {
-    // getActivePhaseInfo reads the server-resolved `current_phase_id`
-    // off the routine (populated by hydrate_routines_full). The test
-    // sets it directly rather than recomputing the phase-math locally —
-    // bucketing trusts the server's answer.
-    const foundation = {
-      id: 10, routine_id: 1, label: 'Foundation', order_idx: 0,
-      duration_weeks: 2, notes: null,
-    };
-    const loading = {
-      id: 20, routine_id: 1, label: 'Loading', order_idx: 1,
-      duration_weeks: 4, notes: null,
-    };
-    const routines = [
-      mkRoutine({
-        id: 1, name: 'Early',
-        phase_start_date: '2026-04-11',
-        phases: [foundation, loading],
-        current_phase_id: 10,
-      }),
-      mkRoutine({
-        id: 2, name: 'Later',
-        phase_start_date: '2026-04-01',
-        phases: [foundation, loading],
-        current_phase_id: 20,
-      }),
-    ];
-    const out = bucketRoutines(routines, 'phase', new Map(), new Date('2026-04-21'));
-    const labels = out.map((b) => b.label);
-    expect(labels).toContain('Foundation');
-    expect(labels).toContain('Loading');
   });
 });
 
