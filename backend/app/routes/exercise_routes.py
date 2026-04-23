@@ -130,6 +130,8 @@ def update_exercise(exercise_id: int, req: ExerciseUpdate, user_id: int = Depend
             k: v for k, v in req.model_dump(exclude_unset=True).items()
             if k in _EXERCISE_UPDATE_COLUMNS
         }
+        if "is_bodyweight" in fields:
+            fields["is_bodyweight"] = bool(fields["is_bodyweight"])
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             params = list(fields.values()) + [exercise_id]

@@ -383,6 +383,8 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
             # same reasoning — hardens the dynamic UPDATE against a
             # future Pydantic config that lets extra fields through.
             fields = {k: v for k, v in fields.items() if k in _ROUTINE_UPDATE_COLUMNS}
+            if "tracks_symptoms" in fields:
+                fields["tracks_symptoms"] = int(bool(fields["tracks_symptoms"]))
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE routines SET {sets} WHERE id = ?",
                         tuple(list(fields.values()) + [routine_id]))

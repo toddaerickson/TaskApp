@@ -291,7 +291,8 @@ def update_task(task_id: int, req: TaskUpdate, user_id: int = Depends(get_curren
         if not cur.fetchone():
             raise HTTPException(404, "Task not found")
 
-        updates, params = ["updated_at = datetime('now')"], []
+        _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+        updates, params = ["updated_at = ?"], [_now]
         for field in ["title", "folder_id", "subfolder_id", "parent_id", "note", "priority", "status",
                       "due_time", "repeat_type", "repeat_from", "sort_order"]:
             val = getattr(req, field)
@@ -362,13 +363,13 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
                     base_date = date_type.fromisoformat(base_date)
                 new_due = base_date + delta
                 cur.execute(
-                    "UPDATE tasks SET due_date = ?, updated_at = datetime('now') WHERE id = ?",
-                    (str(new_due), task_id),
+                    "UPDATE tasks SET due_date = ?, updated_at = ? WHERE id = ?",
+                    (str(new_due), datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds"), task_id),
                 )
         else:
             cur.execute(
-                "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = datetime('now') WHERE id = ?",
-                (True, now.isoformat(), task_id),
+                "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (True, now.isoformat(), now.isoformat(sep=" ", timespec="seconds"), task_id),
             )
 
         task = _get_task_by_id(cur, task_id)
@@ -387,7 +388,8 @@ def reorder_tasks(req: ReorderRequest, user_id: int = Depends(get_current_user_i
 
 @router.post("/batch")
 def batch_update(req: BatchUpdate, user_id: int = Depends(get_current_user_id)):
-    updates, params = ["updated_at = datetime('now')"], []
+    _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+    updates, params = ["updated_at = ?"], [_now]
     if req.folder_id is not None:
         updates.append("folder_id = ?")
         params.append(req.folder_id)

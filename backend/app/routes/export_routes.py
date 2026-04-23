@@ -79,6 +79,8 @@ class SessionSetExport(BaseModel):
     rpe: Optional[int] = None
     completed: bool = True
     notes: Optional[str] = None
+    is_warmup: bool = False
+    pain_score: Optional[int] = None
 
 
 class SessionExport(BaseModel):
@@ -88,6 +90,7 @@ class SessionExport(BaseModel):
     rpe: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    tracks_symptoms: bool = False
     sets: list[SessionSetExport] = []
 
 
@@ -218,6 +221,8 @@ def export_workouts(user_id: int = Depends(get_current_user_id)):
                     duration_sec=st["duration_sec"], distance_m=st["distance_m"],
                     rpe=st["rpe"], completed=bool(st["completed"]),
                     notes=st["notes"],
+                    is_warmup=bool(st.get("is_warmup", False)),
+                    pain_score=st.get("pain_score"),
                 ))
             session_id_to_index[s["id"]] = i
             # psycopg2 returns TIMESTAMP columns as datetime objects; SQLite
@@ -228,6 +233,7 @@ def export_workouts(user_id: int = Depends(get_current_user_id)):
                 started_at=str(s["started_at"]) if s["started_at"] is not None else "",
                 ended_at=str(s["ended_at"]) if s["ended_at"] is not None else None,
                 rpe=s["rpe"], mood=s["mood"], notes=s["notes"],
+                tracks_symptoms=bool(s.get("tracks_symptoms", False)),
                 sets=set_out,
             ))
 
@@ -392,9 +398,10 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                 result.sessions_added += 1
                 continue
             cur.execute(
-                """INSERT INTO workout_sessions (user_id, routine_id, started_at, ended_at, rpe, mood, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (user_id, routine_id, s.started_at, s.ended_at, s.rpe, s.mood, s.notes),
+                """INSERT INTO workout_sessions (user_id, routine_id, started_at, ended_at, rpe, mood, notes, tracks_symptoms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, routine_id, s.started_at, s.ended_at, s.rpe, s.mood, s.notes,
+                 int(s.tracks_symptoms)),
             )
             sid = cur.lastrowid
             session_index_to_id[i] = sid
@@ -409,10 +416,11 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                     continue
                 cur.execute(
                     """INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight,
-                        duration_sec, distance_m, rpe, completed, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        duration_sec, distance_m, rpe, completed, notes, is_warmup, pain_score)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (sid, ex_id, st.set_number, st.reps, st.weight,
-                     st.duration_sec, st.distance_m, st.rpe, bool(st.completed), st.notes),
+                     st.duration_sec, st.distance_m, st.rpe, bool(st.completed), st.notes,
+                     int(st.is_warmup), st.pain_score),
                 )
             result.sessions_added += 1
 

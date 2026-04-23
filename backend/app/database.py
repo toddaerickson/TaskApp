@@ -84,6 +84,11 @@ class _CompatCursor:
         # psycopg2 cursors don't populate lastrowid. lastval() returns the
         # most-recent sequence value in the session; correct for any table
         # with a SERIAL/IDENTITY id, which is all of ours.
+        #
+        # IMPORTANT: Read lastrowid immediately after each INSERT, before
+        # any other execute() call. A second INSERT (even into a different
+        # table) will advance lastval() and this property will silently
+        # return the wrong id.
         self._cur.execute("SELECT lastval() AS v")
         row = self._cur.fetchone()
         return row["v"] if row else None
