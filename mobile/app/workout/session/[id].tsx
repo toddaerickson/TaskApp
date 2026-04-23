@@ -411,7 +411,7 @@ export default function ActiveSessionScreen() {
         )}
 
         <View style={styles.finishBox}>
-          <Text style={styles.finishLabel}>How hard was that? (RPE 1-10)</Text>
+          <Text style={styles.finishLabel}>Rate of Perceived Exertion (1–10)</Text>
           <View style={styles.rpeRow}>
             {[1,2,3,4,5,6,7,8,9,10].map((n) => (
               <Pressable
@@ -566,10 +566,10 @@ function ExerciseBlock({
   const [reps, setReps] = useState(String(initReps));
   const [duration, setDuration] = useState(String(initDur));
   const [weight, setWeight] = useState(String(initW));
-  // RPE is always logged when the user types one; pain is only logged
-  // on rehab sessions (tracksSymptoms). Blank strings clear to
-  // undefined so the server-side sparse-update semantics apply.
-  const [rpe, setRpe] = useState('');
+  // RPE is always logged when the user taps one; pain is only logged
+  // on rehab sessions (tracksSymptoms). null clears to undefined so
+  // the server-side sparse-update semantics apply.
+  const [rpe, setRpe] = useState<number | null>(null);
   const [pain, setPain] = useState('');
   // Per-set laterality. null = bilateral (historical default). A two-
   // state toggle rather than three buttons because the most common
@@ -647,7 +647,7 @@ function ExerciseBlock({
       reps: !isDuration && reps ? Number(reps) : undefined,
       duration_sec: isDuration && duration ? Number(duration) : undefined,
       weight: weight ? Number(weight) : undefined,
-      rpe: rpe ? Number(rpe) : undefined,
+      rpe: rpe ?? undefined,
       pain_score: tracksSymptoms && pain ? Number(pain) : undefined,
       side: side ?? undefined,
       is_warmup: isWarmup || undefined,
@@ -657,7 +657,7 @@ function ExerciseBlock({
     // RPE + pain + warmup genuinely change set-to-set. Side is kept
     // sticky across logs because the "L then R" rhythm usually wants
     // the user to advance side themselves, not auto-flip on log.
-    setRpe('');
+    setRpe(null);
     setPain('');
     setIsWarmup(false);
     // Read fresh length AFTER onLog's reload so we don't miss sets logged
@@ -794,15 +794,31 @@ function ExerciseBlock({
             )}
           </View>
 
-          {/* Second input row — RPE always, Pain only on rehab sessions.
-              These clear after each set logged (unlike reps/weight which
+          {/* RPE tile picker — always shown. Pain text input only on rehab.
+              Both clear after each set logged (unlike reps/weight which
               persist across sets since they tend to repeat). */}
-          <View style={styles.inputRow}>
-            <LabeledInput label="RPE (1–10)" value={rpe} onChange={setRpe} />
-            {tracksSymptoms && (
-              <LabeledInput label="Pain (0–10)" value={pain} onChange={setPain} />
-            )}
+          <View style={styles.setRpeSection}>
+            <Text style={styles.setRpeLabel}>RPE</Text>
+            <View style={styles.setRpeRow}>
+              {[1,2,3,4,5,6,7,8,9,10].map((n) => (
+                <Pressable
+                  key={n}
+                  style={[styles.setRpeBtn, rpe === n && styles.setRpeBtnActive]}
+                  onPress={() => setRpe(rpe === n ? null : n)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: rpe === n }}
+                  accessibilityLabel={`RPE ${n}`}
+                >
+                  <Text style={[styles.setRpeText, rpe === n && styles.setRpeTextActive]}>{n}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
+          {tracksSymptoms && (
+            <View style={styles.inputRow}>
+              <LabeledInput label="Pain (0–10)" value={pain} onChange={setPain} />
+            </View>
+          )}
 
           {/* Per-set flags: L/R for unilateral work, warmup toggle. Both
               compact pills rather than full rows because they're
@@ -1049,6 +1065,18 @@ const styles = StyleSheet.create({
   timerStopBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#fff',
     borderWidth: 1, borderColor: '#ccc', cursor: 'pointer' as any },
   timerStopText: { fontSize: 12, color: '#666', fontWeight: '600' },
+
+  setRpeSection: { marginTop: 4, marginBottom: 4 },
+  setRpeLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginBottom: 4 },
+  setRpeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
+  setRpeBtn: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: '#ddd', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer' as any,
+  },
+  setRpeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  setRpeText: { fontSize: 12, color: '#666' },
+  setRpeTextActive: { color: '#fff', fontWeight: '700' },
 
   finishBox: { padding: 16, marginTop: 12 },
   finishLabel: { fontSize: 13, color: '#666', marginBottom: 8, textAlign: 'center' },
