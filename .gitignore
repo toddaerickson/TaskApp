@@ -27,4 +27,5 @@ Thumbs.db
 *.csv
 
 # Claude runtime
+.claude/settings.json
 .claude/scheduled_tasks.lock
