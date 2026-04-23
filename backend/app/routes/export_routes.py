@@ -401,7 +401,7 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                 """INSERT INTO workout_sessions (user_id, routine_id, started_at, ended_at, rpe, mood, notes, tracks_symptoms)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, routine_id, s.started_at, s.ended_at, s.rpe, s.mood, s.notes,
-                 int(s.tracks_symptoms)),
+                 bool(s.tracks_symptoms)),
             )
             sid = cur.lastrowid
             session_index_to_id[i] = sid
@@ -420,7 +420,7 @@ def import_workouts(req: ImportRequest, user_id: int = Depends(get_current_user_
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (sid, ex_id, st.set_number, st.reps, st.weight,
                      st.duration_sec, st.distance_m, st.rpe, bool(st.completed), st.notes,
-                     int(st.is_warmup), st.pain_score),
+                     bool(st.is_warmup), st.pain_score),
                 )
             result.sessions_added += 1
 
