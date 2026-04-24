@@ -16,10 +16,11 @@ interface Props<T = any> {
   onChange: (v: T) => void;
   placeholder?: string;
   disabled?: boolean;
+  compact?: boolean;
 }
 
 export default function Dropdown<T = any>({
-  value, options, onChange, placeholder = 'Select…', disabled,
+  value, options, onChange, placeholder = 'Select…', disabled, compact,
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
@@ -27,15 +28,18 @@ export default function Dropdown<T = any>({
   return (
     <>
       <Pressable
-        style={[styles.trigger, disabled && { opacity: 0.5 }]}
+        style={[styles.trigger, compact && styles.triggerCompact, disabled && { opacity: 0.5 }]}
         onPress={() => !disabled && setOpen(true)}
         accessibilityRole="combobox"
         accessibilityLabel={`${placeholder}, ${current?.label ?? 'not set'}`}
       >
-        <Text style={[styles.triggerText, !current && { color: colors.textMuted }]}>
+        <Text
+          style={[styles.triggerText, compact && styles.triggerTextCompact, !current && { color: colors.textMuted }]}
+          numberOfLines={1}
+        >
           {current?.label ?? placeholder}
         </Text>
-        <Ionicons name="chevron-down" size={18} color="#666" />
+        <Ionicons name="chevron-down" size={compact ? 14 : 18} color="#666" />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -85,7 +89,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     cursor: Platform.OS === 'web' ? ('pointer' as any) : undefined,
   },
-  triggerText: { fontSize: 15, color: '#333' },
+  triggerText: { fontSize: 15, color: '#333', flex: 1 },
+  triggerCompact: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6 },
+  triggerTextCompact: { fontSize: 13 },
 
   backdrop: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',

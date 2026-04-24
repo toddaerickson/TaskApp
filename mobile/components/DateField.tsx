@@ -17,6 +17,7 @@ interface Props {
   value: string;
   onChange: (iso: string) => void;
   placeholder?: string;
+  compact?: boolean;
 }
 
 function pretty(iso: string): string {
@@ -25,7 +26,7 @@ function pretty(iso: string): string {
   return `${m}/${d}/${y.slice(2)}`;
 }
 
-export default function DateField({ value, onChange, placeholder = 'Pick a date' }: Props) {
+export default function DateField({ value, onChange, placeholder = 'Pick a date', compact }: Props) {
   const [open, setOpen] = useState(false);
   const [webText, setWebText] = useState(value);
 
@@ -37,7 +38,7 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
          * RN-web renders TextInput as an input — we still need type="date".
          * Easiest: reach for the raw input via a thin view.
          */}
-        <View style={styles.webInputWrap}>
+        <View style={[styles.webInputWrap, compact && styles.webInputWrapCompact]}>
           {/* Raw <input type="date"> is the simplest date UX on web. */}
           {(() => {
             const InputAny = 'input' as any;
@@ -67,12 +68,12 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
   return (
     <>
       <Pressable
-        style={styles.trigger}
+        style={[styles.trigger, compact && styles.triggerCompact]}
         onPress={() => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel={value ? `Edit date: ${pretty(value)}` : (placeholder || 'Pick a date')}
       >
-        <Text style={[styles.text, !value && { color: colors.textMuted }]}>
+        <Text style={[styles.text, compact && styles.textCompact, !value && { color: colors.textMuted }]}>
           {value ? pretty(value) : placeholder}
         </Text>
         {value ? (
@@ -130,6 +131,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#fff',
   },
   text: { fontSize: 15, color: '#333' },
+  webInputWrapCompact: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  triggerCompact: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6 },
+  textCompact: { fontSize: 13 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: '#fff', padding: 12, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   doneBtn: { padding: 12, alignItems: 'center' },

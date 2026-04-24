@@ -1,8 +1,8 @@
 import { colors } from "@/lib/colors";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Switch, Pressable, KeyboardAvoidingView, Platform,
+  ScrollView, Alert, Pressable, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,12 +14,7 @@ import * as api from '@/lib/api';
 import { parseBatch, titlesToText, MAX_BATCH } from '@/lib/multiAdd';
 
 // GTD's "capture" inbox — the folder new brain-dump tasks land in by
-// default. The register flow seeds a folder literally named "1. Capture";
-// if the user has renamed or removed it, we fall through to the first
-// folder whose name starts with "capture" (case-insensitive), and then
-// to no folder at all. Intentional: brain-dumped tasks should NOT inherit
-// the currently-filtered folder context — that's the GTD "capture now,
-// clarify later" rule.
+// default. See original comments for the fuzzy matching rationale.
 function pickCaptureFolderId(folders: { id: number; name: string }[]): number | null {
   const exact = folders.find((f) => f.name === '1. Capture');
   if (exact) return exact.id;
@@ -29,7 +24,7 @@ function pickCaptureFolderId(folders: { id: number; name: string }[]): number | 
 
 const PRIORITIES = [
   { value: 0, label: 'Low', color: '#999' },
-  { value: 1, label: 'Medium', color: colors.warningSoft },
+  { value: 1, label: 'Med', color: colors.warningSoft },
   { value: 2, label: 'High', color: colors.warning },
   { value: 3, label: 'Top', color: colors.danger },
 ];
@@ -58,7 +53,6 @@ const REPEAT_OPTIONS = [
 
 export default function CreateTaskScreen() {
   const router = useRouter();
-  const createTask = useTaskStore((s) => s.create);
   const { folders, load: loadFolders } = useFolderStore();
   const { tags, load: loadTags } = useTagStore();
 
@@ -72,27 +66,103 @@ export default function CreateTaskScreen() {
   const [dueDate, setDueDate] = useState('');
   const [repeatType, setRepeatType] = useState('none');
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
-  const [saving, setSaving] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [addingTag, setAddingTag] = useState(false);
-  // Inline title-error state. Replaces Alert.alert which is a silent
-  // no-op on Expo web (the reported "empty title silently fails" bug).
   const [titleError, setTitleError] = useState<string | null>(null);
 
-  // GTD brain-dump mode. Toggles the header between "One task" and
-  // "Add multiple"; the latter swaps the title field for a multiline
-  // textarea and the action metadata for a "goes to Capture folder"
-  // hint. Batch text persists across toggles so accidental flips don't
-  // wipe a 30-line dump.
+  // Auto-save state: taskId is null until the first save (title blur).
+  const [taskId, setTaskId] = useState<number | null>(null);
+  const [saved, setSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // GTD brain-dump mode
   const [mode, setMode] = useState<'one' | 'many'>('one');
   const [batchText, setBatchText] = useState('');
+  const [batchSaving, setBatchSaving] = useState(false);
   const [batchStatus, setBatchStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => { loadFolders(); loadTags(); }, []);
 
   const parsedBatch = useMemo(() => parseBatch(batchText), [batchText]);
   const captureFolderId = useMemo(() => pickCaptureFolderId(folders), [folders]);
+
+  // Note debounce: save 500ms after the user stops typing.
+  const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashSaved = useCallback(() => {
+    setSaved(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 1200);
+  }, []);
+
+  // Auto-save a single field after the task has been created.
+  const autoSave = useCallback(async (updates: Record<string, any>) => {
+    if (!taskId) return;
+    try {
+      await api.updateTask(taskId, updates);
+      useTaskStore.getState().load();
+      flashSaved();
+    } catch { /* silent — field reverts on next load */ }
+  }, [taskId, flashSaved]);
+
+  // Create the task on title blur (first save).
+  const handleTitleBlur = async () => {
+    const t = title.trim();
+    if (!t) {
+      if (title.length > 0) setTitleError('Title is required.');
+      return;
+    }
+    setTitleError(null);
+    if (taskId) {
+      // Already created — just update the title.
+      autoSave({ title: t });
+      return;
+    }
+    try {
+      const created = await api.createTask({
+        title: t,
+        folder_id: folderId,
+        priority,
+        status,
+        starred,
+        start_date: startDate || undefined,
+        due_date: dueDate || undefined,
+        repeat_type: repeatType,
+        tag_ids: selectedTagIds,
+        note: note || undefined,
+      });
+      setTaskId(created.id);
+      useTaskStore.getState().load();
+      flashSaved();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Failed to create task';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Error', msg);
+    }
+  };
+
+  // Field change helpers — set local state + auto-save if task exists.
+  const changePriority = (v: number) => { setPriority(v); autoSave({ priority: v }); };
+  const changeFolder = (v: number | null) => { setFolderId(v); autoSave({ folder_id: v }); };
+  const changeStarred = () => { const v = !starred; setStarred(v); autoSave({ starred: v }); };
+  const changeStatus = (v: string) => { setStatus(v); autoSave({ status: v }); };
+  const changeStartDate = (v: string) => { setStartDate(v); autoSave({ start_date: v || null }); };
+  const changeDueDate = (v: string) => { setDueDate(v); autoSave({ due_date: v || null }); };
+  const changeRepeat = (v: string) => { setRepeatType(v); autoSave({ repeat_type: v }); };
+  const changeNote = (v: string) => {
+    setNote(v);
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = setTimeout(() => autoSave({ note: v || null }), 500);
+  };
+
+  const toggleTag = (id: number) => {
+    setSelectedTagIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id];
+      if (taskId) autoSave({ tag_ids: next });
+      return next;
+    });
+  };
 
   const handleCreateTag = async () => {
     const name = newTag.trim();
@@ -102,8 +172,13 @@ export default function CreateTaskScreen() {
       const created = await api.createTag(name);
       await loadTags();
       setNewTag('');
-      // Auto-select the tag the user just created — almost always what they want.
-      if (created?.id) setSelectedTagIds((prev) => [...prev, created.id]);
+      if (created?.id) {
+        setSelectedTagIds((prev) => {
+          const next = [...prev, created.id];
+          if (taskId) autoSave({ tag_ids: next });
+          return next;
+        });
+      }
     } catch (e: any) {
       Alert.alert('Tag not created', e?.response?.data?.detail || 'Try again.');
     } finally {
@@ -116,57 +191,20 @@ export default function CreateTaskScreen() {
     ...folders.map((f) => ({ value: f.id as number | null, label: f.name })),
   ];
 
-  const handleSave = async () => {
-    if (!title.trim()) {
-      setTitleError('Title is required.');
-      return;
-    }
-    setTitleError(null);
-    setSaving(true);
-    try {
-      await createTask({
-        title: title.trim(),
-        folder_id: folderId,
-        note: note || undefined,
-        priority,
-        status,
-        starred,
-        start_date: startDate || undefined,
-        due_date: dueDate || undefined,
-        repeat_type: repeatType,
-        tag_ids: selectedTagIds,
-      });
-      router.back();
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || 'Failed to create task';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Error', msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleBatchSave = async () => {
     const { titles, truncated } = parsedBatch;
     if (titles.length === 0) {
       setBatchStatus({ kind: 'err', text: 'Nothing to add — paste one task per line.' });
       return;
     }
-    setSaving(true);
+    setBatchSaving(true);
     setBatchStatus(null);
-    // Best-effort loop. Record per-index outcomes so failed titles can
-    // be surfaced back into the textarea for a retry without re-typing.
-    // Sequential (not parallel) to keep server-side rate / validation
-    // errors attributable to a specific title.
     const failed: string[] = [];
     let added = 0;
     for (const t of titles) {
       try {
         await api.createTask({
           title: t,
-          // GTD capture rule: brand-new tasks don't inherit the
-          // currently-filtered folder/priority/status. Everything goes
-          // to the Capture inbox; clarification happens later.
           folder_id: captureFolderId,
           status: 'none',
           priority: 0,
@@ -176,20 +214,16 @@ export default function CreateTaskScreen() {
         failed.push(t);
       }
     }
-    setSaving(false);
+    setBatchSaving(false);
     if (failed.length === 0) {
       const msg = truncated
         ? `Added ${added} tasks (capped at ${MAX_BATCH}). Trim the list and submit again for the rest.`
         : `Added ${added} task${added === 1 ? '' : 's'}.`;
       setBatchStatus({ kind: 'ok', text: msg });
-      // Clear text and bounce back — a full success is a clean finish.
       setBatchText('');
-      // Nudge the task store so the list reflects the new entries.
       useTaskStore.getState().load();
-      // Small delay so the success banner is visible before we leave.
       setTimeout(() => router.back(), 700);
     } else {
-      // Partial failure: keep the failing lines in the textarea for retry.
       setBatchText(titlesToText(failed));
       setBatchStatus({
         kind: 'err',
@@ -199,13 +233,7 @@ export default function CreateTaskScreen() {
     }
   };
 
-  const toggleTag = (id: number) => {
-    setSelectedTagIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
-    );
-  };
-
-  // Summary of hidden advanced values so user knows something's set.
+  // Summary of hidden advanced values.
   const advancedSummary = (() => {
     const bits: string[] = [];
     if (status !== 'none') bits.push(status.replace('_', ' '));
@@ -220,18 +248,22 @@ export default function CreateTaskScreen() {
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      // Small inset so the submit button doesn't collide with the iOS
-      // keyboard's autofill suggestions bar.
       keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
     >
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ paddingBottom: 40 }}
+      contentContainerStyle={{ paddingBottom: 16 }}
       keyboardShouldPersistTaps="handled"
     >
-      {/* Mode toggle — segmented control. "Add multiple" is the GTD
-          brain-dump channel: one task per line, everything lands in
-          Capture, metadata is clarified later. */}
+      {/* Saved indicator */}
+      {saved && (
+        <View style={styles.savedBadge}>
+          <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+          <Text style={styles.savedText}>Saved</Text>
+        </View>
+      )}
+
+      {/* Mode toggle */}
       <View style={styles.modeSegment} accessibilityRole="radiogroup" accessibilityLabel="Create mode">
         <Pressable
           style={[styles.modeBtn, mode === 'one' && styles.modeBtnActive]}
@@ -260,7 +292,7 @@ export default function CreateTaskScreen() {
           text={batchText}
           onTextChange={setBatchText}
           onSubmit={handleBatchSave}
-          saving={saving}
+          saving={batchSaving}
           status={batchStatus}
           count={parsedBatch.titles.length}
           truncated={parsedBatch.truncated}
@@ -270,74 +302,85 @@ export default function CreateTaskScreen() {
         />
       ) : (
       <>
-      {/* Title */}
+      {/* Title + Star inline */}
       <Text style={styles.label}>Task</Text>
-      <TextInput
-        style={[styles.input, titleError && styles.inputError]}
-        placeholder="What needs to be done?"
-        accessibilityLabel="Task title"
-        value={title}
-        onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
-        autoFocus
-        placeholderTextColor="#bbb"
-      />
+      <View style={styles.titleRow}>
+        <TextInput
+          style={[styles.input, styles.titleInput, titleError && styles.inputError]}
+          placeholder="What needs to be done?"
+          accessibilityLabel="Task title"
+          value={title}
+          onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
+          onBlur={handleTitleBlur}
+          autoFocus
+          placeholderTextColor="#bbb"
+          returnKeyType="done"
+          onSubmitEditing={handleTitleBlur}
+        />
+        <Pressable
+          onPress={changeStarred}
+          style={styles.starBtn}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: starred }}
+          accessibilityLabel="Starred"
+          hitSlop={6}
+        >
+          <Ionicons
+            name={starred ? 'star' : 'star-outline'}
+            size={22}
+            color={starred ? '#b8860b' : '#767676'}
+          />
+        </Pressable>
+      </View>
       {titleError && <Text style={styles.errorText}>{titleError}</Text>}
 
-      {/* Folder — dropdown replaces the chip strip */}
-      <Text style={styles.label}>Folder</Text>
-      <Dropdown
-        value={folderId}
-        options={folderOptions}
-        onChange={setFolderId}
-        placeholder="Pick a folder"
-      />
-
-      {/* Priority — small set, color-coded chips */}
-      <Text style={styles.label}>Priority</Text>
-      <View style={styles.chipRow}>
-        {PRIORITIES.map((p) => {
-          const active = priority === p.value;
-          return (
-            <TouchableOpacity
-              key={p.value}
-              style={[
-                styles.priChip,
-                { borderColor: p.color },
-                active && { backgroundColor: p.color },
-              ]}
-              onPress={() => setPriority(p.value)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Priority ${p.label}`}
-            >
-              <Text style={[
-                styles.priChipText,
-                { color: active ? '#fff' : p.color },
-              ]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      {/* Folder + Priority side by side */}
+      <View style={styles.twoCol}>
+        <View style={styles.col}>
+          <Text style={styles.label}>Folder</Text>
+          <Dropdown
+            value={folderId}
+            options={folderOptions}
+            onChange={changeFolder}
+            placeholder="Folder"
+            compact
+          />
+        </View>
+        <View style={styles.col}>
+          <Text style={styles.label}>Priority</Text>
+          <View style={styles.chipRow}>
+            {PRIORITIES.map((p) => {
+              const active = priority === p.value;
+              return (
+                <TouchableOpacity
+                  key={p.value}
+                  style={[
+                    styles.priChip,
+                    { borderColor: p.color },
+                    active && { backgroundColor: p.color },
+                  ]}
+                  onPress={() => changePriority(p.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Priority ${p.label}`}
+                >
+                  <Text style={[
+                    styles.priChipText,
+                    { color: active ? '#fff' : p.color },
+                  ]}>
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
       </View>
 
-      {/* Starred */}
-      <View style={styles.switchRow}>
-        <Text style={styles.label}>Starred</Text>
-        <Switch
-          value={starred}
-          onValueChange={setStarred}
-          trackColor={{ true: colors.accent }}
-          accessibilityLabel="Starred"
-        />
-      </View>
-
-      {/* Tags — always visible so a first-run user can create their first tag
-          without leaving this screen. Previously this section only rendered
-          when tags.length > 0, which hid the affordance entirely. */}
+      {/* Tags */}
       <Text style={styles.label}>Tags</Text>
       {tags.length > 0 && (
-        <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 6 }]}>
+        <View style={[styles.chipRow, { flexWrap: 'wrap', marginBottom: 4 }]}>
           {tags.map((t) => {
             const on = selectedTagIds.includes(t.id);
             return (
@@ -374,12 +417,13 @@ export default function CreateTaskScreen() {
           disabled={!newTag.trim() || addingTag}
           accessibilityRole="button"
           accessibilityLabel="Add tag"
+          hitSlop={6}
         >
-          <Ionicons name="add" size={18} color="#fff" />
+          <Ionicons name="add" size={16} color="#fff" />
         </Pressable>
       </View>
 
-      {/* Advanced collapse — status + dates + repeat + note live here */}
+      {/* Advanced collapse */}
       <Pressable
         style={styles.advancedToggle}
         onPress={() => setAdvancedOpen(!advancedOpen)}
@@ -388,7 +432,7 @@ export default function CreateTaskScreen() {
       >
         <Ionicons
           name={advancedOpen ? 'chevron-down' : 'chevron-forward'}
-          size={16} color={colors.primary}
+          size={14} color={colors.primary}
         />
         <Text style={styles.advancedToggleText}>
           {advancedOpen ? 'Hide' : 'More'} options
@@ -402,63 +446,60 @@ export default function CreateTaskScreen() {
 
       {advancedOpen && (
         <View>
-          <Text style={styles.label}>Status</Text>
-          <Dropdown
-            value={status}
-            options={STATUS_OPTIONS}
-            onChange={setStatus}
-            placeholder="Select status"
-          />
+          {/* Status + Repeat side by side */}
+          <View style={styles.twoCol}>
+            <View style={styles.col}>
+              <Text style={styles.label}>Status</Text>
+              <Dropdown
+                value={status}
+                options={STATUS_OPTIONS}
+                onChange={changeStatus}
+                placeholder="Status"
+                compact
+              />
+            </View>
+            <View style={styles.col}>
+              <Text style={styles.label}>Repeat</Text>
+              <Dropdown
+                value={repeatType}
+                options={REPEAT_OPTIONS}
+                onChange={changeRepeat}
+                placeholder="Repeat"
+                compact
+              />
+            </View>
+          </View>
 
-          <Text style={styles.label}>Start date</Text>
-          <DateField value={startDate} onChange={setStartDate} placeholder="Pick a start date" />
-
-          <Text style={styles.label}>Due date</Text>
-          <DateField value={dueDate} onChange={setDueDate} placeholder="Pick a due date" />
-
-          <Text style={styles.label}>Repeat</Text>
-          <Dropdown
-            value={repeatType}
-            options={REPEAT_OPTIONS}
-            onChange={setRepeatType}
-            placeholder="Repeat cadence"
-          />
+          {/* Start + Due side by side */}
+          <View style={styles.twoCol}>
+            <View style={styles.col}>
+              <Text style={styles.label}>Start</Text>
+              <DateField value={startDate} onChange={changeStartDate} placeholder="Start date" compact />
+            </View>
+            <View style={styles.col}>
+              <Text style={styles.label}>Due</Text>
+              <DateField value={dueDate} onChange={changeDueDate} placeholder="Due date" compact />
+            </View>
+          </View>
 
           <Text style={styles.label}>Note</Text>
           <TextInput
-            style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+            style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
             placeholder="Additional details…"
             accessibilityLabel="Task note"
             value={note}
-            onChangeText={setNote}
+            onChangeText={changeNote}
             multiline
-            // Light gray so placeholder reads as a hint, not pre-filled
-            // text. colors.textMuted (#595959) is darkened for body-text
-            // a11y — too close to real input to be a placeholder.
             placeholderTextColor="#bbb"
           />
 
-          {/* Pre-save stub: renders a "save first" hint because the
-              task has no id yet. Once created the detail screen has
-              the real editor. */}
           <TaskReminderEditor
-            taskId={null}
+            taskId={taskId}
             reminders={[]}
             onChanged={() => {}}
           />
         </View>
       )}
-
-      {/* Save */}
-      <TouchableOpacity
-        style={[styles.saveButton, (!title.trim() || saving) && { opacity: 0.6 }]}
-        onPress={handleSave}
-        disabled={!title.trim() || saving}
-        accessibilityRole="button"
-      >
-        <Ionicons name="checkmark" size={20} color="#fff" />
-        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save Task'}</Text>
-      </TouchableOpacity>
       </>
       )}
     </ScrollView>
@@ -509,14 +550,14 @@ function BatchMode({
         </Text>
       )}
       <TouchableOpacity
-        style={[styles.saveButton, (count === 0 || saving) && { opacity: 0.6 }]}
+        style={[styles.batchSaveBtn, (count === 0 || saving) && { opacity: 0.6 }]}
         onPress={onSubmit}
         disabled={count === 0 || saving}
         accessibilityRole="button"
         accessibilityLabel={`Add ${count} tasks`}
       >
-        <Ionicons name="checkmark" size={20} color="#fff" />
-        <Text style={styles.saveText}>
+        <Ionicons name="checkmark" size={18} color="#fff" />
+        <Text style={styles.batchSaveText}>
           {saving ? 'Adding…' : count > 0 ? `Add ${count} task${count === 1 ? '' : 's'}` : 'Add tasks'}
         </Text>
       </TouchableOpacity>
@@ -525,88 +566,95 @@ function BatchMode({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 16 },
-  label: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 16, marginBottom: 6, textTransform: 'uppercase' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
+  container: { flex: 1, backgroundColor: '#fff', padding: 12 },
+  label: {
+    fontSize: 12, fontWeight: '600', color: '#666',
+    marginTop: 8, marginBottom: 3, textTransform: 'uppercase',
+  },
+  input: {
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 6,
+    padding: 8, fontSize: 14, color: '#333',
+  },
   inputError: { borderColor: colors.danger, borderWidth: 1.5 },
-  errorText: { color: colors.danger, fontSize: 13, marginTop: 4 },
+  errorText: { color: colors.danger, fontSize: 11, marginTop: 2 },
 
-  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+  // Title row with inline star
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleInput: { flex: 1 },
+  starBtn: { padding: 4 },
+
+  // Saved indicator
+  savedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-end', marginBottom: 2,
+  },
+  savedText: { fontSize: 11, color: colors.success, fontWeight: '600' },
+
+  // Two-column layout
+  twoCol: { flexDirection: 'row', gap: 8 },
+  col: { flex: 1 },
+
+  chipRow: { flexDirection: 'row', gap: 5, marginBottom: 4, flexWrap: 'wrap' },
 
   priChip: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14,
     borderWidth: 1.5, backgroundColor: '#fff',
   },
-  priChipText: { fontSize: 13, fontWeight: '600' },
+  priChipText: { fontSize: 12, fontWeight: '600' },
 
-  tagChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3e8ff' },
+  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f3e8ff' },
   tagChipOn: { backgroundColor: colors.violet },
-  chipText: { fontSize: 13, color: '#555' },
-  chipTextActive: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  chipText: { fontSize: 12, color: '#555' },
+  chipTextActive: { fontSize: 12, color: '#fff', fontWeight: '600' },
 
-  newTagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  newTagRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   newTagInput: {
-    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10,
-    fontSize: 14, color: '#333', backgroundColor: '#fafafa',
+    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 6,
+    fontSize: 12, color: '#333', backgroundColor: '#fafafa',
   },
   newTagBtn: {
-    width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.violet, cursor: 'pointer' as any,
-  },
-
-  switchRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginTop: 12,
   },
 
   advancedToggle: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 12, marginTop: 20,
+    paddingVertical: 6, marginTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee',
   },
-  advancedToggleText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
-  advancedSummary: { color: colors.textMuted, fontSize: 12, flex: 1 },
-
-  saveButton: {
-    flexDirection: 'row', backgroundColor: colors.success, borderRadius: 8, padding: 16,
-    alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24,
-  },
-  saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  advancedToggleText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
+  advancedSummary: { color: colors.textMuted, fontSize: 11, flex: 1 },
 
   modeSegment: {
     flexDirection: 'row', gap: 0,
-    borderRadius: 10, overflow: 'hidden',
+    borderRadius: 8, overflow: 'hidden',
     borderWidth: 1, borderColor: colors.border,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   modeBtn: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 10, backgroundColor: '#fff',
+    paddingVertical: 6, backgroundColor: '#fff',
     cursor: 'pointer' as any,
     minHeight: 44,
   },
   modeBtnActive: { backgroundColor: colors.primary },
-  modeBtnText: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
+  modeBtnText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
   modeBtnTextActive: { color: '#fff' },
 
+  // Batch mode (brain dump) — keeps its own save button since it's
+  // a multi-task submit, not an auto-save flow.
   batchHint: { fontSize: 12, color: colors.textMuted, marginTop: -2, marginBottom: 8 },
   batchArea: {
-    minHeight: 200, textAlignVertical: 'top',
-    // iOS Safari zooms on <16px inputs; our base `input` is 16 already,
-    // but the textarea line-height benefits from a slight bump for the
-    // long-form feel of a brain dump.
-    lineHeight: 22,
+    minHeight: 200, textAlignVertical: 'top', lineHeight: 22,
   },
   batchMetaHint: {
-    fontSize: 12, color: colors.textMuted,
-    marginTop: 8, marginBottom: 4,
+    fontSize: 12, color: colors.textMuted, marginTop: 8, marginBottom: 4,
   },
-  batchOk: {
-    fontSize: 13, color: colors.success, fontWeight: '600',
-    marginTop: 6,
+  batchOk: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 4 },
+  batchErr: { fontSize: 12, color: colors.danger, fontWeight: '600', marginTop: 4 },
+  batchSaveBtn: {
+    flexDirection: 'row', backgroundColor: colors.success, borderRadius: 6, padding: 10,
+    alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12,
   },
-  batchErr: {
-    fontSize: 13, color: colors.danger, fontWeight: '600',
-    marginTop: 6,
-  },
+  batchSaveText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

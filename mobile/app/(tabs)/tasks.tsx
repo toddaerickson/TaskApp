@@ -160,7 +160,7 @@ function getGroupSortKey(task: Task, groupBy: GroupKey): string | number {
 }
 
 export default function TasksScreen() {
-  const { tasks, isLoading, load, complete, toggleStar, filters, setFilters } = useTaskStore();
+  const { tasks, isLoading, load, complete, toggleStar, filters, setFilters, create } = useTaskStore();
   const router = useRouter();
   // Below 700px the 8-column desktop table becomes unreadable; render
   // a stacked card list instead.
@@ -184,12 +184,30 @@ export default function TasksScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [hideDeferred, setHideDeferred] = useState(false);
 
-  // Search box. The TextInput is controlled locally for instant-feel
-  // typing, and we debounce 300ms before pushing to filters.search (→
-  // server LIKE query). Without the debounce every keystroke triggers
-  // a fresh /tasks fetch which is wasteful and feels laggy on cellular.
+  // Quick-add input. The top bar is now a "New task:" input. Pressing
+  // return creates a task with just the title; the user can edit it
+  // later to add folder, priority, etc.
+  const [quickAddInput, setQuickAddInput] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
+
+  const handleQuickAdd = async () => {
+    const title = quickAddInput.trim();
+    if (!title || quickAdding) return;
+    setQuickAdding(true);
+    try {
+      await create({ title });
+      setQuickAddInput('');
+    } finally {
+      setQuickAdding(false);
+    }
+  };
+
+  // Search. Toggled open from the search tile in the chip row; replaces
+  // the entire chip bar with a full-width search input.
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchInput, setSearchInput] = useState(filters.search || '');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<TextInput>(null);
 
   const onSearchChange = (v: string) => {
     setSearchInput(v);
@@ -198,10 +216,16 @@ export default function TasksScreen() {
       setFilters({ search: v.trim() || undefined });
     }, 300);
   };
-  const clearSearch = () => {
+  const openSearch = () => {
+    setSearchExpanded(true);
+    // Focus the search input after the next render.
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  };
+  const closeSearch = () => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     setSearchInput('');
     setFilters({ search: undefined });
+    setSearchExpanded(false);
   };
   useEffect(() => () => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -220,8 +244,7 @@ export default function TasksScreen() {
     setFilters({ hide_future_start: undefined });
   };
   const clearEverything = () => {
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    setSearchInput('');
+    closeSearch();
     setHideDeferred(false);
     setFilters({
       hide_future_start: undefined,
@@ -303,151 +326,183 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Search row. Sits above the chip bar — most users want
-          search-as-scope rather than search-as-chip. Clearing returns
-          filters.search to undefined so the backend drops the LIKE. */}
-      <View style={styles.searchRow}>
-        <Ionicons name="search" size={14} color={colors.textMuted} style={styles.searchIcon} />
+      {/* Quick-add row. Replaces the old search bar — type a title and
+          press return to capture a task instantly. Search moved to a
+          tile in the chip row that expands on tap. */}
+      <View style={styles.quickAddRow}>
+        <Ionicons name="add-circle" size={18} color={colors.primary} style={styles.quickAddIcon} />
         <TextInput
-          style={styles.searchInput}
-          value={searchInput}
-          onChangeText={onSearchChange}
-          placeholder="Search tasks by title or note"
+          style={styles.quickAddInput}
+          value={quickAddInput}
+          onChangeText={setQuickAddInput}
+          placeholder="New task…"
           placeholderTextColor="#bbb"
-          autoCapitalize="none"
+          autoCapitalize="sentences"
           autoCorrect={false}
-          accessibilityLabel="Search tasks"
-          returnKeyType="search"
+          accessibilityLabel="Quick add task"
+          returnKeyType="done"
+          onSubmitEditing={handleQuickAdd}
+          editable={!quickAdding}
         />
-        {searchInput.length > 0 && (
+        {quickAddInput.length > 0 && (
           <Pressable
-            onPress={clearSearch}
+            onPress={handleQuickAdd}
             hitSlop={8}
+            disabled={quickAdding}
             accessibilityRole="button"
-            accessibilityLabel="Clear search"
+            accessibilityLabel="Add task"
+            style={{ opacity: quickAdding ? 0.5 : 1 }}
           >
-            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            <Ionicons name="arrow-forward-circle" size={22} color={colors.primary} />
           </Pressable>
         )}
       </View>
 
-      {/* Filter bar */}
+      {/* Filter bar — when search is expanded, the chips are replaced
+          by a full-width search input. Otherwise shows the normal
+          filter chips with a search tile at the end. */}
       <View style={styles.filterBar}>
-        <Pressable
-          style={[styles.filterChip, !filters.completed && styles.filterChipActive]}
-          onPress={() => setFilters({ completed: false })}
-        >
-          <Text style={!filters.completed ? styles.filterTextActive : styles.filterText}>Active</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.filterChip, filters.completed === true && styles.filterChipActive]}
-          onPress={() => setFilters({ completed: true })}
-        >
-          <Text style={filters.completed === true ? styles.filterTextActive : styles.filterText}>Completed</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.filterChip, filters.starred === true && styles.filterChipActive]}
-          onPress={() => setFilters({ starred: filters.starred ? undefined : true })}
-          accessibilityRole="button"
-          accessibilityLabel={filters.starred ? 'Remove starred filter' : 'Filter to starred tasks'}
-        >
-          <Ionicons name="star" size={14} color={filters.starred ? '#fff' : '#666'} />
-        </Pressable>
-        {/* GTD "Next" chip. Primary verb of the engage phase; ship the
-            one that actually changes what the user does in the next
-            five minutes, not just what they look at. */}
-        <Pressable
-          style={[styles.filterChip, nextActionsOn && styles.filterChipActive]}
-          onPress={toggleNextActions}
-          accessibilityRole="button"
-          accessibilityLabel={nextActionsOn ? 'Clear next-actions filter' : 'Filter to next actions'}
-          accessibilityState={{ selected: nextActionsOn }}
-        >
-          <Ionicons name="flash" size={14} color={nextActionsOn ? '#fff' : '#666'} />
-          <Text style={nextActionsOn ? styles.filterTextActive : styles.filterText}>Next</Text>
-        </Pressable>
-        {/* Secondary filters live in a bottom sheet so the chip bar
-            doesn't wrap on a 390-px iPhone. Count badge surfaces how
-            many are active without opening the sheet. */}
-        <Pressable
-          style={[styles.filterChip, activeSheetFilters > 0 && styles.filterChipActive]}
-          onPress={() => setFiltersOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={
-            activeSheetFilters > 0
-              ? `Open filters, ${activeSheetFilters} active`
-              : 'Open filters'
-          }
-        >
-          <Ionicons name="options-outline" size={14} color={activeSheetFilters > 0 ? '#fff' : '#666'} />
-          <Text style={activeSheetFilters > 0 ? styles.filterTextActive : styles.filterText}>
-            {activeSheetFilters > 0 ? `Filters (${activeSheetFilters})` : 'Filters'}
-          </Text>
-        </Pressable>
+        {searchExpanded ? (
+          <>
+            <Ionicons name="search" size={16} color={colors.primary} />
+            <TextInput
+              ref={searchInputRef}
+              style={styles.searchExpandedInput}
+              value={searchInput}
+              onChangeText={onSearchChange}
+              placeholder="Search tasks by title or note"
+              placeholderTextColor="#bbb"
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search tasks"
+              returnKeyType="search"
+            />
+            <Pressable
+              onPress={closeSearch}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Close search"
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Pressable
+              style={[styles.filterChip, !filters.completed && styles.filterChipActive]}
+              onPress={() => setFilters({ completed: false })}
+            >
+              <Text style={!filters.completed ? styles.filterTextActive : styles.filterText}>Active</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, filters.completed === true && styles.filterChipActive]}
+              onPress={() => setFilters({ completed: true })}
+            >
+              <Text style={filters.completed === true ? styles.filterTextActive : styles.filterText}>Completed</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, filters.starred === true && styles.filterChipActive]}
+              onPress={() => setFilters({ starred: filters.starred ? undefined : true })}
+              accessibilityRole="button"
+              accessibilityLabel={filters.starred ? 'Remove starred filter' : 'Filter to starred tasks'}
+            >
+              <Ionicons name="star" size={14} color={filters.starred ? '#fff' : '#666'} />
+            </Pressable>
+            {/* GTD "Next" chip */}
+            <Pressable
+              style={[styles.filterChip, nextActionsOn && styles.filterChipActive]}
+              onPress={toggleNextActions}
+              accessibilityRole="button"
+              accessibilityLabel={nextActionsOn ? 'Clear next-actions filter' : 'Filter to next actions'}
+              accessibilityState={{ selected: nextActionsOn }}
+            >
+              <Ionicons name="flash" size={14} color={nextActionsOn ? '#fff' : '#666'} />
+              <Text style={nextActionsOn ? styles.filterTextActive : styles.filterText}>Next</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, activeSheetFilters > 0 && styles.filterChipActive]}
+              onPress={() => setFiltersOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                activeSheetFilters > 0
+                  ? `Open filters, ${activeSheetFilters} active`
+                  : 'Open filters'
+              }
+            >
+              <Ionicons name="options-outline" size={14} color={activeSheetFilters > 0 ? '#fff' : '#666'} />
+              <Text style={activeSheetFilters > 0 ? styles.filterTextActive : styles.filterText}>
+                {activeSheetFilters > 0 ? `Filters (${activeSheetFilters})` : 'Filters'}
+              </Text>
+            </Pressable>
 
-        {/* Sort popover. Toodledo-style 3-level (FIRST/SECOND/THIRD
-            tabs + direction arrows). Writes to the same `sorts` state
-            the desktop column-tap uses; both surfaces stay in sync. */}
-        <Pressable
-          style={[styles.filterChip, sorts.length > 0 && styles.filterChipActive]}
-          onPress={() => setSortOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={
-            sorts.length > 0
-              ? `Open sort, ${sorts.length} level${sorts.length === 1 ? '' : 's'} active`
-              : 'Open sort'
-          }
-        >
-          <Ionicons name="swap-vertical" size={14} color={sorts.length > 0 ? '#fff' : '#666'} />
-          <Text style={sorts.length > 0 ? styles.filterTextActive : styles.filterText}>
-            {sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
-          </Text>
-        </Pressable>
+            <Pressable
+              style={[styles.filterChip, sorts.length > 0 && styles.filterChipActive]}
+              onPress={() => setSortOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                sorts.length > 0
+                  ? `Open sort, ${sorts.length} level${sorts.length === 1 ? '' : 's'} active`
+                  : 'Open sort'
+              }
+            >
+              <Ionicons name="swap-vertical" size={14} color={sorts.length > 0 ? '#fff' : '#666'} />
+              <Text style={sorts.length > 0 ? styles.filterTextActive : styles.filterText}>
+                {sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
+              </Text>
+            </Pressable>
 
-        {/* Group By dropdown */}
-        <View style={styles.groupByContainer}>
-          <Pressable
-            style={[styles.filterChip, groupBy !== 'none' && styles.groupByActive]}
-            onPress={() => setGroupDropdownOpen(!groupDropdownOpen)}
-          >
-            <Ionicons name="layers-outline" size={14} color={groupBy !== 'none' ? '#fff' : '#666'} />
-            <Text style={groupBy !== 'none' ? styles.filterTextActive : styles.filterText}>
-              Group by: {activeGroupLabel}
-            </Text>
-            <Ionicons name={groupDropdownOpen ? 'chevron-up' : 'chevron-down'} size={12}
-              color={groupBy !== 'none' ? '#fff' : '#666'} />
-          </Pressable>
+            {/* Group By dropdown */}
+            <View style={styles.groupByContainer}>
+              <Pressable
+                style={[styles.filterChip, groupBy !== 'none' && styles.groupByActive]}
+                onPress={() => setGroupDropdownOpen(!groupDropdownOpen)}
+              >
+                <Ionicons name="layers-outline" size={14} color={groupBy !== 'none' ? '#fff' : '#666'} />
+                <Text style={groupBy !== 'none' ? styles.filterTextActive : styles.filterText}>
+                  Group by: {activeGroupLabel}
+                </Text>
+                <Ionicons name={groupDropdownOpen ? 'chevron-up' : 'chevron-down'} size={12}
+                  color={groupBy !== 'none' ? '#fff' : '#666'} />
+              </Pressable>
 
-          {groupDropdownOpen && (
-            <View style={styles.dropdown}>
-              {GROUP_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.key}
-                  style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
-                  onPress={() => handleGroupChange(opt.key)}
-                >
-                  <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
-                    {opt.label}
-                  </Text>
-                  {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
-                </Pressable>
-              ))}
+              {groupDropdownOpen && (
+                <View style={styles.dropdown}>
+                  {GROUP_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.key}
+                      style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
+                      onPress={() => handleGroupChange(opt.key)}
+                    >
+                      <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
+                        {opt.label}
+                      </Text>
+                      {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
-          )}
-        </View>
 
-        {!isNarrow && (
-          <View style={styles.sortInfo}>
-            <Text style={styles.sortInfoText} numberOfLines={1}>
-              Sort: {sorts.map((s, i) => `${i + 1}. ${COLUMNS.find(c => c.key === s.key)?.label}${s.dir === 'desc' ? ' \u25BC' : ''}`).join(' > ')}
-            </Text>
-          </View>
+            {!isNarrow && (
+              <View style={styles.sortInfo}>
+                <Text style={styles.sortInfoText} numberOfLines={1}>
+                  Sort: {sorts.map((s, i) => `${i + 1}. ${COLUMNS.find(c => c.key === s.key)?.label}${s.dir === 'desc' ? ' \u25BC' : ''}`).join(' > ')}
+                </Text>
+              </View>
+            )}
+
+            {/* Search tile — replaces the old + New Task button. Tap to
+                expand into a full-width search input covering the chips. */}
+            <Pressable
+              style={[styles.filterChip, !!filters.search && styles.filterChipActive]}
+              onPress={openSearch}
+              accessibilityRole="button"
+              accessibilityLabel="Search tasks"
+            >
+              <Ionicons name="search" size={14} color={filters.search ? '#fff' : '#666'} />
+            </Pressable>
+          </>
         )}
-
-        <Pressable style={styles.newTaskBtn} onPress={() => router.push('/task/create')}>
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.newTaskBtnText}>{isNarrow ? 'New' : 'New Task'}</Text>
-        </Pressable>
       </View>
 
       {/* Column headers — desktop table only */}
@@ -704,7 +759,12 @@ export default function TasksScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
+  container: {
+    flex: 1, backgroundColor: '#f5f6fa',
+    ...(Platform.OS === 'web'
+      ? { paddingTop: 'env(safe-area-inset-top)' } as any
+      : { paddingTop: 50 }),
+  },
 
   // Filter bar — wraps on narrow screens so chips don't squeeze the
   // sort label into a one-letter-per-line vertical column.
@@ -713,19 +773,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center',
     zIndex: 100, overflow: 'visible' as any,
   },
-  searchRow: {
+  quickAddRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
   },
-  searchIcon: { marginLeft: 2 },
-  searchInput: {
-    flex: 1, fontSize: 16,   // 16px to avoid iPhone Safari input-zoom.
+  quickAddIcon: { marginLeft: 2 },
+  quickAddInput: {
+    flex: 1, fontSize: 16,
     paddingVertical: 2, color: '#222',
-    // Cast via `any` — RN-web's TextInput accepts the CSS outlineStyle
-    // property to suppress the browser's default focus ring, but it's
-    // not in RN's TextStyle type. Keeps web focus subtle without the
-    // thick blue outline.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+  },
+  searchExpandedInput: {
+    flex: 1, fontSize: 14,
+    paddingVertical: 4, color: '#222',
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
   },
   filterChip: {
@@ -738,12 +799,6 @@ const styles = StyleSheet.create({
   filterTextActive: { fontSize: 12, color: '#fff' },
   sortInfo: { flex: 1, marginLeft: 4 },
   sortInfoText: { fontSize: 10, color: colors.textMuted, fontStyle: 'italic' },
-  newTaskBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
-    cursor: 'pointer' as any,
-  },
-  newTaskBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 
   // Group By
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
