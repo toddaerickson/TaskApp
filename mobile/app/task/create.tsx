@@ -302,21 +302,34 @@ export default function CreateTaskScreen() {
         />
       ) : (
       <>
-      {/* Title + Star inline */}
+      {/* Title */}
       <Text style={styles.label}>Task</Text>
-      <View style={styles.titleRow}>
-        <TextInput
-          style={[styles.input, styles.titleInput, titleError && styles.inputError]}
-          placeholder="What needs to be done?"
-          accessibilityLabel="Task title"
-          value={title}
-          onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
-          onBlur={handleTitleBlur}
-          autoFocus
-          placeholderTextColor="#bbb"
-          returnKeyType="done"
-          onSubmitEditing={handleTitleBlur}
-        />
+      <TextInput
+        style={[styles.input, titleError && styles.inputError]}
+        placeholder="What needs to be done?"
+        accessibilityLabel="Task title"
+        value={title}
+        onChangeText={(v) => { setTitle(v); if (titleError) setTitleError(null); }}
+        onBlur={handleTitleBlur}
+        autoFocus
+        placeholderTextColor="#bbb"
+        returnKeyType="done"
+        onSubmitEditing={handleTitleBlur}
+      />
+      {titleError && <Text style={styles.errorText}>{titleError}</Text>}
+
+      {/* Folder */}
+      <Text style={styles.label}>Folder</Text>
+      <Dropdown
+        value={folderId}
+        options={folderOptions}
+        onChange={changeFolder}
+        placeholder="Folder"
+        compact
+      />
+
+      {/* Star + Priority on one row */}
+      <View style={styles.starPriorityRow}>
         <Pressable
           onPress={changeStarred}
           style={styles.starBtn}
@@ -331,49 +344,32 @@ export default function CreateTaskScreen() {
             color={starred ? '#b8860b' : '#767676'}
           />
         </Pressable>
-      </View>
-      {titleError && <Text style={styles.errorText}>{titleError}</Text>}
-
-      {/* Folder + Priority side by side */}
-      <View style={styles.twoCol}>
-        <View style={styles.col}>
-          <Text style={styles.label}>Folder</Text>
-          <Dropdown
-            value={folderId}
-            options={folderOptions}
-            onChange={changeFolder}
-            placeholder="Folder"
-            compact
-          />
-        </View>
-        <View style={styles.col}>
-          <Text style={styles.label}>Priority</Text>
-          <View style={styles.chipRow}>
-            {PRIORITIES.map((p) => {
-              const active = priority === p.value;
-              return (
-                <TouchableOpacity
-                  key={p.value}
-                  style={[
-                    styles.priChip,
-                    { borderColor: p.color },
-                    active && { backgroundColor: p.color },
-                  ]}
-                  onPress={() => changePriority(p.value)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={`Priority ${p.label}`}
-                >
-                  <Text style={[
-                    styles.priChipText,
-                    { color: active ? '#fff' : p.color },
-                  ]}>
-                    {p.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        <View style={styles.prioritySep} />
+        <View style={styles.chipRow}>
+          {PRIORITIES.map((p) => {
+            const active = priority === p.value;
+            return (
+              <TouchableOpacity
+                key={p.value}
+                style={[
+                  styles.priChip,
+                  { borderColor: p.color },
+                  active && { backgroundColor: p.color },
+                ]}
+                onPress={() => changePriority(p.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Priority ${p.label}`}
+              >
+                <Text style={[
+                  styles.priChipText,
+                  { color: active ? '#fff' : p.color },
+                ]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -446,17 +442,11 @@ export default function CreateTaskScreen() {
 
       {advancedOpen && (
         <View>
-          {/* Status + Repeat side by side */}
+          {/* Due date + Repeat side by side */}
           <View style={styles.twoCol}>
             <View style={styles.col}>
-              <Text style={styles.label}>Status</Text>
-              <Dropdown
-                value={status}
-                options={STATUS_OPTIONS}
-                onChange={changeStatus}
-                placeholder="Status"
-                compact
-              />
+              <Text style={styles.label}>Due</Text>
+              <DateField value={dueDate} onChange={changeDueDate} placeholder="Due date" compact />
             </View>
             <View style={styles.col}>
               <Text style={styles.label}>Repeat</Text>
@@ -470,15 +460,21 @@ export default function CreateTaskScreen() {
             </View>
           </View>
 
-          {/* Start + Due side by side */}
+          {/* Status + Start date side by side */}
           <View style={styles.twoCol}>
+            <View style={styles.col}>
+              <Text style={styles.label}>Status</Text>
+              <Dropdown
+                value={status}
+                options={STATUS_OPTIONS}
+                onChange={changeStatus}
+                placeholder="Status"
+                compact
+              />
+            </View>
             <View style={styles.col}>
               <Text style={styles.label}>Start</Text>
               <DateField value={startDate} onChange={changeStartDate} placeholder="Start date" compact />
-            </View>
-            <View style={styles.col}>
-              <Text style={styles.label}>Due</Text>
-              <DateField value={dueDate} onChange={changeDueDate} placeholder="Due date" compact />
             </View>
           </View>
 
@@ -493,11 +489,14 @@ export default function CreateTaskScreen() {
             placeholderTextColor="#bbb"
           />
 
-          <TaskReminderEditor
-            taskId={taskId}
-            reminders={[]}
-            onChanged={() => {}}
-          />
+          {/* Reminders — only show "Add reminder" link once task is saved */}
+          {taskId && (
+            <TaskReminderEditor
+              taskId={taskId}
+              reminders={[]}
+              onChanged={() => {}}
+            />
+          )}
         </View>
       )}
       </>
@@ -578,9 +577,11 @@ const styles = StyleSheet.create({
   inputError: { borderColor: colors.danger, borderWidth: 1.5 },
   errorText: { color: colors.danger, fontSize: 11, marginTop: 2 },
 
-  // Title row with inline star
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  titleInput: { flex: 1 },
+  // Star + Priority row
+  starPriorityRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
+  },
+  prioritySep: { width: 1, height: 20, backgroundColor: '#ddd' },
   starBtn: { padding: 4 },
 
   // Saved indicator

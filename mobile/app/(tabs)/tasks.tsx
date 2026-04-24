@@ -759,12 +759,7 @@ export default function TasksScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#f5f6fa',
-    ...(Platform.OS === 'web'
-      ? { paddingTop: 'env(safe-area-inset-top)' } as any
-      : { paddingTop: 50 }),
-  },
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
 
   // Filter bar — wraps on narrow screens so chips don't squeeze the
   // sort label into a one-letter-per-line vertical column.

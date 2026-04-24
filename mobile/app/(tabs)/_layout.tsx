@@ -57,10 +57,6 @@ export default function TabLayout() {
         includeFontPadding: false,
       },
       tabBarIconStyle: { marginBottom: 0, marginTop: 0 },
-      // Hide the blue header bar on main tab screens — the tab bar
-      // already identifies the section. Sub-pages (pushed via Stack)
-      // keep their own headers for back navigation + page titles.
-      headerShown: false,
     }}>
       <Tabs.Screen
         name="tasks"

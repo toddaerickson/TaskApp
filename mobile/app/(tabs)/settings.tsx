@@ -205,12 +205,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#f5f6fa',
-    ...(Platform.OS === 'web'
-      ? { paddingTop: 'env(safe-area-inset-top)' } as any
-      : { paddingTop: 50 }),
-  },
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
   profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 20, marginBottom: 12 },
   name: { fontSize: 18, fontWeight: '600', color: '#333' },
   email: { fontSize: 14, color: colors.textMuted },

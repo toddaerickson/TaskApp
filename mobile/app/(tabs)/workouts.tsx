@@ -686,12 +686,7 @@ function computeStreak(sessions: WorkoutSession[]): number {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#f5f6fa',
-    ...(Platform.OS === 'web'
-      ? { paddingTop: 'env(safe-area-inset-top)' } as any
-      : { paddingTop: 50 }),
-  },
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
   header: {
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
     alignItems: 'center', rowGap: 8,

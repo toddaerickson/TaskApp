@@ -1,7 +1,7 @@
 import { colors } from "@/lib/colors";
 import { useState } from 'react';
 import {
-  View, Text, Pressable, Modal, FlatList, StyleSheet, Platform,
+  View, Text, Pressable, StyleSheet, Platform, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -26,12 +26,13 @@ export default function Dropdown<T = any>({
   const current = options.find((o) => o.value === value);
 
   return (
-    <>
+    <View style={styles.wrapper}>
       <Pressable
         style={[styles.trigger, compact && styles.triggerCompact, disabled && { opacity: 0.5 }]}
-        onPress={() => !disabled && setOpen(true)}
+        onPress={() => !disabled && setOpen(!open)}
         accessibilityRole="combobox"
         accessibilityLabel={`${placeholder}, ${current?.label ?? 'not set'}`}
+        accessibilityState={{ expanded: open }}
       >
         <Text
           style={[styles.triggerText, compact && styles.triggerTextCompact, !current && { color: colors.textMuted }]}
@@ -39,49 +40,36 @@ export default function Dropdown<T = any>({
         >
           {current?.label ?? placeholder}
         </Text>
-        <Ionicons name="chevron-down" size={compact ? 14 : 18} color="#666" />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={compact ? 14 : 18} color="#666" />
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation?.()}>
-            <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>{placeholder}</Text>
-              <Pressable
-                onPress={() => setOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
-                <Ionicons name="close" size={22} color="#888" />
-              </Pressable>
-            </View>
-            <FlatList
-              data={options}
-              keyExtractor={(o) => String(o.value)}
-              renderItem={({ item }) => {
-                const selected = item.value === value;
-                return (
-                  <Pressable
-                    style={[styles.row, selected && styles.rowSel]}
-                    onPress={() => { onChange(item.value); setOpen(false); }}
-                    accessibilityRole="menuitem"
-                    accessibilityState={{ selected }}
-                  >
-                    <Text style={[styles.rowText, selected && styles.rowTextSel]}>{item.label}</Text>
-                    {selected && <Ionicons name="checkmark" size={18} color={colors.primary} />}
-                  </Pressable>
-                );
-              }}
-              style={{ maxHeight: 380 }}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </>
+      {open && (
+        <View style={styles.listContainer}>
+          <ScrollView style={styles.list} nestedScrollEnabled>
+            {options.map((item) => {
+              const selected = item.value === value;
+              return (
+                <Pressable
+                  key={String(item.value)}
+                  style={[styles.row, selected && styles.rowSel]}
+                  onPress={() => { onChange(item.value); setOpen(false); }}
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ selected }}
+                >
+                  <Text style={[styles.rowText, selected && styles.rowTextSel]}>{item.label}</Text>
+                  {selected && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: { position: 'relative' as any, zIndex: 100 },
   trigger: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
@@ -93,28 +81,22 @@ const styles = StyleSheet.create({
   triggerCompact: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6 },
   triggerTextCompact: { fontSize: 13 },
 
-  backdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center', padding: 20,
+  listContainer: {
+    position: 'absolute' as any, top: '100%', left: 0, right: 0,
+    zIndex: 9999, marginTop: 2,
+    backgroundColor: '#fff', borderRadius: 8,
+    borderWidth: 1, borderColor: '#ddd',
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
-  sheet: {
-    backgroundColor: '#fff', borderRadius: 10, maxWidth: 500, width: '100%',
-    alignSelf: 'center', overflow: 'hidden',
-  },
-  sheetHead: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
-  },
-  sheetTitle: { fontSize: 14, fontWeight: '700', color: '#666', textTransform: 'uppercase' },
-
+  list: { maxHeight: 200 },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f3f3f3',
     cursor: Platform.OS === 'web' ? ('pointer' as any) : undefined,
   },
   rowSel: { backgroundColor: '#e8f0fe' },
-  rowText: { fontSize: 15, color: '#333', flex: 1 },
+  rowText: { fontSize: 14, color: '#333', flex: 1 },
   rowTextSel: { color: colors.primary, fontWeight: '600' },
 });
