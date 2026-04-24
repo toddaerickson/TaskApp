@@ -19,6 +19,23 @@ changed_mobile=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^mo
 
 fail=0
 
+# ── Secrets scan ──────────────────────────────────────────────────────
+# Block commits that contain likely secrets: API keys, tokens, passwords,
+# connection strings, or private keys. Runs on ALL staged files regardless
+# of which stack changed — secrets can land anywhere.
+echo "→ secrets scan"
+secrets_pattern='(PRIVATE.KEY|-----BEGIN.*PRIVATE|password\s*=\s*["\x27][^"\x27]{8}|api[_-]?key\s*=\s*["\x27]|secret\s*=\s*["\x27]|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|postgresql://[^@]+:[^@]+@|Bearer\s+ey[A-Za-z0-9])'
+matched=$(git diff --cached --diff-filter=ACMR -U0 | grep -iEn "$secrets_pattern" | grep -v '^\-\-\-\|^+++\|^#\|//.*secret\|\.example\|test.*fixture\|mock\|placeholder' || true)
+if [ -n "$matched" ]; then
+  echo "  ✗ Possible secrets detected in staged changes:"
+  echo "$matched" | head -10
+  echo
+  echo "  If these are false positives (test fixtures, examples), bypass with --no-verify."
+  fail=1
+else
+  echo "  ✓ No secrets found"
+fi
+
 if [ -n "$changed_backend" ]; then
   echo "→ backend pytest"
   if [ -x "backend/venv/bin/pytest" ]; then

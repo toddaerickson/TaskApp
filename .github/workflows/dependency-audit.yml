@@ -1,0 +1,70 @@
+name: Dependency Audit
+
+on:
+  # Weekly on Monday at 08:00 UTC
+  schedule:
+    - cron: '0 8 * * 1'
+  # Also run on push/PR when lock files change
+  push:
+    branches: [master, main]
+    paths:
+      - 'backend/requirements.txt'
+      - 'mobile/package-lock.json'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'backend/requirements.txt'
+      - 'mobile/package-lock.json'
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  python-audit:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit Python packages
+        run: pip-audit --strict --desc
+
+  node-audit:
+    name: Node dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit Node packages
+        # --audit-level=high: fail on high/critical only. Moderate
+        # vulnerabilities in dev-only deps are noise for a mobile app.
+        run: npm audit --audit-level=high
+
+      - name: License check
+        run: npx license-checker --failOn 'GPL-2.0;GPL-3.0;AGPL-3.0' --summary
