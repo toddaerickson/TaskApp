@@ -310,7 +310,9 @@ export default function RoutineDetailScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.titleRow}>
-              <Text style={styles.title}>{routine.name}</Text>
+              <Text style={styles.meta}>
+                {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
+              </Text>
               {routine.tracks_symptoms && (
                 <View
                   style={styles.rehabBadge}
@@ -321,9 +323,6 @@ export default function RoutineDetailScreen() {
                 </View>
               )}
             </View>
-            <Text style={styles.meta}>
-              {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
-            </Text>
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color={colors.warning} />
@@ -1001,7 +1000,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.danger,
   },
   deleteRoutineText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  title: { fontSize: 22, fontWeight: '700', color: '#222' },
+
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   rehabBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
@@ -1009,7 +1008,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
   rehabBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
-  meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  meta: { fontSize: 13, color: colors.textMuted },
   headerEditBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     // 44×44 via explicit minHeight + horizontal padding. The visual pill
