@@ -58,7 +58,7 @@ EXTENSIONS = {".tsx", ".jsx"}
 # A JSX opening tag: `<TagName` followed by optional attributes. We stop at
 # the first matching `>` (accounting for JSX expressions `{...}`, strings
 # `"..."` / `'...'`, and JSX fragments we don't care about).
-TAG_OPEN_RE = re.compile(r"<([A-Z][A-Za-z0-9_]*)")
+TAG_OPEN_RE = re.compile(r"(?<![A-Za-z0-9_])<([A-Z][A-Za-z0-9_]*)")
 
 
 @dataclass
