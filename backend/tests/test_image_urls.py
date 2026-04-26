@@ -5,8 +5,6 @@ client renders" so it gets exhaustive coverage — silent passthrough
 regressions would re-introduce the byte-rot problem self-hosting was
 supposed to solve.
 """
-import pytest
-
 from app import config
 from app.image_urls import resolve_image_url
 

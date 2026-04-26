@@ -27,6 +27,11 @@ os.environ.setdefault("JWT_SECRET", "test-secret-" + "x" * 48)
 # main.py has the same kind of guard for CORS_ORIGINS in postgres mode —
 # satisfy it the same way so the import-time check doesn't break the suite.
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:8081")
+# main.py emits a warn-loudly error in PG mode when BACKEND_PUBLIC_URL is
+# missing, and `/health/detailed` exposes the resulting flag. Set a stable
+# value so the diagnostic field reports "configured: True" deterministically
+# across the SQLite + Postgres CI matrix.
+os.environ.setdefault("BACKEND_PUBLIC_URL", "http://test.local")
 
 # Same story for DATABASE_URL: if the caller (CI) already set it, honor
 # that. Otherwise fall back to a temp SQLite file that the _db_url fixture
