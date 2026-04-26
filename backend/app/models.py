@@ -211,11 +211,16 @@ class ExerciseImageResponse(BaseModel):
     url: str
     caption: Optional[str] = None
     sort_order: int = 0
+    # Screen-reader description. Hydrator substitutes a per-exercise default
+    # ("{name} demonstration") when the column is NULL so VoiceOver always
+    # announces something meaningful.
+    alt_text: Optional[str] = None
 
 class ExerciseImageCreate(BaseModel):
     url: str
     caption: Optional[str] = None
     sort_order: Optional[int] = 0
+    alt_text: Optional[str] = None
 
 class BulkImageEntry(BaseModel):
     slug: str

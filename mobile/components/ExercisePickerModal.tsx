@@ -16,7 +16,7 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  View, Text, Modal, Pressable, ScrollView, TextInput, Image,
+  View, Text, Modal, Pressable, ScrollView, TextInput,
   ActivityIndicator, StyleSheet, Platform, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,7 @@ import { colors } from '@/lib/colors';
 import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
 
 
@@ -319,7 +320,11 @@ export function ExercisePickerModal({
                   accessibilityLabel={`Add ${ex.name} to routine`}
                 >
                   {ex.images[0]?.url ? (
-                    <Image source={{ uri: ex.images[0].url }} style={styles.thumb} />
+                    <ExerciseImage
+                      uri={ex.images[0].url}
+                      alt={ex.images[0].alt_text || `${ex.name} demonstration`}
+                      style={styles.thumb}
+                    />
                   ) : (
                     <View style={[styles.thumb, styles.thumbPlaceholder]}>
                       <Ionicons name="barbell-outline" size={20} color={colors.textMuted} />

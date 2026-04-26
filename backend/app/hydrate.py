@@ -22,7 +22,7 @@ def load_images_for_exercises(cur, exercise_ids: Iterable[int]) -> dict[int, lis
     if not ids:
         return {}
     cur.execute(
-        f"SELECT id, exercise_id, url, caption, sort_order "
+        f"SELECT id, exercise_id, url, caption, sort_order, alt_text "
         f"FROM exercise_images WHERE exercise_id IN {_in_clause(len(ids))} "
         f"ORDER BY sort_order ASC, id ASC",
         tuple(ids),
@@ -34,11 +34,19 @@ def load_images_for_exercises(cur, exercise_ids: Iterable[int]) -> dict[int, lis
 
 
 def hydrate_exercises_with_images(cur, rows: list[dict]) -> list[dict]:
-    """Given a list of exercise rows, attach their images in one query."""
+    """Given a list of exercise rows, attach their images in one query.
+    Substitutes a per-exercise default alt_text ("{name} demonstration")
+    for any image whose stored alt_text is NULL — keeps VoiceOver
+    meaningful for legacy rows that predate the column."""
     hydrate_exercise_rows(rows)
     imgs = load_images_for_exercises(cur, (r["id"] for r in rows))
     for r in rows:
-        r["images"] = imgs.get(r["id"], [])
+        attached = imgs.get(r["id"], [])
+        default_alt = f"{r['name']} demonstration"
+        for img in attached:
+            if not img.get("alt_text"):
+                img["alt_text"] = default_alt
+        r["images"] = attached
     return rows
 
 

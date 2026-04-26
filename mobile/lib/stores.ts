@@ -247,7 +247,17 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 }));
 
 // --- Workouts ---
-export interface ExerciseImage { id: number; url: string; caption?: string | null; sort_order: number; }
+export interface ExerciseImage {
+  id: number;
+  url: string;
+  caption?: string | null;
+  sort_order: number;
+  /** Screen-reader description. Backend hydrator substitutes
+   *  "{exercise.name} demonstration" when the column is NULL, so a
+   *  populated string is the steady state — but the optional `?` keeps
+   *  legacy clients tolerant if the field ever ships absent. */
+  alt_text?: string | null;
+}
 export interface Exercise {
   id: number; user_id: number | null; name: string; slug?: string;
   category: string; primary_muscle?: string; equipment?: string;

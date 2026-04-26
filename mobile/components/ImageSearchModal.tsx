@@ -139,11 +139,18 @@ export default function ImageSearchModal({
                     }}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: isSel }}
+                    accessibilityLabel={`Image candidate${c.source ? ` from ${c.source}` : ''}`}
                   >
                     <Image
                       source={{ uri: c.thumb || c.url }}
                       style={styles.candidateImg}
                       resizeMode="cover"
+                      // accessibilityElementsHidden = iOS, importantForAccessibility = Android,
+                      // aria-hidden via spread = react-native-web. Without all three, the inner
+                      // image announces twice on top of the parent Pressable's checkbox role.
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      {...({ 'aria-hidden': true } as any)}
                     />
                     {isSel && (
                       <View style={styles.candidateCheck}>

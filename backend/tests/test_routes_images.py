@@ -292,3 +292,64 @@ def test_search_images_404_on_bogus_exercise(auth_client, mock_search_providers)
     c, tok, _ = auth_client
     r = c.get("/exercises/99999/search-images", headers=_h(tok))
     assert r.status_code == 404
+
+
+# ---------- alt_text (a11y) ----------
+
+def test_add_image_omitted_alt_returns_default(auth_client, seeded_globals):
+    """No alt_text in the request → response substitutes
+    "{exercise.name} demonstration" so VoiceOver always has something."""
+    c, tok, _ = auth_client
+    r = c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok),
+               json={"url": "https://example.com/a.jpg"})
+    assert r.status_code == 200
+    assert r.json()["alt_text"] == "Wall Ankle Dorsiflexion demonstration"
+
+
+def test_add_image_explicit_alt_round_trips(auth_client, seeded_globals):
+    """Caller-supplied alt_text wins over the default and survives the
+    INSERT → SELECT round trip."""
+    c, tok, _ = auth_client
+    r = c.post(
+        f"/exercises/{seeded_globals['wall']}/images",
+        headers=_h(tok),
+        json={"url": "https://example.com/a.jpg", "alt_text": "Half-kneeling lunge over toes"},
+    )
+    assert r.status_code == 200
+    assert r.json()["alt_text"] == "Half-kneeling lunge over toes"
+
+
+def test_legacy_null_alt_text_substituted_at_get(auth_client, seeded_globals):
+    """Rows that predate the alt_text column have NULL stored. The hydrator
+    has to fill in the default at read time so older clients (and old
+    seed data) still announce something through VoiceOver."""
+    from app.database import get_db
+    c, tok, _ = auth_client
+    # Bypass the route — insert directly so alt_text genuinely lands as NULL.
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, alt_text) "
+            "VALUES (?, ?, ?, NULL)",
+            (seeded_globals["wall"], "https://example.com/legacy.jpg", 0),
+        )
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert len(fetched["images"]) == 1
+    assert fetched["images"][0]["alt_text"] == "Wall Ankle Dorsiflexion demonstration"
+
+
+def test_routine_get_hydrates_alt_text_on_nested_exercise_images(auth_client, seeded_globals):
+    """Routine GET reuses the same hydrator path. Images attached to an
+    exercise referenced by a routine should pick up the alt_text default
+    too — otherwise the workout-screen list would re-introduce the gap."""
+    c, tok, _ = auth_client
+    c.post(f"/exercises/{seeded_globals['wall']}/images", headers=_h(tok),
+           json={"url": "https://example.com/r.jpg"})
+    routine = c.post(
+        "/routines",
+        headers=_h(tok),
+        json={"name": "Mobility AM", "exercises": [{"exercise_id": seeded_globals["wall"]}]},
+    ).json()
+    fetched = c.get(f"/routines/{routine['id']}", headers=_h(tok)).json()
+    images = fetched["exercises"][0]["exercise"]["images"]
+    assert images[0]["alt_text"] == "Wall Ankle Dorsiflexion demonstration"
