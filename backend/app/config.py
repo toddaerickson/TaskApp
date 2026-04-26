@@ -24,3 +24,13 @@ if JWT_SECRET == _DEV_JWT_SECRET and DB_TYPE == "postgresql":
         "JWT_SECRET is unset in a non-SQLite environment. "
         "Set it via `fly secrets set JWT_SECRET=$(openssl rand -hex 48)`."
     )
+
+# Public origin where this backend serves `/static/exercise-images/<hash>.<ext>`.
+# Used by app/image_urls.py to expand `local:` sentinel URLs (rows whose
+# bytes are committed to backend/seed_data/exercise_images/) into a fully-
+# qualified URL the mobile / web client can stick into <Image source>.
+# Falsy → emit relative URLs starting with "/static/...". Mobile native
+# rejects relative URIs, so production MUST set this. Empty string lets
+# tests run without ceremony, since the test client never actually loads
+# the bytes — only assertions about the returned URL string matter.
+BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")

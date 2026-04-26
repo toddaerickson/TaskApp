@@ -1,11 +1,13 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -206,6 +208,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Self-hosted exercise images. Rows whose `url` column is the sentinel
+# `local:<filename>` (see app/image_urls.py) get expanded by the hydrator
+# to `${BACKEND_PUBLIC_URL}/static/exercise-images/<filename>`. The bytes
+# are committed in `backend/seed_data/exercise_images/`. StaticFiles
+# serves them with sane caching headers; the hash-keyed filenames are
+# safe to cache aggressively because changing an image creates a new
+# filename rather than mutating an old one.
+_IMAGE_DIR = Path(__file__).resolve().parent / "seed_data" / "exercise_images"
+_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class _NoDotfilesStaticFiles(StaticFiles):
+    """StaticFiles that 404s any path segment beginning with a dot. The
+    image dir starts life with no real assets; without this guard a stray
+    `.DS_Store`, editor swap file, or future SOPS leftover would be
+    publicly fetchable from the unauthenticated mount."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        from starlette.responses import PlainTextResponse
+        for segment in path.split("/"):
+            if segment.startswith("."):
+                return PlainTextResponse("Not Found", status_code=404)
+        return await super().get_response(path, scope)
+
+
+app.mount(
+    "/static/exercise-images",
+    _NoDotfilesStaticFiles(directory=str(_IMAGE_DIR)),
+    name="exercise-images",
+)
+
+# Production must set BACKEND_PUBLIC_URL because RN native rejects
+# relative URIs — without it, every self-hosted image (once PR4 backfills
+# bytes) renders as the "Image unavailable" fallback in iOS/Android. Mirror
+# the CORS_ORIGINS warn-loudly pattern so a missing secret stays
+# diagnosable without crash-looping the boot.
+from app.config import BACKEND_PUBLIC_URL  # noqa: E402 — needed for diagnostic flag
+_public_url_misconfigured = False
+if DB_TYPE == "postgresql" and not BACKEND_PUBLIC_URL:
+    _public_url_misconfigured = True
+    log.error(
+        "BACKEND_PUBLIC_URL is not set in production. Self-hosted "
+        "exercise images will be served as relative URLs that RN native "
+        "clients reject. Set it via `fly secrets set "
+        "BACKEND_PUBLIC_URL=https://your-backend.fly.dev`."
+    )
+
 app.include_router(auth_routes.router)
 app.include_router(folder_routes.router)
 app.include_router(tag_routes.router)
@@ -289,4 +338,9 @@ def health_detailed():
         "cors_origins_configured": not _cors_misconfigured,
         "jwt_secret_configured": not jwt_is_dev,
         "sentry_configured": bool(os.environ.get("SENTRY_DSN")),
+        # False in PG/prod when BACKEND_PUBLIC_URL is unset. Self-hosted
+        # exercise images will fail to render on RN native clients until
+        # the secret is set (web stays functional via same-origin
+        # relative URLs).
+        "public_url_configured": not _public_url_misconfigured,
     }
