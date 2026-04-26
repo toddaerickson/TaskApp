@@ -4,11 +4,12 @@ import { SessionSetEditSheet } from '@/components/SessionSetEditSheet';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
-  TextInput, Image, Platform, Alert, Modal,
+  TextInput, Platform, Alert, Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Routine, RoutineExercise, WorkoutSession, SessionSet } from '@/lib/stores';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import * as api from '@/lib/api';
 import { beep } from '@/lib/timer';
 import { formatTime, severityColor as sevColor } from '@/lib/format';
@@ -701,7 +702,11 @@ function ExerciseBlock({
       {isActive && (
         <>
           {ex.images.length > 0 && (
-            <Image source={{ uri: ex.images[0].url }} style={styles.activeImage} resizeMode="cover" />
+            <ExerciseImage
+              uri={ex.images[0].url}
+              alt={ex.images[0].alt_text || `${ex.name} demonstration`}
+              style={styles.activeImage}
+            />
           )}
           {ex.cue ? (
             <View style={styles.cueBox}>

@@ -1,13 +1,14 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Image, ActivityIndicator, Platform,
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput, ActivityIndicator, Platform,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { RoutineImportCard } from '@/components/RoutineImportCard';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
 
 const SAMPLE = `# Paste one row per URL: slug<TAB>url
@@ -503,7 +504,11 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
         <ScrollView horizontal style={styles.imgRow} showsHorizontalScrollIndicator={false}>
           {exercise.images.map((img) => (
             <View key={img.id} style={styles.imgWrap}>
-              <Image source={{ uri: img.url }} style={styles.img} resizeMode="cover" />
+              <ExerciseImage
+                uri={img.url}
+                alt={img.alt_text || `${exercise.name} demonstration`}
+                style={styles.img}
+              />
               <Pressable
                 style={styles.imgDelete}
                 onPress={() => handleDelete(img.id)}

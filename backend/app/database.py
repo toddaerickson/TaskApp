@@ -297,7 +297,12 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     url TEXT NOT NULL,
     caption TEXT,
     sort_order INTEGER DEFAULT 0,
-    content_hash TEXT
+    content_hash TEXT,
+    -- Screen-reader description. NULL = use the auto-default
+    -- "{exercise.name} demonstration" rendered server-side at read time.
+    -- Stored separately from `caption` because caption is user-facing
+    -- copy (often empty) while alt_text is always meaningful for a11y.
+    alt_text TEXT
 );
 
 CREATE TABLE IF NOT EXISTS routines (
@@ -478,6 +483,11 @@ def init_db():
         ])
         _ensure_columns(cur, "exercise_images", [
             ("content_hash", "TEXT"),
+            # Screen-reader description. Nullable; a NULL row gets
+            # `f"{exercise.name} demonstration"` rendered at API time
+            # so VoiceOver announces something meaningful even on
+            # rows that predate this column.
+            ("alt_text", "TEXT"),
         ])
 
         # Fix column types on databases where _ensure_columns originally
@@ -516,18 +526,23 @@ def init_db():
 
 def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:
     """Add columns to `table` if they don't already exist. Safe to run on
-    every startup. Works identically on SQLite and Postgres because
-    `ALTER TABLE ... ADD COLUMN` is supported on both with the same syntax
-    for simple-typed columns."""
+    every startup.
+
+    Postgres path emits `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` directly
+    so two Fly machines booting concurrently during a rolling deploy can't
+    race a SELECT-then-ALTER against each other and crash the second
+    instance with `DuplicateColumn`. PG 9.6+ takes the right catalog lock
+    inside `IF NOT EXISTS`, so the second runner is a no-op.
+
+    SQLite (dev only, single process) keeps the read-then-write path
+    because older SQLite versions don't support `ADD COLUMN IF NOT EXISTS`
+    consistently."""
     if DB_TYPE == "sqlite":
         cur.execute(f"PRAGMA table_info({table})")
         have = {r["name"] for r in cur.fetchall()}
-    else:
-        cur.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
-            (table,),
-        )
-        have = {r["column_name"] for r in cur.fetchall()}
+        for name, typ in columns:
+            if name not in have:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
+        return
     for name, typ in columns:
-        if name not in have:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {typ}")

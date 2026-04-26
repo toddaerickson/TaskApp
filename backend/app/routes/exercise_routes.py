@@ -199,32 +199,37 @@ def add_image(
     h = _image_hash(req.url)
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
+        cur.execute("SELECT user_id, name FROM exercises WHERE id = ?", (exercise_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, "Exercise not found")
         if row["user_id"] is not None and row["user_id"] != user_id:
             raise HTTPException(403, "Cannot add image to another user's exercise")
+        default_alt = f"{row['name']} demonstration"
         # Dedup: same (exercise, content_hash) means the same image. Return
         # the existing row instead of inserting. 200 with the stored data
         # is idempotent — callers can't tell the difference from a fresh
         # insert, which is the point.
         cur.execute(
-            "SELECT id, url, caption, sort_order FROM exercise_images "
+            "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
             "WHERE exercise_id = ? AND content_hash = ?",
             (exercise_id, h),
         )
         existing = cur.fetchone()
         if existing:
+            if not existing.get("alt_text"):
+                existing["alt_text"] = default_alt
             return existing
         cur.execute(
-            "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (exercise_id, req.url, req.caption, req.sort_order or 0, h),
+            "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash, alt_text) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (exercise_id, req.url, req.caption, req.sort_order or 0, h, req.alt_text),
         )
         img_id = cur.lastrowid
-        cur.execute("SELECT id, url, caption, sort_order FROM exercise_images WHERE id = ?", (img_id,))
+        cur.execute("SELECT id, url, caption, sort_order, alt_text FROM exercise_images WHERE id = ?", (img_id,))
         result = cur.fetchone()
+        if not result.get("alt_text"):
+            result["alt_text"] = default_alt
     # Tell GitHub the library changed; workflow debounces via concurrency group.
     background_tasks.add_task(dispatch_library_updated)
     return result

@@ -1,7 +1,7 @@
 import { colors } from "@/lib/colors";
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, Image, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
+  View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import { DAYS, parseDays, daysCsv, DayCode } from '@/lib/reminders';
 import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
 import ErrorCard from '@/components/ErrorCard';
 import * as api from '@/lib/api';
@@ -415,11 +416,11 @@ export default function RoutineDetailScreen() {
               {!editMode && ex.images.length > 0 && (
                 <ScrollView horizontal style={styles.imageRow} showsHorizontalScrollIndicator={false}>
                   {ex.images.map((img) => (
-                    <Image
+                    <ExerciseImage
                       key={img.id}
-                      source={{ uri: img.url }}
+                      uri={img.url}
+                      alt={img.alt_text || `${ex.name} demonstration`}
                       style={styles.exImage}
-                      resizeMode="cover"
                     />
                   ))}
                 </ScrollView>
@@ -740,7 +741,11 @@ function RoutineExerciseEdit({
         <ScrollView horizontal style={styles.editImageRow} showsHorizontalScrollIndicator={false}>
           {ex.images.map((img) => (
             <View key={img.id} style={styles.editImageWrap}>
-              <Image source={{ uri: img.url }} style={styles.editImageThumb} resizeMode="cover" />
+              <ExerciseImage
+                uri={img.url}
+                alt={img.alt_text || `${ex.name} demonstration`}
+                style={styles.editImageThumb}
+              />
               <Pressable
                 style={styles.editImageTrash}
                 onPress={() => deleteImage(img.id)}

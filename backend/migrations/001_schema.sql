@@ -117,8 +117,12 @@ CREATE TABLE IF NOT EXISTS exercise_images (
     url TEXT NOT NULL,
     caption TEXT,
     sort_order INTEGER DEFAULT 0,
-    content_hash TEXT
+    content_hash TEXT,
+    -- Screen-reader description. Nullable; the API substitutes a
+    -- per-exercise default when this is NULL.
+    alt_text TEXT
 );
+ALTER TABLE exercise_images ADD COLUMN IF NOT EXISTS alt_text TEXT;
 
 -- Routines: a saved workout template (e.g. "Ankle Mobility AM")
 CREATE TABLE IF NOT EXISTS routines (

@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, ActivityIndicator,
-  Image, Modal, Platform,
+  Modal, Platform,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
 
 type Measurement = 'reps' | 'reps_weight' | 'duration' | 'distance';
@@ -253,8 +254,9 @@ export default function ExerciseLibraryScreen() {
                   <View key={ex.id}>
                     <View style={[styles.row, isArchived && styles.rowArchived]}>
                       {ex.images[0]?.url ? (
-                        <Image
-                          source={{ uri: ex.images[0].url }}
+                        <ExerciseImage
+                          uri={ex.images[0].url}
+                          alt={ex.images[0].alt_text || `${ex.name} demonstration`}
                           style={[styles.thumb, isArchived && styles.thumbArchived]}
                         />
                       ) : (
@@ -382,7 +384,11 @@ export default function ExerciseLibraryScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
                 {editing.images.map((img) => (
                   <View key={img.id} style={styles.imageThumbWrap}>
-                    <Image source={{ uri: img.url }} style={styles.imageThumb} />
+                    <ExerciseImage
+                      uri={img.url}
+                      alt={img.alt_text || `${editing.name} demonstration`}
+                      style={styles.imageThumb}
+                    />
                     <Pressable
                       style={styles.imageDeleteBtn}
                       onPress={async () => {
