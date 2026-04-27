@@ -2,6 +2,7 @@ import { colors } from "@/lib/colors";
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -266,7 +267,13 @@ export default function RoutineDetailScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    // KeyboardAvoidingView so edit-mode text inputs (name / notes /
+    // per-exercise targets) aren't covered by the keyboard on iOS Safari.
+    // Web is a no-op pass-through.
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <Stack.Screen
         options={{
           title: routine.name,
@@ -502,7 +509,7 @@ export default function RoutineDetailScreen() {
           <Text style={styles.startText}>{starting ? 'Starting…' : 'Start workout'}</Text>
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

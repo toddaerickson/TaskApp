@@ -4,7 +4,7 @@ import { SessionSetEditSheet } from '@/components/SessionSetEditSheet';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
-  TextInput, Platform, Alert, Modal,
+  TextInput, Platform, Alert, Modal, KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -286,7 +286,14 @@ export default function ActiveSessionScreen() {
   const prCount = prIds.size;
 
   return (
-    <View style={styles.container}>
+    // KeyboardAvoidingView so the active set's reps / weight / RPE
+    // inputs aren't covered by the keyboard mid-workout. iOS uses
+    // 'padding' (the standard); Android handles it via windowSoftInput.
+    // Web is a no-op (KeyboardAvoidingView passes through).
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       {/* The header back action doesn't discard the session — the server
           keeps it open until Finish. "Cancel" implied deletion; "Back"
           matches what actually happens. */}
@@ -523,7 +530,7 @@ export default function ActiveSessionScreen() {
           onDeleted={handleDeleteSet}
         />
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

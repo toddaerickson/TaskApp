@@ -4,7 +4,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import {
   isPinSet, setPin, verifyPin, isLockedOut, getFailedAttempts, touchUnlock,
-  MAX_ATTEMPTS,
+  clearPin, MAX_ATTEMPTS,
 } from '@/lib/pin';
 import {
   biometricKind, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled,
@@ -278,9 +278,32 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         </Pressable>
       )}
       {mode === 'locked' && (
-        <Text style={styles.lockedText}>
-          Too many wrong attempts. Close and reopen the app to try again.
-        </Text>
+        <>
+          <Text style={styles.lockedText}>
+            Too many wrong attempts. Reset the PIN to continue — you'll
+            be asked to set a new one.
+          </Text>
+          <Pressable
+            style={styles.resetBtn}
+            onPress={async () => {
+              await clearPin();
+              setEntered('');
+              setFirstPin(null);
+              setWrong(0);
+              setMessage('');
+              // After clearPin(), isPinSet() returns false; the next gate
+              // pass routes to the "set" / "intro" branch. Re-running the
+              // mount-time effect would do the same thing but we already
+              // know the state, so transition directly.
+              setMode('set');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Reset PIN and start over"
+          >
+            <Ionicons name="refresh-outline" size={16} color="#fff" />
+            <Text style={styles.resetBtnText}>Reset PIN</Text>
+          </Pressable>
+        </>
       )}
 
       {mode !== 'locked' && (
@@ -345,6 +368,17 @@ const styles = StyleSheet.create({
 
   wrongText: { color: colors.danger, fontSize: 13, marginTop: 4, height: 20 },
   lockedText: { color: colors.danger, fontSize: 14, marginTop: 20, textAlign: 'center', paddingHorizontal: 40 },
+  // 44pt minHeight for HIG; primary-blue filled to read as the
+  // affordance the user expects to tap to escape the lockout.
+  resetBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16, minHeight: 44,
+    borderRadius: 8,
+    marginTop: 16,
+    justifyContent: 'center',
+  },
+  resetBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
   pad: {
     flexDirection: 'row', flexWrap: 'wrap', width: 240,
