@@ -66,6 +66,30 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   *in parallel* to add value; (3) silent-killer agent finds problems;
   (4) whichever agent owns each finding refines the plan; (5) ask me
   to approve before starting work.
+- **Self-hosted exercise images** — image bytes live at
+  `backend/seed_data/exercise_images/<sha256>.<ext>`, served via the
+  `/static/exercise-images` mount on Fly. DB rows store the sentinel
+  `local:<sha256>.<ext>` and `app/image_urls.resolve_image_url()`
+  expands it to `${BACKEND_PUBLIC_URL}/static/exercise-images/...` at
+  read time. New images get added remotely via the existing Find /
+  bulk-paste flow (URL stays as `https://...`); to migrate them to
+  self-hosted bytes, run the manual backfill:
+
+  ```bash
+  cd backend
+  venv/bin/python scripts/backfill_exercise_images.py             # dry-run, audit
+  venv/bin/python scripts/backfill_exercise_images.py --apply     # mutate
+  cd .. && git add backend/seed_data/exercise_images
+  git commit -m "chore: backfill self-hosted exercise images"
+  git push                                                        # deploy follows
+  ```
+
+  The script is idempotent + content-addressed, so reruns only fetch
+  URLs that haven't been self-hosted yet. **Auto-self-hosting on save
+  was deliberately punted** — at 1-5 image uploads/month the manual
+  step is cheaper than wiring GitHub Contents API + admin gating +
+  background tasks. Revisit (and pick R2 / S3, not git) if upload
+  volume ever climbs past ~50/month.
 
 ## Running locally
 
