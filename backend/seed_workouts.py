@@ -688,6 +688,11 @@ def seed_from_snapshot(snapshot_path: Path = SNAPSHOT_PATH) -> int:
                 bool(ex.get("is_bodyweight")), ex.get("measurement"),
                 ex.get("instructions"), ex.get("cue"), ex.get("contraindications"),
                 ex.get("min_age"), ex.get("max_age"),
+                # evidence_tier carries operator-curated provenance through
+                # the DR restore + manual reseed paths. Earlier draft of the
+                # PR dropped this on the floor — every populated tier silently
+                # reverted to NULL on the next snapshot load.
+                ex.get("evidence_tier"),
             )
             if row:
                 ex_id = row["id"]
@@ -696,7 +701,8 @@ def seed_from_snapshot(snapshot_path: Path = SNAPSHOT_PATH) -> int:
                         name = ?, slug = ?, category = ?, primary_muscle = ?,
                         equipment = ?, difficulty = ?, is_bodyweight = ?,
                         measurement = ?, instructions = ?, cue = ?,
-                        contraindications = ?, min_age = ?, max_age = ?
+                        contraindications = ?, min_age = ?, max_age = ?,
+                        evidence_tier = ?
                        WHERE id = ?""",
                     fields + (ex_id,),
                 )
@@ -706,8 +712,8 @@ def seed_from_snapshot(snapshot_path: Path = SNAPSHOT_PATH) -> int:
                     """INSERT INTO exercises
                        (user_id, name, slug, category, primary_muscle, equipment, difficulty,
                         is_bodyweight, measurement, instructions, cue, contraindications,
-                        min_age, max_age)
-                       VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        min_age, max_age, evidence_tier)
+                       VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     fields,
                 )
                 ex_id = cur.lastrowid

@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useWorkoutStore, WorkoutSession, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import ReminderSheet from '@/components/ReminderSheet';
+import { RoutineDurationPill } from '@/components/RoutineDurationPill';
 import SortPopover, { SortLevel } from '@/components/SortPopover';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
@@ -470,7 +471,10 @@ export default function WorkoutsScreen() {
               >
                 <View style={[styles.goalDot, { backgroundColor: GOAL_COLORS[r.goal] || '#999' }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{r.name}</Text>
+                  <View style={styles.cardTitleRow}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{r.name}</Text>
+                    <RoutineDurationPill minutes={r.target_minutes} />
+                  </View>
                   <Text style={styles.cardMeta}>
                     {r.exercises.length} exercises · {r.goal}
                     {lastStarted && ` · last ${formatRel(lastStarted)}`}
@@ -784,7 +788,10 @@ const styles = StyleSheet.create({
     cursor: 'pointer' as any,
   },
   goalDot: { width: 8, height: 40, borderRadius: 4 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#222' },
+  cardTitle: { fontSize: 16, fontWeight: '600', color: '#222', flexShrink: 1 },
+  // Title + duration pill row. Duration pill stays right-adjacent to the
+  // title so it reads as a property of the routine, not a separate badge.
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
   cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
   reminderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },

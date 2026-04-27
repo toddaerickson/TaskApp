@@ -371,6 +371,9 @@ export interface ExerciseCreatePayload {
   contraindications?: string | null;
   min_age?: number | null;
   max_age?: number | null;
+  /** Evidence-quality tier. Backend Pydantic Literal rejects values
+   *  outside the four canonical strings. Omit / null = unclassified. */
+  evidence_tier?: 'RCT' | 'MECHANISM' | 'PRACTITIONER' | 'THEORETICAL' | null;
 }
 export type ExerciseUpdatePayload = Partial<Omit<ExerciseCreatePayload, 'slug'>>;
 
@@ -407,6 +410,9 @@ export interface RoutineCreatePayload {
    *  the symptom logger + per-set pain chip + pain-monitored progression.
    *  Default false keeps strength routines untouched. */
   tracks_symptoms?: boolean;
+  /** Operator-set wall-clock estimate, 1-180 minutes. Drives the duration
+   *  pill on routine cards. Omit / null = no pill. */
+  target_minutes?: number | null;
   exercises?: RoutineExerciseCreatePayload[];
 }
 export type RoutineUpdatePayload = Partial<Omit<RoutineCreatePayload, 'exercises'>> & {

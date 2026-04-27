@@ -288,7 +288,12 @@ CREATE TABLE IF NOT EXISTS exercises (
     -- Soft-delete marker. NULL = active; set to a timestamp when the
     -- user archives. List endpoints filter this out by default; the
     -- row stays so routines and historical sessions still resolve.
-    archived_at TEXT
+    archived_at TEXT,
+    -- Evidence-quality tier surfaced as a UI chip. NULL = unclassified;
+    -- the operator-curated entries that ship with explicit RCT /
+    -- MECHANISM / PRACTITIONER / THEORETICAL strings light up the chip.
+    -- Validated client-side via a Pydantic Literal on create.
+    evidence_tier TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exercise_images (
@@ -317,6 +322,11 @@ CREATE TABLE IF NOT EXISTS routines (
     reminder_time TEXT,
     reminder_days TEXT,
     tracks_symptoms INTEGER NOT NULL DEFAULT 0,
+    -- Operator-set wall-clock estimate in minutes (1-180). NULL =
+    -- unspecified; mobile hides the duration pill on the routine card
+    -- when null. Replaces the temptation to overload `goal` with a
+    -- "quick" bucket — duration is orthogonal to goal.
+    target_minutes INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -452,6 +462,9 @@ def init_db():
             # writes populate it from now() in the UPDATE statements.
             ("updated_at", "TEXT"),
             ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            # Operator-set wall-clock estimate. Drives the duration pill
+            # on routine cards + the "≤5 min" filter chip; NULL = no pill.
+            ("target_minutes", "INTEGER"),
         ])
         _ensure_columns(cur, "routine_exercises", [
             ("updated_at", "TEXT"),
@@ -480,6 +493,10 @@ def init_db():
             # as "active" — zero migration risk. See exercise_routes.py
             # for the archive/restore semantics.
             ("archived_at", "TEXT"),
+            # Evidence-quality tier (RCT / MECHANISM / PRACTITIONER /
+            # THEORETICAL). Pre-feature rows get NULL = unclassified;
+            # mobile hides the tier chip when null.
+            ("evidence_tier", "TEXT"),
         ])
         _ensure_columns(cur, "exercise_images", [
             ("content_hash", "TEXT"),

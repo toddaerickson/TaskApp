@@ -268,6 +268,12 @@ export interface Exercise {
    *  list endpoint hides archived rows; pass include_archived=true to
    *  see them. */
   archived_at?: string | null;
+  /** Evidence-quality tier surfaced as a UI chip. NULL / undefined =
+   *  unclassified — the chip stays hidden. Backend Pydantic Literal
+   *  rejects typos at the wire boundary; the chip itself silent-skips
+   *  unknown values, so a future tier ships invisible on old clients
+   *  until they update — that's the correct default. */
+  evidence_tier?: 'RCT' | 'MECHANISM' | 'PRACTITIONER' | 'THEORETICAL' | null;
 }
 export interface RoutineExercise {
   id: number; routine_id: number; exercise_id: number; sort_order: number;
@@ -290,6 +296,9 @@ export interface Routine {
    *  logger. Flipping it only affects *future* sessions; in-progress
    *  sessions keep the value they were started with. See PR #47. */
   tracks_symptoms?: boolean;
+  /** Operator-set wall-clock estimate (1-180 min). null/undefined hides
+   *  the duration pill on the routine card. Orthogonal to `goal`. */
+  target_minutes?: number | null;
   /** Optimistic concurrency token — send back in expected_updated_at on save. */
   updated_at?: string | null;
   exercises: RoutineExercise[];

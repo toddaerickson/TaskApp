@@ -17,6 +17,7 @@ _EXERCISE_FIELDS = [
     "difficulty", "is_bodyweight", "measurement",
     "instructions", "cue", "contraindications",
     "min_age", "max_age",
+    "evidence_tier",
 ]
 
 
@@ -89,6 +90,7 @@ def load_exercises(cur, user_id: Optional[int]) -> list[dict]:
             "contraindications": r["contraindications"],
             "min_age": r["min_age"],
             "max_age": r["max_age"],
+            "evidence_tier": r["evidence_tier"],
             "images": images[ex_id],
         })
     return out

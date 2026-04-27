@@ -126,14 +126,15 @@ def create_routine(req: RoutineCreate, user_id: int = Depends(get_current_user_i
         cur.execute(
             """INSERT INTO routines
                (user_id, name, goal, notes, sort_order, reminder_time, reminder_days,
-                tracks_symptoms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                tracks_symptoms, target_minutes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, req.name, req.goal, req.notes, req.sort_order or 0,
              req.reminder_time, req.reminder_days,
              # Pass a Python bool — psycopg2 adapts to PG BOOLEAN natively,
              # and SQLite's driver coerces True/False to 1/0 for INTEGER.
              # int() coercion would send 0/1 ints into PG BOOLEAN and fail.
-             bool(req.tracks_symptoms)),
+             bool(req.tracks_symptoms),
+             req.target_minutes),
         )
         rid = cur.lastrowid
         for idx, ex in enumerate(req.exercises or []):
@@ -174,8 +175,8 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
         # duplicated reminder is almost always noise).
         cur.execute(
             """INSERT INTO routines
-               (user_id, name, goal, notes, sort_order, tracks_symptoms)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (user_id, name, goal, notes, sort_order, tracks_symptoms, target_minutes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id,
                 f"{src['name']} (copy)",
@@ -183,6 +184,7 @@ def clone_routine(routine_id: int, user_id: int = Depends(get_current_user_id)):
                 src["notes"],
                 src["sort_order"] or 0,
                 bool(src["tracks_symptoms"]),
+                src["target_minutes"],
             ),
         )
         new_id = cur.lastrowid
@@ -287,7 +289,7 @@ def import_routine(req: RoutineImportRequest, user_id: int = Depends(get_current
 _ROUTINE_UPDATE_COLUMNS = {
     "name", "goal", "notes", "sort_order",
     "reminder_time", "reminder_days",
-    "tracks_symptoms", "updated_at",
+    "tracks_symptoms", "target_minutes", "updated_at",
 }
 
 

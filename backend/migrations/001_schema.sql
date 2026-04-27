@@ -105,11 +105,18 @@ CREATE TABLE IF NOT EXISTS exercises (
     -- when archived so routines and sessions still resolve names /
     -- images; list endpoints filter `WHERE archived_at IS NULL` by
     -- default.
-    archived_at TIMESTAMPTZ
+    archived_at TIMESTAMPTZ,
+    -- Evidence-quality tier surfaced as a UI chip. NULL = unclassified.
+    -- Allowed values RCT / MECHANISM / PRACTITIONER / THEORETICAL,
+    -- enforced client-side via Pydantic Literal on create. No CHECK
+    -- constraint in SQL because we want NULL to remain valid for
+    -- existing rows without a default.
+    evidence_tier TEXT
 );
 -- Idempotent ALTER for DBs created before soft-delete shipped. Mirrors
 -- _ensure_columns behavior on the SQLite side.
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS evidence_tier TEXT;
 
 CREATE TABLE IF NOT EXISTS exercise_images (
     id SERIAL PRIMARY KEY,
@@ -143,9 +150,15 @@ CREATE TABLE IF NOT EXISTS routines (
     -- untouched; the field is added via ALTER on existing databases so
     -- pre-existing routines stay opted-out.
     tracks_symptoms BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Operator-set wall-clock estimate in minutes (Pydantic enforces
+    -- 1-180). NULL = unspecified; mobile hides the duration pill on the
+    -- routine card when null. Orthogonal to `goal` — a 5-min snack can
+    -- still be a strength routine.
+    target_minutes INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE routines ADD COLUMN IF NOT EXISTS target_minutes INTEGER;
 
 CREATE TABLE IF NOT EXISTS routine_exercises (
     id SERIAL PRIMARY KEY,
