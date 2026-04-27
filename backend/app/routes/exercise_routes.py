@@ -6,13 +6,14 @@ import time
 import urllib.parse
 import urllib.request
 import json as _json
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth import get_current_user_id
 from app.github_dispatch import dispatch_library_updated
+from app.rate_limit import limiter
 from app.models import (
     ExerciseCreate, ExerciseUpdate, ExerciseResponse,
     ExerciseImageCreate, ExerciseImageResponse,
@@ -489,12 +490,18 @@ def _merge_candidates(groups: list[list[ImageCandidate]], n: int) -> list[ImageC
 
 
 @router.get("/{exercise_id}/search-images", response_model=list[ImageCandidate])
+@limiter.limit("30/minute")
 async def search_images(
+    request: Request,
     exercise_id: int,
     q: str | None = Query(None, description="Override the search query (defaults to exercise name)"),
     n: int = Query(6, ge=1, le=15),
     user_id: int = Depends(get_current_user_id),
 ):
+    # 30/min cap is generous for legitimate operator browsing (1 search every
+    # 2s) but cuts a leaked-token bot off before it gets the upstream
+    # providers (Pixabay/DDG/Wikimedia) to ban our Fly egress IP. Wraps
+    # `request: Request` so slowapi can extract the client IP for the bucket.
     """Return candidate image URLs from free sources (Pixabay, DuckDuckGo,
     Wikimedia Commons). Caller picks one and POSTs to /exercises/{id}/images.
     Pixabay is only called when PIXABAY_KEY env is set; Wikimedia has no key.

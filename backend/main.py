@@ -2,7 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -291,24 +291,40 @@ def health():
 
 
 @app.get("/health/detailed")
-def health_detailed():
-    """Diagnostic health view — safe to call unauthenticated. Reports
-    which config surfaces are set so the operator can see via curl or
-    the Fly dashboard exactly what's missing when the app is alive but
-    the frontend can't talk to it. Intentionally never returns a 5xx
-    so a broken config stays observable — a 200 body with fields set
-    to False is the right "diagnosable" state.
+def health_detailed(authorization: str | None = Header(default=None)):
+    """Diagnostic health view — operator-only. Reports which config
+    surfaces are set so the operator can see via curl exactly what's
+    missing when the app is alive but the frontend can't talk to it.
 
-    Fields:
+    Used to be public; the field-by-field truthiness reporting (db
+    reachability, CORS, JWT, Sentry, public-URL configured) is free
+    reconnaissance for anyone scraping Fly subdomains, so it now
+    requires the same `SNAPSHOT_AUTH_TOKEN` shared secret used by
+    `/admin/snapshot`. Set both as Fly secrets.
+
+    Fields (when authorized):
       - db_type: "sqlite" or "postgresql"
       - db_reachable: True when a SELECT 1 round-trips
       - cors_origins_configured: True when CORS_ORIGINS env is non-empty
       - jwt_secret_configured: True when JWT_SECRET was set from env
         (not the public dev fallback)
       - sentry_configured: True when SENTRY_DSN is set (optional)
+      - public_url_configured: True when BACKEND_PUBLIC_URL is set
+        (required in PG mode for self-hosted images on RN native)
 
-    Returns secrets' *presence*, never their *values*. Safe to call
-    from an untrusted edge monitor."""
+    Returns secrets' *presence*, never their *values*. Returns 401 if
+    the bearer token is missing or wrong. Returns 503 if the server
+    isn't configured with a token at all (fail closed)."""
+    expected = os.environ.get("SNAPSHOT_AUTH_TOKEN", "").strip()
+    if not expected:
+        raise StarletteHTTPException(
+            status_code=503,
+            detail="Diagnostic endpoint not configured — set SNAPSHOT_AUTH_TOKEN",
+        )
+    if not authorization or not authorization.startswith("Bearer "):
+        raise StarletteHTTPException(status_code=401, detail="Missing bearer token")
+    if authorization.removeprefix("Bearer ").strip() != expected:
+        raise StarletteHTTPException(status_code=401, detail="Invalid token")
     from app.config import JWT_SECRET
     # Import guard — the dev-fallback string lives in config.py and we
     # don't want to re-export it. Matching the length is a cheap proxy.

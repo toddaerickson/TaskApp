@@ -294,6 +294,29 @@ def test_search_images_404_on_bogus_exercise(auth_client, mock_search_providers)
     assert r.status_code == 404
 
 
+def test_search_images_rate_limited(auth_client, seeded_globals, mock_search_providers):
+    """30/min cap. A leaked token used to fan out unbounded calls to
+    Pixabay / DDG / Wikimedia until those providers banned our Fly egress
+    IP. Cap kicks in at request 31."""
+    from app.rate_limit import limiter
+    limiter.enabled = True
+    try:
+        c, tok, _ = auth_client
+        url = f"/exercises/{seeded_globals['wall']}/search-images?n=2"
+        statuses = []
+        # Vary `q=` so the in-process positive cache doesn't short-circuit
+        # and bypass the rate-limit middleware (cache lookup runs after
+        # the limiter, but distinct queries make the dependency explicit).
+        for i in range(31):
+            r = c.get(url + f"&q=stretch{i}", headers=_h(tok))
+            statuses.append(r.status_code)
+        assert statuses[:30].count(200) == 30, f"first 30 should be 200, got {statuses[:30]}"
+        assert statuses[30] == 429, f"31st request should be 429, got {statuses[30]}"
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+
 # ---------- alt_text (a11y) ----------
 
 def test_add_image_omitted_alt_returns_default(auth_client, seeded_globals):
