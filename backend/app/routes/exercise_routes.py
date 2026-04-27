@@ -96,11 +96,13 @@ def create_exercise(req: ExerciseCreate, user_id: int = Depends(get_current_user
         cur.execute(
             """INSERT INTO exercises
             (user_id, name, slug, category, primary_muscle, equipment, difficulty,
-             is_bodyweight, measurement, instructions, cue, contraindications, min_age, max_age)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             is_bodyweight, measurement, instructions, cue, contraindications, min_age, max_age,
+             evidence_tier)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, req.name, req.slug, req.category, req.primary_muscle, req.equipment,
              req.difficulty, bool(req.is_bodyweight), req.measurement, req.instructions,
-             req.cue, req.contraindications, req.min_age, req.max_age),
+             req.cue, req.contraindications, req.min_age, req.max_age,
+             req.evidence_tier),
         )
         ex_id = cur.lastrowid
         cur.execute("SELECT * FROM exercises WHERE id = ?", (ex_id,))
@@ -110,6 +112,7 @@ def create_exercise(req: ExerciseCreate, user_id: int = Depends(get_current_user
 _EXERCISE_UPDATE_COLUMNS = {
     "name", "category", "primary_muscle", "equipment", "difficulty",
     "is_bodyweight", "measurement", "instructions", "cue", "contraindications",
+    "evidence_tier",
 }
 
 

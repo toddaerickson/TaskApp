@@ -11,6 +11,8 @@ import { ExercisePickerModal } from '@/components/ExercisePickerModal';
 import { EditField } from '@/components/EditField';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import { ExerciseImage } from '@/components/ExerciseImage';
+import { EvidenceTierChip } from '@/components/EvidenceTierChip';
+import { RoutineDurationPill } from '@/components/RoutineDurationPill';
 import ImageSearchModal from '@/components/ImageSearchModal';
 import ErrorCard from '@/components/ErrorCard';
 import * as api from '@/lib/api';
@@ -314,6 +316,7 @@ export default function RoutineDetailScreen() {
               <Text style={styles.meta}>
                 {visibleExercises.length} exercises · ~{totalMins} min · {routine.goal}
               </Text>
+              <RoutineDurationPill minutes={routine.target_minutes} />
               {routine.tracks_symptoms && (
                 <View
                   style={styles.rehabBadge}
@@ -353,6 +356,11 @@ export default function RoutineDetailScreen() {
                       </View>
                     )}
                   </View>
+                  {ex.evidence_tier && (
+                    <View style={styles.subtitleRow}>
+                      <EvidenceTierChip tier={ex.evidence_tier} />
+                    </View>
+                  )}
                   <InlineDoseRow re={re} readOnly={editMode} onSaved={reload} />
                   {(() => {
                     const sg = suggestions.find((s) => s.routine_exercise_id === re.id);
@@ -1038,6 +1046,10 @@ const styles = StyleSheet.create({
     color: '#fff', textAlign: 'center', lineHeight: 28, fontWeight: '700',
   },
   exName: { fontSize: 16, fontWeight: '600', color: '#222' },
+  // Subtitle row for the evidence-tier chip. Sits on its own line below
+  // the exercise name (not inline) so the keystone "PRIORITY" pill +
+  // exercise name + tier chip don't wrap onto two lines on iPhone SE.
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   exTarget: { fontSize: 12, color: colors.primary, marginTop: 2, fontWeight: '600' },
   doseRow: {
     flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',

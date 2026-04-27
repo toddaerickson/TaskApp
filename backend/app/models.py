@@ -1,7 +1,13 @@
 import re
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Literal, Optional
 from datetime import date, time, datetime
+
+
+# Evidence-quality tier values surfaced as a UI chip on each exercise.
+# Validated as a Pydantic Literal on create so an old client can't post
+# a typo'd tier; existing rows without a tier read as NULL.
+EvidenceTier = Literal["RCT", "MECHANISM", "PRACTITIONER", "THEORETICAL"]
 
 
 # RFC 5322 is overkill; this catches the common mistakes without requiring
@@ -250,6 +256,10 @@ class ExerciseCreate(BaseModel):
     contraindications: Optional[str] = None
     min_age: Optional[int] = None
     max_age: Optional[int] = None
+    # Evidence-quality tier (RCT / MECHANISM / PRACTITIONER / THEORETICAL).
+    # Optional — operator-curated seed entries set it; user-created
+    # exercises default to NULL and the chip stays hidden.
+    evidence_tier: Optional[EvidenceTier] = None
 
 class ExerciseUpdate(BaseModel):
     name: Optional[str] = None
@@ -262,6 +272,10 @@ class ExerciseUpdate(BaseModel):
     instructions: Optional[str] = None
     cue: Optional[str] = None
     contraindications: Optional[str] = None
+    # Operator-editable evidence tier. Symmetric with ExerciseCreate so the
+    # operator can reclassify after seeding without going through the snapshot
+    # path. Pydantic Literal still rejects typos.
+    evidence_tier: Optional[EvidenceTier] = None
 
 class ExerciseResponse(BaseModel):
     id: int
@@ -282,6 +296,11 @@ class ExerciseResponse(BaseModel):
     # ISO timestamp when archived, NULL while active. Mobile renders
     # archived rows grayed-out with a Restore affordance.
     archived_at: Optional[datetime] = None
+    # Evidence-quality tier; null hides the chip in the UI. Same Literal
+    # both directions so OpenAPI consumers see one type contract — and
+    # so a malformed DB row surfaces as a 500 the operator can debug
+    # rather than as a "string" the UI silently fails to render.
+    evidence_tier: Optional[EvidenceTier] = None
     images: list[ExerciseImageResponse] = []
 
 
@@ -319,6 +338,9 @@ class RoutineCreate(BaseModel):
     # get pain-monitored progression. Default False keeps strength
     # routines untouched.
     tracks_symptoms: Optional[bool] = False
+    # Wall-clock estimate, 1-180 minutes. NULL = unspecified; mobile
+    # hides the duration pill on the routine card.
+    target_minutes: Optional[int] = Field(default=None, ge=1, le=180)
     exercises: Optional[list[RoutineExerciseCreate]] = []
 
 class RoutineUpdate(BaseModel):
@@ -329,6 +351,7 @@ class RoutineUpdate(BaseModel):
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
     tracks_symptoms: Optional[bool] = None
+    target_minutes: Optional[int] = Field(default=None, ge=1, le=180)
     # Optimistic concurrency (Phase 7.4). When present, server returns 409
     # if the row's current updated_at has moved past this value since the
     # client's last GET. Omit to opt out (silent last-write-wins).
@@ -344,6 +367,7 @@ class RoutineResponse(BaseModel):
     reminder_time: Optional[str] = None
     reminder_days: Optional[str] = None
     tracks_symptoms: bool = False
+    target_minutes: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     exercises: list[RoutineExerciseResponse] = []

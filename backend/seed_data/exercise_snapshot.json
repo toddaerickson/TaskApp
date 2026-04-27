@@ -18,7 +18,8 @@
       "max_age": null,
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ankle_Circles/0.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "banded_fire_hydrant",
@@ -34,7 +35,8 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [],
+      "evidence_tier": null
     },
     {
       "slug": "banded_glute_bridge",
@@ -53,7 +55,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hip_Lift_with_Band/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hip_Extension_with_Bands/0.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "banded_lateral_walk",
@@ -72,7 +75,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Monster_Walk/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Monster_Walk/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "clamshell_banded",
@@ -90,7 +94,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/311/Clam-shell-1.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "eccentric_calf_raise_bent",
@@ -108,7 +113,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/102/Standing-calf-raises-2.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "eccentric_calf_raise_straight",
@@ -126,7 +132,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/102/Standing-calf-raises-1.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "figure_4_stretch",
@@ -144,7 +151,8 @@
       "max_age": null,
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Ankle_On_The_Knee/0.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "half_kneeling_hip_flexor",
@@ -162,7 +170,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/126/Hip-flexor-stretch-1.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "isometric_seated_external_rotation",
@@ -180,7 +189,8 @@
       "max_age": null,
       "images": [
         "https://upload.wikimedia.org/wikipedia/commons/7/7a/Piriformis_stretch.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "plantar_fascia_roll",
@@ -199,7 +209,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Foot-SMR/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Foot-SMR/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "seated_soleus_stretch",
@@ -215,7 +226,8 @@
       "contraindications": null,
       "min_age": null,
       "max_age": null,
-      "images": []
+      "images": [],
+      "evidence_tier": null
     },
     {
       "slug": "side_lying_hip_abduction",
@@ -234,7 +246,8 @@
       "images": [
         "https://upload.wikimedia.org/wikipedia/commons/5/54/Side_Leg_Raise.jpg",
         "https://upload.wikimedia.org/wikipedia/commons/f/f7/Side-reclining_leg_lift_pose.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "single_leg_glute_bridge",
@@ -252,7 +265,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/130/Glute-bridge-1.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "single_leg_rdl",
@@ -271,7 +285,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kettlebell_One-Legged_Deadlift/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kettlebell_One-Legged_Deadlift/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "wall_ankle_dorsiflexion",
@@ -289,7 +304,8 @@
       "max_age": null,
       "images": [
         "https://wger.de/media/exercise-images/91/Calf-stretch-1.png"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "squat",
@@ -308,7 +324,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Squat/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Squat/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "pushup",
@@ -327,7 +344,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pushups/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pushups/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "pullup",
@@ -346,7 +364,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pullups/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pullups/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "deadlift",
@@ -365,7 +384,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Deadlift/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Deadlift/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "row",
@@ -384,7 +404,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bent_Over_Barbell_Row/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bent_Over_Barbell_Row/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "lunge",
@@ -403,7 +424,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Walking_Lunge/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Walking_Lunge/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "plank",
@@ -421,7 +443,8 @@
       "max_age": null,
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/0.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "bench_press",
@@ -440,7 +463,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Bench_Press_-_Medium_Grip/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Barbell_Bench_Press_-_Medium_Grip/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     },
     {
       "slug": "overhead_press",
@@ -459,7 +483,8 @@
       "images": [
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Standing_Military_Press/0.jpg",
         "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Standing_Military_Press/1.jpg"
-      ]
+      ],
+      "evidence_tier": null
     }
   ]
 }

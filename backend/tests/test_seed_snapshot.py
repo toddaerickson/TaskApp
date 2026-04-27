@@ -35,6 +35,25 @@ def test_snapshot_every_exercise_has_slug_and_name():
         assert ex.get("name"), f"missing name: {ex['slug']}"
 
 
+def test_snapshot_every_exercise_carries_evidence_tier_field():
+    """Field-presence ratchet for the `evidence_tier` column. Value can
+    be null (unclassified) — what we're guarding against is a future
+    schema add that gets shipped without snapshot regeneration. If this
+    test fails, run `scripts/snapshot_exercises.py` to refresh the JSON."""
+    snap = _load_snapshot()
+    for ex in snap["exercises"]:
+        assert "evidence_tier" in ex, (
+            f"snapshot[{ex.get('slug')!r}] missing the evidence_tier field. "
+            "Regenerate via scripts/snapshot_exercises.py."
+        )
+        # Allowed values when non-null.
+        if ex["evidence_tier"] is not None:
+            assert ex["evidence_tier"] in {"RCT", "MECHANISM", "PRACTITIONER", "THEORETICAL"}, (
+                f"snapshot[{ex['slug']!r}].evidence_tier = {ex['evidence_tier']!r} "
+                "is not one of the four valid tier values."
+            )
+
+
 def test_snapshot_image_coverage_not_regressed():
     """Ratchet: the shipped snapshot should have no more than
     MAX_IMAGELESS exercises without at least one image. When the count

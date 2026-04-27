@@ -25,6 +25,7 @@ import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
 import { ExerciseImage } from '@/components/ExerciseImage';
+import { EvidenceTierChip } from '@/components/EvidenceTierChip';
 import ImageSearchModal from '@/components/ImageSearchModal';
 
 
@@ -63,6 +64,8 @@ export function ExercisePickerModal({
   // needed just to attach an image to a brand-new exercise.
   const [justCreated, setJustCreated] = useState<Exercise | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
+  // Tier filter pinned to local state — resets on each open. null = "All".
+  const [tierFilter, setTierFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -70,6 +73,7 @@ export function ExercisePickerModal({
     // the user may have added new exercises via the admin screen since
     // the last open; caching would risk showing a stale list.
     setError(null);
+    setTierFilter(null);
     api.getExercises()
       .then(setAll)
       .catch((e) => setError(e?.message || 'Failed to load exercises'));
@@ -91,7 +95,7 @@ export function ExercisePickerModal({
     }
   }, [visible]);
 
-  const results = all ? filterExercises(all, query) : [];
+  const results = all ? filterExercises(all, query, tierFilter) : [];
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -183,6 +187,38 @@ export function ExercisePickerModal({
         {interstitial}
 
         {!justCreated && (
+        <>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tierFilterRow}
+          accessibilityLabel="Filter exercises by evidence tier"
+        >
+          {([
+            { value: null, label: 'All' },
+            { value: 'RCT', label: 'RCT' },
+            { value: 'MECHANISM', label: 'MECH' },
+            { value: 'PRACTITIONER', label: 'PRACT.' },
+            { value: 'THEORETICAL', label: 'THEORY' },
+          ] as { value: string | null; label: string }[]).map((opt) => {
+            const active = tierFilter === opt.value;
+            return (
+              <Pressable
+                key={opt.label}
+                onPress={() => setTierFilter(opt.value)}
+                hitSlop={8}
+                style={[styles.tierFilterChip, active && styles.tierFilterChipActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Filter to ${opt.label}`}
+              >
+                <Text style={[styles.tierFilterText, active && styles.tierFilterTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -193,6 +229,7 @@ export function ExercisePickerModal({
           style={styles.search}
           accessibilityLabel="Search exercises"
         />
+        </>
         )}
 
         {!justCreated && (
@@ -331,7 +368,10 @@ export function ExercisePickerModal({
                     </View>
                   )}
                   <View style={styles.rowText}>
-                    <Text style={styles.rowName}>{ex.name}</Text>
+                    <View style={styles.rowNameRow}>
+                      <Text style={styles.rowName} numberOfLines={1}>{ex.name}</Text>
+                      <EvidenceTierChip tier={ex.evidence_tier} />
+                    </View>
                     <Text style={styles.rowMeta}>
                       {ex.primary_muscle || ex.category} · {ex.measurement}
                     </Text>
@@ -379,6 +419,25 @@ const styles = StyleSheet.create({
     fontSize: 15, backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.border, borderRadius: 8,
   },
+  // Tier filter strip — horizontal scroll above the search input. Default
+  // "All" → null tierFilter (shows everything including NULL-tier rows).
+  // Selected chip uses filled-primary; unselected uses primaryOnLight.
+  tierFilterRow: {
+    paddingHorizontal: 12, paddingTop: 12,
+    flexDirection: 'row', gap: 6, alignItems: 'center',
+  },
+  // minHeight 36 + the parent's paddingTop 12 + paddingBottom of the row
+  // gives a clean ~44pt effective tap target after `hitSlop` on the
+  // Pressable expands it to iOS HIG. Visual size stays compact.
+  tierFilterChip: {
+    minHeight: 36,
+    paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: colors.primaryOnLight, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tierFilterChipActive: { backgroundColor: colors.primary },
+  tierFilterText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
+  tierFilterTextActive: { color: '#fff' },
   createRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginHorizontal: 12, marginBottom: 4,
@@ -439,7 +498,11 @@ const styles = StyleSheet.create({
   thumb: { width: 44, height: 44, borderRadius: 6, backgroundColor: colors.borderSoft },
   thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1 },
-  rowName: { fontSize: 15, fontWeight: '600', color: colors.text },
+  // Inline title row so the evidence-tier chip sits next to the name.
+  // `flexShrink` on the name lets it ellipsize before pushing the chip
+  // off-screen on narrow widths.
+  rowNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowName: { fontSize: 15, fontWeight: '600', color: colors.text, flexShrink: 1 },
   rowMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   errorBox: {
     margin: 12, padding: 10, borderRadius: 6,
