@@ -90,6 +90,18 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   step is cheaper than wiring GitHub Contents API + admin gating +
   background tasks. Revisit (and pick R2 / S3, not git) if upload
   volume ever climbs past ~50/month.
+- **Routine reminders (V1)** — `GET /routines/missed-reminders` returns
+  routines whose `reminder_time` already passed today (in operator
+  TZ) and the user hasn't started yet. Surfaces as a banner at the
+  top of the Workouts tab via `MissedRemindersBanner`. **TZ source is
+  the `TASKAPP_TZ` env var** (IANA, default `UTC`) — single-tenant
+  hack to avoid a `users.timezone` schema migration. Set on Fly:
+  `fly secrets set TASKAPP_TZ=America/New_York`. **Full web push** is
+  deliberately deferred: requires VAPID keys + service-worker push
+  handler + a 5-min cron + iOS-PWA install gating + DST-aware schema
+  changes. The in-app banner captures most of the value at one PR;
+  revisit V2 if dogfooding shows the open-app-when-you-remember path
+  is insufficient.
 
 ## Running locally
 
