@@ -19,9 +19,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "seed_data" / "exercise_snapshot.json"
 
 # Bump this (downward) as images are added to the snapshot. Raising it
-# requires explaining why in the PR description. Current known-unsourced:
-#   banded_fire_hydrant, seated_soleus_stretch
-MAX_IMAGELESS = 2
+# requires explaining why in the PR description.
+#
+# Current known-unsourced (12):
+#   - banded_fire_hydrant, seated_soleus_stretch (legacy 2)
+#   - bird_dog, dead_bug, side_plank, push_up_plus, wall_sit_isometric,
+#     wall_slide, eccentric_heel_drops_alfredson, copenhagen_plank,
+#     cross_body_stretch_with_scap_stab, inverted_row (10 new from the
+#     joint-snacks library; operator sources via admin "Find" flow per
+#     CLAUDE.md self-hosted exercise images workflow).
+MAX_IMAGELESS = 12
 
 
 def _load_snapshot() -> dict:
