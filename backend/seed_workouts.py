@@ -553,6 +553,211 @@ EXERCISES = [
             f"{_BASE}/Standing_Military_Press/1.jpg",
         ],
     },
+
+    # --- Joint-snacks library: high-conviction × no-equipment ---
+    # Selected from the user-authored evidence-graded protocol library.
+    # All RCT / MECHANISM tier; one PRACTITIONER-tier inclusion to close
+    # the horizontal-pull pattern gap (no RCT for the bodyweight variant
+    # but ubiquitous in calisthenics canon). Images intentionally [] —
+    # the operator sources via the admin "Find" flow (see CLAUDE.md
+    # self-hosted exercise images workflow). MAX_IMAGELESS ratchet bumps
+    # to 13 in the same PR to reflect the gap.
+    {
+        "slug": "bird_dog",
+        "name": "Bird Dog",
+        "category": "mobility",
+        "primary_muscle": "spinal stabilizers",
+        "equipment": "none",
+        "difficulty": 1,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Quadruped (hands under shoulders, knees under hips). "
+            "Reach the opposite arm + leg until both are parallel to the "
+            "floor, holding a neutral spine. Bring elbow + knee together "
+            "under the torso, then re-extend. Switch sides."
+        ),
+        "cue": "Hips stay level — don't let the supporting hip drop. Pause 2 sec at full reach.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    {
+        "slug": "dead_bug",
+        "name": "Dead Bug",
+        "category": "mobility",
+        "primary_muscle": "deep core (anti-extension)",
+        "equipment": "none",
+        "difficulty": 1,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Supine, knees + hips at 90°, arms reaching toward the ceiling. "
+            "Slowly lower the opposite arm and leg toward the floor without "
+            "letting the lower back arch off the floor. Return and switch."
+        ),
+        "cue": "Press low back into the floor before you move — keep it pinned the whole rep.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    {
+        "slug": "side_plank",
+        "name": "Side Plank",
+        "category": "mobility",
+        "primary_muscle": "obliques / QL (anti-lateral-flexion)",
+        "equipment": "none",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "duration",
+        "instructions": (
+            "Side-lying, forearm under shoulder, legs stacked. Lift the "
+            "hips so the body forms a straight line from ankles to head. "
+            "Hold without letting the bottom hip sag. Switch sides."
+        ),
+        "cue": "Drive the bottom hip up — the goal is a hard straight line, not a sag.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    # NOTE: single_leg_glute_bridge already exists in the original seed
+    # (used by the rotator_reset routine). Re-using the existing slug —
+    # the snapshot entry gets evidence_tier="MECHANISM" applied via the
+    # snapshot file directly. The pull_hip_snack routine references the
+    # existing slug.
+    {
+        "slug": "push_up_plus",
+        "name": "Push-Up Plus (Scap Push-Up)",
+        "category": "strength",
+        "primary_muscle": "serratus anterior",
+        "equipment": "none",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Top of a push-up position with arms straight. Without bending "
+            "the elbows, let the chest sink between the shoulder blades, "
+            "then push the floor away to round the upper back — the "
+            "shoulder blades wrap around the rib cage. The elbows do not move."
+        ),
+        "cue": "Arms stay locked. The motion is at the shoulder blades, not the elbows.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    {
+        "slug": "wall_sit_isometric",
+        "name": "Wall Sit (Isometric)",
+        "category": "strength",
+        "primary_muscle": "quadriceps",
+        "equipment": "wall",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "duration",
+        "instructions": (
+            "Back against a wall, slide down until thighs are parallel to "
+            "the floor, knees over ankles. Hold. ≥ 6 hours between sessions "
+            "if used for tendon-isometric programming."
+        ),
+        "cue": "Knees track over the toes. Drive heels down, ribs stacked over hips.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    {
+        "slug": "wall_slide",
+        "name": "Wall Slide",
+        "category": "mobility",
+        "primary_muscle": "serratus / scap upward rotation",
+        "equipment": "wall",
+        "difficulty": 1,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Stand with back against a wall, arms in a goalpost shape "
+            "(elbows at 90°, backs of forearms against the wall). Slide "
+            "the arms up overhead while maintaining contact with the wall, "
+            "then slide back down. Move only as far as the wall contact "
+            "allows."
+        ),
+        "cue": "Ribs down — don't arch the lower back to fake the overhead reach.",
+        "evidence_tier": "MECHANISM",
+        "images": [],
+    },
+    {
+        "slug": "eccentric_heel_drops_alfredson",
+        "name": "Eccentric Heel Drops (Alfredson)",
+        "category": "rehab",
+        "primary_muscle": "gastrocnemius / Achilles tendon",
+        "equipment": "step edge",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Stand on a step with heels hanging off the edge. Rise on both "
+            "toes, shift weight to the working leg, and lower the heel below "
+            "the step over 3 seconds. Use the other leg to return to the top. "
+            "Standard Alfredson dose: 3 × 15 straight-knee + 3 × 15 bent-knee, "
+            "twice daily."
+        ),
+        "cue": "3-second descent, no bounce at the bottom, control through full range.",
+        "evidence_tier": "RCT",
+        "images": [],
+    },
+    {
+        "slug": "copenhagen_plank",
+        "name": "Copenhagen Plank",
+        "category": "strength",
+        "primary_muscle": "hip adductors",
+        "equipment": "couch arm or chair",
+        "difficulty": 3,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Side-plank position with the top leg's inside-of-ankle resting "
+            "on a couch arm or chair (long lever) or the partner's knee "
+            "(short lever). Drive the top leg down into the support to lift "
+            "the body into a straight side-plank. Lower under control over 3 sec. "
+            "Harøy 2019 progression: 1 × 3 short-lever → 3 × 10 long-lever."
+        ),
+        "cue": "Long body line. The bottom leg is a passive prop; the top leg does the work.",
+        "evidence_tier": "RCT",
+        "images": [],
+    },
+    {
+        "slug": "cross_body_stretch_with_scap_stab",
+        "name": "Cross-Body Stretch (Scap-Stabilized)",
+        "category": "mobility",
+        "primary_muscle": "posterior shoulder capsule",
+        "equipment": "wall",
+        "difficulty": 1,
+        "is_bodyweight": True,
+        "measurement": "duration",
+        "instructions": (
+            "Stand with the working shoulder against a wall (or use the "
+            "opposite hand to pin the scapula down + back). Bring the "
+            "working arm horizontally across the chest. The wall / opposite "
+            "hand keeps the scapula stable so the stretch lands at the "
+            "glenohumeral joint, not by rotating the shoulder blade. Hold."
+        ),
+        "cue": "Scapula stays pinned — feel the stretch at the back of the shoulder, not the upper trap.",
+        "evidence_tier": "RCT",
+        "images": [],
+    },
+    {
+        "slug": "inverted_row",
+        "name": "Inverted Row (Australian Pull-Up)",
+        "category": "strength",
+        "primary_muscle": "mid-back / rhomboids",
+        "equipment": "sturdy table or low bar",
+        "difficulty": 2,
+        "is_bodyweight": True,
+        "measurement": "reps",
+        "instructions": (
+            "Lie on your back under a sturdy table or low bar. Grip the "
+            "edge with hands just outside shoulder width. Pull the chest "
+            "up to the bar / table edge, keeping the body in a straight "
+            "line from heels to head. Lower under control."
+        ),
+        "cue": "Drive elbows down and back. Squeeze the shoulder blades at the top.",
+        "evidence_tier": "PRACTITIONER",
+        "images": [],
+    },
 ]
 
 
@@ -612,6 +817,87 @@ ROUTINES["rotator_reset"] = {
     ],
 }
 
+# --- Quick-duration joint snacks (target_minutes 4-6, real goal preserved) ---
+# Companion routines for the 11 joint-snacks exercises above. `goal`
+# stays the routine's actual category (mobility / strength / rehab);
+# `target_minutes` is the orthogonal duration signal that drives the
+# routine-card duration pill + future "≤5 min" filter.
+
+ROUTINES["core_anti_trio"] = {
+    "name": "Core Anti-Trio",
+    "goal": "mobility",
+    "notes": "McGill big-3 spine-stability snack. ~5 min. All three are anti-pattern: anti-rotation (bird dog), anti-extension (dead bug), anti-lateral-flexion (side plank).",
+    "target_minutes": 5,
+    "exercises": [
+        ("bird_dog", {"target_sets": 2, "target_reps": 8, "rest_sec": 30,
+                      "notes": "Per side. 2-sec hold at full reach."}),
+        ("dead_bug", {"target_sets": 2, "target_reps": 8, "rest_sec": 30,
+                      "notes": "Per side. Low back stays pinned."}),
+        ("side_plank", {"target_sets": 2, "target_duration_sec": 30, "rest_sec": 30,
+                        "keystone": True,
+                        "notes": "Per side. Hard straight line, no sag."}),
+    ],
+}
+
+ROUTINES["shoulder_snack"] = {
+    "name": "Shoulder Snack",
+    "goal": "mobility",
+    "notes": "Cuff + serratus + posterior capsule, in 6 min. Cross-body stretch is the keystone — biggest evidence base for IR ROM.",
+    "target_minutes": 6,
+    "exercises": [
+        ("wall_slide", {"target_sets": 2, "target_reps": 10, "rest_sec": 30,
+                        "notes": "Ribs down, no lumbar arch."}),
+        ("cross_body_stretch_with_scap_stab", {"target_sets": 3, "target_duration_sec": 30, "rest_sec": 15,
+                                                "keystone": True,
+                                                "notes": "Per side. Pin the scapula first."}),
+        ("push_up_plus", {"target_sets": 2, "target_reps": 10, "rest_sec": 45,
+                          "notes": "Slow protraction at the top."}),
+    ],
+}
+
+ROUTINES["tendon_isometric_snack"] = {
+    "name": "Tendon Isometric Snack",
+    "goal": "rehab",
+    "notes": "Achilles eccentric + knee-tendon isometric. ≥6 h between bouts if used as Baar-style tendon programming.",
+    "target_minutes": 5,
+    "exercises": [
+        ("eccentric_heel_drops_alfredson", {"target_sets": 3, "target_reps": 15, "rest_sec": 60,
+                                             "tempo": "0-0-3-0",
+                                             "keystone": True,
+                                             "notes": "3-sec descent, both straight + bent knee. Per-side optional."}),
+        ("wall_sit_isometric", {"target_sets": 5, "target_duration_sec": 30, "rest_sec": 60,
+                                 "notes": "70% effort. Drive heels down."}),
+    ],
+}
+
+ROUTINES["pull_hip_snack"] = {
+    "name": "Pull + Hip Snack",
+    "goal": "strength",
+    "notes": "Horizontal pull + glute drive in 5 min. Closes the pulling-pattern gap that pushup-only routines leave open.",
+    "target_minutes": 5,
+    "exercises": [
+        ("inverted_row", {"target_sets": 3, "target_reps": 8, "rest_sec": 60,
+                          "keystone": True,
+                          "notes": "Body straight from heels to head. Adjust angle for difficulty."}),
+        ("single_leg_glute_bridge", {"target_sets": 3, "target_reps": 10, "rest_sec": 45,
+                                      "notes": "Per side. Pause 1 sec at top."}),
+    ],
+}
+
+ROUTINES["copenhagen_prehab"] = {
+    "name": "Copenhagen Prehab",
+    "goal": "strength",
+    "notes": "Single-move adductor prehab. Harøy 2019 BJSM RCT (n=632) showed −41% groin problems with 1 ×/week in-season dosing.",
+    "target_minutes": 4,
+    "exercises": [
+        ("copenhagen_plank", {"target_sets": 3, "target_reps": 10, "rest_sec": 90,
+                               "tempo": "1-0-3-0",
+                               "keystone": True,
+                               "notes": "Per side. Long-lever (foot on chair). Regress to short-lever (foot on partner's knee) if 8 reps is unstable."}),
+    ],
+}
+
+
 # Backwards-compat alias
 ANKLE_ROUTINE_TARGETS = ROUTINES["ankle"]["exercises"]
 
@@ -627,11 +913,11 @@ def seed_exercises():
             cur.execute(
                 """INSERT INTO exercises
                 (user_id, name, slug, category, primary_muscle, equipment, difficulty,
-                 is_bodyweight, measurement, instructions, cue)
-                VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 is_bodyweight, measurement, instructions, cue, evidence_tier)
+                VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ex["name"], ex["slug"], ex["category"], ex["primary_muscle"],
                  ex["equipment"], ex["difficulty"], bool(ex["is_bodyweight"]),
-                 ex["measurement"], ex["instructions"], ex["cue"]),
+                 ex["measurement"], ex["instructions"], ex["cue"], ex.get("evidence_tier")),
             )
             ex_id = cur.lastrowid
             for idx, url in enumerate(ex.get("images", [])):
@@ -768,8 +1054,8 @@ def seed_routine_for(email: str, routine_key: str):
             return
 
         cur.execute(
-            "INSERT INTO routines (user_id, name, goal, notes) VALUES (?, ?, ?, ?)",
-            (user_id, spec["name"], spec["goal"], spec["notes"]),
+            "INSERT INTO routines (user_id, name, goal, notes, target_minutes) VALUES (?, ?, ?, ?, ?)",
+            (user_id, spec["name"], spec["goal"], spec["notes"], spec.get("target_minutes")),
         )
         rid = cur.lastrowid
         for idx, (slug, t) in enumerate(spec["exercises"]):
