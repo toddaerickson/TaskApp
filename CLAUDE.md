@@ -60,6 +60,12 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   in commit 788a5b9.
 - **Set logging** is race-safe: don't send `set_number` from the client;
   the server assigns it atomically. See `/sessions/{id}/sets`.
+- **Multi-agent plan review** — for any plan that ships in 2+ PRs or
+  touches more than one module: (1) adversarial agent critiques the
+  plan; (2) UI + software-architect + project-manager agents review
+  *in parallel* to add value; (3) silent-killer agent finds problems;
+  (4) whichever agent owns each finding refines the plan; (5) ask me
+  to approve before starting work.
 
 ## Running locally
 
