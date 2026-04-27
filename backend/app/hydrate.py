@@ -5,6 +5,8 @@ route files with subtly different sort orders.
 """
 from typing import Iterable
 
+from app.image_urls import resolve_image_url
+
 
 def _in_clause(n: int) -> str:
     return "(" + ",".join("?" for _ in range(n)) + ")"
@@ -36,8 +38,9 @@ def load_images_for_exercises(cur, exercise_ids: Iterable[int]) -> dict[int, lis
 def hydrate_exercises_with_images(cur, rows: list[dict]) -> list[dict]:
     """Given a list of exercise rows, attach their images in one query.
     Substitutes a per-exercise default alt_text ("{name} demonstration")
-    for any image whose stored alt_text is NULL — keeps VoiceOver
-    meaningful for legacy rows that predate the column."""
+    for any image whose stored alt_text is NULL, and expands
+    `local:<filename>` URLs into the public `/static/exercise-images/...`
+    URL so clients receive a ready-to-render src."""
     hydrate_exercise_rows(rows)
     imgs = load_images_for_exercises(cur, (r["id"] for r in rows))
     for r in rows:
@@ -46,6 +49,7 @@ def hydrate_exercises_with_images(cur, rows: list[dict]) -> list[dict]:
         for img in attached:
             if not img.get("alt_text"):
                 img["alt_text"] = default_alt
+            img["url"] = resolve_image_url(img["url"])
         r["images"] = attached
     return rows
 

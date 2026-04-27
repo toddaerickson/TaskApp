@@ -19,6 +19,7 @@ from app.models import (
     BulkImageRequest, BulkImageResult,
 )
 from app.hydrate import hydrate_exercises_with_images
+from app.image_urls import resolve_image_url
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
@@ -219,6 +220,7 @@ def add_image(
         if existing:
             if not existing.get("alt_text"):
                 existing["alt_text"] = default_alt
+            existing["url"] = resolve_image_url(existing["url"])
             return existing
         cur.execute(
             "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash, alt_text) "
@@ -230,6 +232,7 @@ def add_image(
         result = cur.fetchone()
         if not result.get("alt_text"):
             result["alt_text"] = default_alt
+        result["url"] = resolve_image_url(result["url"])
     # Tell GitHub the library changed; workflow debounces via concurrency group.
     background_tasks.add_task(dispatch_library_updated)
     return result
