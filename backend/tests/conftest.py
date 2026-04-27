@@ -79,10 +79,25 @@ def _wipe_db(url: str) -> None:
         conn.close()
 
 
+def _run_migrations_if_pg(url: str) -> None:
+    """PG-mode init_db now verifies schema_migrations exists with at
+    least one row applied. The Postgres CI matrix wipes the schema
+    before every test, so the conftest needs to run the migration
+    runner — same flow the operator triggers via fly.toml's
+    release_command on deploy. SQLite is no-op (init_db handles dev)."""
+    if not url.startswith("postgresql"):
+        return
+    from scripts import migrate
+    rc = migrate.main([])
+    if rc != 0:
+        raise RuntimeError(f"migrate.py exited {rc} during test setup")
+
+
 @pytest.fixture
 def client(_db_url):
     """Fresh TestClient per test, with a wiped DB so test order doesn't matter."""
     _wipe_db(_db_url)
+    _run_migrations_if_pg(_db_url)
     from app.database import init_db
     init_db()
 

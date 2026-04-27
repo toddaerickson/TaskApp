@@ -9,7 +9,6 @@ rewritten to `%s` at execute time, and `lastrowid` is resolved via
 `SELECT lastval()` on demand.
 """
 import logging
-import os
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -450,109 +449,89 @@ CREATE INDEX IF NOT EXISTS idx_session_sets_exercise ON session_sets(exercise_id
 
 
 def init_db():
-    if DB_TYPE == "postgresql":
-        schema_path = os.path.join(os.path.dirname(__file__), "..", "migrations", "001_schema.sql")
-        with open(schema_path) as f:
-            sql = f.read()
-    else:
-        sql = SQLITE_SCHEMA
+    """Schema bootstrap. Two paths:
 
+    - **SQLite (dev / tests)**: run the inline `SQLITE_SCHEMA` +
+      `_ensure_columns` ALTERs every time. This is the dev convenience
+      path — a fresh clone "just works" with no extra step. Tests run
+      against a fresh SQLite DB per test, so this runs constantly.
+
+    - **Postgres (prod)**: do NOT run DDL on app boot. The numbered
+      `migrations/*.sql` files are applied exactly once each via
+      `scripts/migrate.py`, invoked from fly.toml's `release_command`
+      before the new app version takes traffic. Boot only verifies
+      that `schema_migrations` exists with at least one row applied;
+      raise loudly otherwise so the deploy aborts before serving
+      requests against a stale schema.
+
+    The previous PG behavior — running CREATE TABLE IF NOT EXISTS +
+    a forest of _ensure_columns ALTERs on every cold start — coupled
+    startup to schema state, slowed Neon cold-start by ~hundreds of
+    ms, and risked two parallel Fly machines racing the ALTERs during
+    a rolling deploy. Tier 2 audit (PR #N) split that into an explicit
+    deploy-time runner."""
+    if DB_TYPE == "postgresql":
+        with get_db() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT COUNT(*) AS n FROM schema_migrations")
+                row = cur.fetchone()
+                count = row["n"] if row else 0
+            except Exception as e:
+                # Table missing → migrator never ran. Don't try to fix
+                # it from inside the app process; that's the precise
+                # coupling we just removed. Fail loudly so the deploy
+                # surfaces the problem before serving traffic.
+                raise RuntimeError(
+                    "schema_migrations table missing — run "
+                    "`python scripts/migrate.py` before starting the app. "
+                    f"Underlying error: {type(e).__name__}: {e}"
+                ) from e
+            if count == 0:
+                raise RuntimeError(
+                    "schema_migrations table is empty — no migrations "
+                    "have been applied. Run `python scripts/migrate.py`."
+                )
+            log.info("PG schema verified: %d migration(s) applied", count)
+        return
+
+    # SQLite (dev) — keep the existing auto-init path.
     with get_db() as conn:
         cur = conn.cursor()
-        if DB_TYPE == "sqlite":
-            cur.executescript(sql)
-        else:
-            cur.execute(sql)
+        cur.executescript(SQLITE_SCHEMA)
 
-        # Idempotent column adds for existing databases. CREATE TABLE IF NOT
-        # EXISTS won't modify a pre-existing table, so features that add new
-        # columns must also apply ALTER TABLEs here (guarded against rerun).
+        # Idempotent column adds for existing dev databases. CREATE
+        # TABLE IF NOT EXISTS won't modify a pre-existing table, so
+        # features that add new columns also re-apply ALTERs here.
+        # PG mode never reaches this block — it goes through the
+        # numbered-migration runner instead.
         _ensure_columns(cur, "routines", [
             ("reminder_time", "TEXT"),
             ("reminder_days", "TEXT"),
-            # Phase 7.4: optimistic-concurrency token. Existing rows get
-            # a NULL which the route treats as "unversioned" — clients
-            # that didn't pass expected_updated_at still succeed. New
-            # writes populate it from now() in the UPDATE statements.
             ("updated_at", "TEXT"),
             ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
-            # Operator-set wall-clock estimate. Drives the duration pill
-            # on routine cards + the "≤5 min" filter chip; NULL = no pill.
             ("target_minutes", "INTEGER"),
         ])
         _ensure_columns(cur, "routine_exercises", [
             ("updated_at", "TEXT"),
-            # RPE target per working set. NULL = no target set; session
-            # screen falls back to the last-logged RPE when suggesting.
-            # 1-10 range enforced at the Pydantic layer (RoutineExerciseCreate).
             ("target_rpe", "INTEGER"),
         ])
         _ensure_columns(cur, "workout_sessions", [
             ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
         _ensure_columns(cur, "session_sets", [
-            # Per-set pain score 0-10. Only written when the parent
-            # session has tracks_symptoms=1; otherwise stays NULL and the
-            # progression dispatcher falls through to the RPE path.
             ("pain_score", "INTEGER"),
-            # Per-set laterality: 'left' | 'right' | NULL (bilateral).
-            # NULL means "both sides / doesn't matter" which is the
-            # historical default — pre-column rows read that way.
-            # Stored as TEXT, not an enum, so SQLite + PG share a path.
             ("side", "TEXT"),
             ("is_warmup", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
         _ensure_columns(cur, "exercises", [
-            # Soft-delete marker. Pre-feature rows get NULL which reads
-            # as "active" — zero migration risk. See exercise_routes.py
-            # for the archive/restore semantics.
             ("archived_at", "TEXT"),
-            # Evidence-quality tier (RCT / MECHANISM / PRACTITIONER /
-            # THEORETICAL). Pre-feature rows get NULL = unclassified;
-            # mobile hides the tier chip when null.
             ("evidence_tier", "TEXT"),
         ])
         _ensure_columns(cur, "exercise_images", [
             ("content_hash", "TEXT"),
-            # Screen-reader description. Nullable; a NULL row gets
-            # `f"{exercise.name} demonstration"` rendered at API time
-            # so VoiceOver announces something meaningful even on
-            # rows that predate this column.
             ("alt_text", "TEXT"),
         ])
-
-        # Fix column types on databases where _ensure_columns originally
-        # added tracks_symptoms / is_warmup as INTEGER instead of BOOLEAN.
-        # PG can cast 0/1 → bool safely. SQLite ignores column types so
-        # this is a no-op there.
-        #
-        # The previous version wrapped this in EXCEPTION WHEN others THEN
-        # NULL which silently swallowed failures — including when the
-        # column's DEFAULT was incompatible with the type change. Now we
-        # drop the default first, convert, then re-add it.
-        if DB_TYPE == "postgresql":
-            for tbl, col in [
-                ("routines", "tracks_symptoms"),
-                ("workout_sessions", "tracks_symptoms"),
-                ("session_sets", "is_warmup"),
-            ]:
-                # Check if the column is still integer-typed before altering.
-                cur.execute(
-                    "SELECT data_type FROM information_schema.columns "
-                    "WHERE table_name = %s AND column_name = %s",
-                    (tbl, col),
-                )
-                row = cur.fetchone()
-                if row and row["data_type"] == "integer":
-                    log.info("Converting %s.%s from INTEGER to BOOLEAN", tbl, col)
-                    cur.execute(f"ALTER TABLE {tbl} ALTER COLUMN {col} DROP DEFAULT")
-                    cur.execute(
-                        f"ALTER TABLE {tbl} ALTER COLUMN {col} "
-                        f"TYPE BOOLEAN USING {col}::boolean"
-                    )
-                    cur.execute(
-                        f"ALTER TABLE {tbl} ALTER COLUMN {col} SET DEFAULT FALSE"
-                    )
 
 
 def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:
