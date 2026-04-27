@@ -1,6 +1,10 @@
 """Every /admin/* request writes one row to admin_audit, regardless of
-the response status. Non-admin paths never do."""
-import os
+the response status. Non-admin paths never do.
+
+Uses pytest's `monkeypatch` for env mutation so test ordering doesn't
+matter — earlier draft poked `os.environ.pop(...)` directly and leaked
+state to anyone running after, breaking tests that depend on the
+conftest-supplied `SNAPSHOT_AUTH_TOKEN`."""
 
 from app.database import get_db
 
@@ -15,11 +19,11 @@ def _rows():
         return [dict(r) for r in cur.fetchall()]
 
 
-def test_admin_hit_writes_an_audit_row_even_when_not_configured(client):
-    # SNAPSHOT_AUTH_TOKEN is unset in the test env → the route responds
-    # 503, but the request is still audited so ops can see that someone
-    # tried to hit the endpoint.
-    os.environ.pop("SNAPSHOT_AUTH_TOKEN", None)
+def test_admin_hit_writes_an_audit_row_even_when_not_configured(client, monkeypatch):
+    # SNAPSHOT_AUTH_TOKEN unset → the route responds 503, but the
+    # request is still audited so ops can see that someone tried to
+    # hit the endpoint.
+    monkeypatch.delenv("SNAPSHOT_AUTH_TOKEN", raising=False)
     r = client.get("/admin/snapshot", headers={"User-Agent": "test-agent"})
     assert r.status_code == 503
 
@@ -33,29 +37,23 @@ def test_admin_hit_writes_an_audit_row_even_when_not_configured(client):
     assert rows[0]["request_id"]
 
 
-def test_admin_hit_with_valid_token_writes_200_row(client):
-    os.environ["SNAPSHOT_AUTH_TOKEN"] = "s3cret"
-    try:
-        r = client.get("/admin/snapshot", headers={"Authorization": "Bearer s3cret"})
-        assert r.status_code == 200
-        rows = _rows()
-        assert len(rows) == 1
-        assert rows[0]["status_code"] == 200
-        assert rows[0]["path"] == "/admin/snapshot"
-    finally:
-        os.environ.pop("SNAPSHOT_AUTH_TOKEN", None)
+def test_admin_hit_with_valid_token_writes_200_row(client, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "s3cret")
+    r = client.get("/admin/snapshot", headers={"Authorization": "Bearer s3cret"})
+    assert r.status_code == 200
+    rows = _rows()
+    assert len(rows) == 1
+    assert rows[0]["status_code"] == 200
+    assert rows[0]["path"] == "/admin/snapshot"
 
 
-def test_admin_hit_with_bad_token_still_audits(client):
-    os.environ["SNAPSHOT_AUTH_TOKEN"] = "s3cret"
-    try:
-        r = client.get("/admin/snapshot", headers={"Authorization": "Bearer wrong"})
-        assert r.status_code == 401
-        rows = _rows()
-        assert len(rows) == 1
-        assert rows[0]["status_code"] == 401
-    finally:
-        os.environ.pop("SNAPSHOT_AUTH_TOKEN", None)
+def test_admin_hit_with_bad_token_still_audits(client, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "s3cret")
+    r = client.get("/admin/snapshot", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
+    rows = _rows()
+    assert len(rows) == 1
+    assert rows[0]["status_code"] == 401
 
 
 def test_non_admin_paths_do_not_write_audit_rows(auth_client):

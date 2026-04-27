@@ -32,6 +32,9 @@ os.environ.setdefault("CORS_ORIGINS", "http://localhost:8081")
 # value so the diagnostic field reports "configured: True" deterministically
 # across the SQLite + Postgres CI matrix.
 os.environ.setdefault("BACKEND_PUBLIC_URL", "http://test.local")
+# /health/detailed and /admin/snapshot share this bearer-token gate.
+# Tests pass the token explicitly when calling those endpoints.
+os.environ.setdefault("SNAPSHOT_AUTH_TOKEN", "test-snapshot-token-" + "x" * 32)
 
 # Same story for DATABASE_URL: if the caller (CI) already set it, honor
 # that. Otherwise fall back to a temp SQLite file that the _db_url fixture

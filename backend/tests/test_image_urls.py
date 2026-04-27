@@ -158,8 +158,11 @@ def test_static_mount_404s_dotfiles(client):
 
 def test_health_detailed_reports_public_url_configured(client):
     """The diagnostic endpoint exposes whether BACKEND_PUBLIC_URL was set
-    so the operator can curl Fly and see it without grepping logs."""
-    r = client.get("/health/detailed")
+    so the operator can curl Fly with the bearer token and see it
+    without grepping logs."""
+    import os
+    headers = {"Authorization": f"Bearer {os.environ['SNAPSHOT_AUTH_TOKEN']}"}
+    r = client.get("/health/detailed", headers=headers)
     assert r.status_code == 200
     body = r.json()
     assert "public_url_configured" in body

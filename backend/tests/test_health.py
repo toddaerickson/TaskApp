@@ -1,13 +1,16 @@
 """`/health` + `/health/detailed` — diagnostic surface for ops.
 
-The main behavior under test: the app should not crash on boot when
-CORS_ORIGINS is missing in a Postgres environment. Previously a
-missing CORS_ORIGINS raised RuntimeError at module import, which
-crash-looped Fly's machine and was reported at the edge as a
-generic "403 host_not_allowed" — totally unactionable. The new
-behavior logs loudly, boots with localhost-only origins, and
-exposes the misconfig via /health/detailed.
+`/health` is unauthenticated (Fly health-check probes don't authenticate).
+`/health/detailed` is bearer-token gated against `SNAPSHOT_AUTH_TOKEN`
+because the field-by-field truthiness reporting (db reachability,
+CORS, JWT, Sentry, public-URL configured) is free reconnaissance for
+anyone scraping Fly subdomains. Operator curls it with the token.
 """
+import os
+
+
+def _admin_h():
+    return {"Authorization": f"Bearer {os.environ['SNAPSHOT_AUTH_TOKEN']}"}
 
 
 def test_health_returns_ok(auth_client):
@@ -17,47 +20,48 @@ def test_health_returns_ok(auth_client):
     assert r.json() == {"status": "ok"}
 
 
-def test_health_detailed_reports_config_state(auth_client):
-    """The diagnostic view should be 200 regardless of config state so
-    the operator can always curl it. Reports presence-of-secrets, not
-    values."""
+def test_health_is_unauthenticated(auth_client):
+    """The basic /health endpoint must work without an Authorization
+    header — Fly's probe doesn't authenticate."""
+    c, _tok, _uid = auth_client
+    assert c.get("/health").status_code == 200
+
+
+def test_health_detailed_requires_bearer_token(auth_client):
+    """The diagnostic view used to be public. Now any caller without
+    the operator's bearer token gets 401 instead of a free recon dump."""
     c, _tok, _uid = auth_client
     r = c.get("/health/detailed")
+    assert r.status_code == 401
+
+
+def test_health_detailed_rejects_wrong_token(auth_client):
+    c, _tok, _uid = auth_client
+    r = c.get("/health/detailed", headers={"Authorization": "Bearer wrong-token"})
+    assert r.status_code == 401
+
+
+def test_health_detailed_with_correct_token_returns_full_body(auth_client):
+    c, _tok, _uid = auth_client
+    r = c.get("/health/detailed", headers=_admin_h())
     assert r.status_code == 200
     body = r.json()
-    # Required fields. Conftest forces SQLite + JWT_SECRET + CORS_ORIGINS,
-    # so we assert those are reported present.
     assert body["status"] == "ok"
     assert body["db_type"] in ("sqlite", "postgresql")
     assert body["db_reachable"] is True
     assert body["db_error"] is None
-    # conftest sets both env vars before app import.
     assert body["cors_origins_configured"] is True
     assert body["jwt_secret_configured"] is True
-    # Sentry is optional — either bool is fine, just confirm the field
-    # is present and typed.
     assert isinstance(body["sentry_configured"], bool)
+    assert body["public_url_configured"] is True
 
 
 def test_health_detailed_never_leaks_secret_values(auth_client):
-    """Double-check: presence-flags only, no raw values anywhere.
-    Assertions use r.text so we catch leaks in any JSON key/value pair
-    or header echo. r.json() isn't needed here — shape is covered by
-    the sibling test above."""
+    """Double-check: presence-flags only, no raw values anywhere. Even
+    behind the gate the response body must not echo any secret."""
     c, _tok, _uid = auth_client
-    r = c.get("/health/detailed")
-    # The fallback sentinel used when JWT_SECRET is unset — should never
-    # appear in the response body regardless of environment.
+    r = c.get("/health/detailed", headers=_admin_h())
     assert "dev-secret-change-in-production" not in r.text
-    # The test's own secret (from conftest) shouldn't leak either.
     assert "test-secret-" not in r.text
-
-
-def test_health_is_unauthenticated(auth_client):
-    """Both /health endpoints must work without an Authorization header —
-    Fly's health-check probe doesn't authenticate, and the ops-diagnosis
-    path can't require auth either."""
-    c, _tok, _uid = auth_client
-    # No headers passed.
-    assert c.get("/health").status_code == 200
-    assert c.get("/health/detailed").status_code == 200
+    # The token itself must not appear in the response.
+    assert os.environ["SNAPSHOT_AUTH_TOKEN"] not in r.text

@@ -47,6 +47,16 @@ def _adapt_sql_for_pg(sql: str, *, has_params: bool) -> str:
     """SQL dialect shims so SQLite-flavored queries run on Postgres:
       - `?` placeholder  → `%s` (only when params were passed)
       - `datetime('now')` → `NOW()`
+      - `date('now')` → `CURRENT_DATE` (caught silent-killer audit:
+        `task_routes.list_tasks` used `date('now')` for the
+        hide_future_start filter; PG raised `function date(unknown)
+        does not exist` only when that filter was active)
+      - ` LIKE ` → ` ILIKE ` so case-insensitive search matches
+        SQLite's default `LIKE` behavior. Surrounded by spaces to
+        avoid mangling a column or string literal that contains the
+        substring "LIKE". The existing call sites that need
+        case-sensitive matching can use `~` directly on PG; none do
+        today.
       - `1`/`0` boolean literals have to be handled by the caller; we
         don't try to guess which integer columns are BOOLEAN.
     """
@@ -54,6 +64,10 @@ def _adapt_sql_for_pg(sql: str, *, has_params: bool) -> str:
         sql = sql.replace("?", "%s")
     if "datetime('now')" in sql:
         sql = sql.replace("datetime('now')", "NOW()")
+    if "date('now')" in sql:
+        sql = sql.replace("date('now')", "CURRENT_DATE")
+    if " LIKE " in sql:
+        sql = sql.replace(" LIKE ", " ILIKE ")
     return sql
 
 
