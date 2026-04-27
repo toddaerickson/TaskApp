@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useFolderStore, useTaskStore, Task } from '@/lib/stores';
 import * as api from '@/lib/api';
+import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import { SkeletonList } from '@/components/Skeleton';
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -72,8 +73,14 @@ export default function FoldersScreen() {
   const router = useRouter();
   const { folders, load: loadFolders, selectedFolderId, selectFolder } = useFolderStore();
   const { tasks, isLoading, load: loadTasks, complete, toggleStar, setFilters } = useTaskStore();
+  const { show: showUndo } = useUndoSnackbar();
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
+  // Folders the user just tapped Delete on but the 5-second undo window
+  // hasn't expired yet. Filtered out of the rendered list so the row
+  // disappears immediately (matches the destructive-action UX everywhere
+  // else in the app — set delete, exercise delete, etc.).
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<number>>(new Set());
 
   // Inline rename. Keeping it as row-level state (not per-row component)
   // so the input auto-focuses and Escape / Save close predictably.
@@ -165,17 +172,41 @@ export default function FoldersScreen() {
   const deleteFolder = async (id: number, name: string) => {
     const ok = await confirmDeleteFolder(id, name);
     if (!ok) return;
-    try {
-      await api.deleteFolder(id);
-      // If the deleted folder was currently selected, drop selection
-      // so the task list doesn't keep filtering on a nonexistent id.
-      if (selectedFolderId === id) selectFolder(null);
-      loadFolders();
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || 'Could not delete folder.';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Delete failed', msg);
-    }
+    // Optimistic delete: hide the row immediately and let the undo
+    // snackbar own the API call. This matches set-delete + exercise-
+    // delete UX. Caveat: the FK is `tasks.folder_id ON DELETE SET NULL`,
+    // so once the timeout commits, child tasks lose their folder
+    // association — the undo restores the folder shell but not the
+    // task→folder edges. For an accidental click within ~5 sec this
+    // is fine; longer recovery requires a soft-delete schema (Tier 2+).
+    setPendingDeleteIds((prev) => new Set([...prev, id]));
+    if (selectedFolderId === id) selectFolder(null);
+    showUndo({
+      message: `Deleted "${name}"`,
+      onUndo: () => {
+        setPendingDeleteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      },
+      onTimeout: async () => {
+        try {
+          await api.deleteFolder(id);
+          loadFolders();
+        } catch (e: any) {
+          // Revert the optimistic hide on failure so the row reappears.
+          setPendingDeleteIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          const msg = e?.response?.data?.detail || 'Could not delete folder.';
+          if (Platform.OS === 'web') window.alert(msg);
+          else Alert.alert('Delete failed', msg);
+        }
+      },
+    });
   };
 
   const selectedLabel = selectedFolderId === null
@@ -200,7 +231,7 @@ export default function FoldersScreen() {
         </Pressable>
 
         <FlatList
-          data={folders}
+          data={folders.filter((f) => !pendingDeleteIds.has(f.id))}
           keyExtractor={(f) => String(f.id)}
           renderItem={({ item }) => {
             if (renamingId === item.id) {

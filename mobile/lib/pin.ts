@@ -33,12 +33,13 @@ const K_ATTEMPTS = 'pin.attempts';
 const K_UNLOCK_AT = 'pin.unlockAt';
 
 export const MAX_ATTEMPTS = 5;
-/** Re-gate after this many minutes of no activity. 8 hours matches a
- *  typical daily-use pattern (open app, use it, close, come back later
- *  that day) without forcing a PIN entry on every context switch. Face
- *  ID / Touch ID still counts as an unlock, so biometric users see even
- *  less friction. Bump down if the device regularly leaves your sight. */
-export const TIMEOUT_MIN = 60 * 8;
+/** Re-gate after this many minutes of no activity. CLAUDE.md spec is
+ *  15 min — short enough that a phone left briefly unattended doesn't
+ *  expose the app, long enough that intended-use context-switches
+ *  (open-app → check-something-elsewhere → return) don't trigger
+ *  re-entry. Face ID / Touch ID is the soft escape: native biometric
+ *  users see one-tap re-unlock, web users see the keypad. */
+export const TIMEOUT_MIN = 15;
 
 function randomSalt(): string {
   const bytes = new Uint8Array(16);

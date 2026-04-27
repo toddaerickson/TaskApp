@@ -8,10 +8,12 @@
  * on the backend origin) are bypassed — stale data there would be
  * actively harmful.
  *
- * Versioning: bump `CACHE_VERSION` when shipping a SW change so the
- * install handler drops the old cache. The `?sw=off` query param acts
- * as a kill switch for the fetch handler — visit the app once with
- * that param to bypass caching if a bad SW ever lands in production.
+ * Versioning: the literal `taskapp-v1` token below is rewritten at
+ * deploy time by `scripts/build-web.sh` to include the git commit SHA
+ * (e.g. `taskapp-9a8f7c2b`). Each deploy gets a fresh cache identity
+ * so the install handler drops the prior shell — no more "I shipped a
+ * fix and iOS Safari PWA users still see the old bundle" footgun.
+ * The `?sw=off` query param remains a runtime kill switch.
  */
 const CACHE_VERSION = 'taskapp-v1';
 
