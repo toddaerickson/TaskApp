@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   isPinSet, setPin, verifyPin, isLockedOut, getFailedAttempts, touchUnlock,
@@ -141,6 +141,43 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     haptics.tap();
     setEntered((e) => e.slice(0, -1));
   };
+
+  // Web-only: support typing the PIN via keyboard. The keypad still
+  // works as before; this just adds a parallel input channel for users
+  // on a desktop browser where mousing through nine round buttons is
+  // slow and feels off. Native (iOS / Android) ignores this — there's
+  // no physical keyboard, and on Expo Go the listener noises onto a
+  // global Document polyfill.
+  //
+  // Only digits 0-9 and Backspace are honored. Enter / Return is a
+  // no-op because completion auto-submits at length 4. We don't
+  // preventDefault on non-handled keys — leave native browser
+  // shortcuts alone (Cmd-R, devtools etc.).
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (mode !== 'enter' && mode !== 'set' && mode !== 'confirm') return;
+    if (offerEnableBio) return;
+    if (typeof document === 'undefined') return;
+
+    const onKey = (e: KeyboardEvent) => {
+      // Don't intercept while a focused text field consumes the key —
+      // PinGate currently has no inputs, but a future wrapper might.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        press(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        backspace();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mode, offerEnableBio]);
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;

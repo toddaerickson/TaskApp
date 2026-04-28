@@ -1,10 +1,18 @@
 /**
+ * @jest-environment jsdom
+ *
  * PinGate component tests.
  *
  * Covers the three visible modes (set, enter, locked), the bio-enrollment
- * offer, and the wrong-PIN lockout escalation. lib/pin + lib/biometric are
- * mocked module-wide so the tests don't touch SecureStore or any native
- * module (both of which would crash in jest-expo).
+ * offer, the wrong-PIN lockout escalation, AND the web-only keyboard
+ * input path (added in PR #...). The keyboard tests need a real
+ * `document` to dispatch KeyboardEvent against, so we pin jsdom at the
+ * file level. The existing keypad-fireEvent tests work fine on jsdom
+ * (testing-library/react-native renders into its own tree regardless).
+ *
+ * lib/pin + lib/biometric are mocked module-wide so the tests don't
+ * touch SecureStore or any native module (both of which would crash
+ * in jest-expo).
  */
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
@@ -122,5 +130,49 @@ describe('<PinGate />', () => {
     await api.findByText('Enter PIN');
     await act(async () => { await pressDigits(api, '9999'); });
     expect(await api.findByText('Locked')).toBeTruthy();
+  });
+
+  it('accepts the PIN typed via keyboard on web', async () => {
+    // Patch Platform.OS to 'web' so the keydown listener installs.
+    const RN = require('react-native');
+    const originalOS = RN.Platform.OS;
+    RN.Platform.OS = 'web';
+    try {
+      const onUnlock = jest.fn();
+      const api = render(<PinGate onUnlock={onUnlock} />);
+      await api.findByText('Enter PIN');
+      // Dispatch four digit keydowns + verify auto-submit at length 4.
+      await act(async () => {
+        for (const d of '1234') {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: d }));
+        }
+      });
+      await waitFor(() => expect(onUnlock).toHaveBeenCalledTimes(1));
+    } finally {
+      RN.Platform.OS = originalOS;
+    }
+  });
+
+  it('Backspace key deletes the last entered digit on web', async () => {
+    const RN = require('react-native');
+    const originalOS = RN.Platform.OS;
+    RN.Platform.OS = 'web';
+    try {
+      const api = render(<PinGate onUnlock={() => {}} />);
+      await api.findByText('Enter PIN');
+      // Type 3 digits, then backspace — progressbar label drops to "2 of 4".
+      await act(async () => {
+        for (const d of '123') {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: d }));
+        }
+      });
+      await api.findByLabelText('3 of 4 digits entered');
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }));
+      });
+      expect(await api.findByLabelText('2 of 4 digits entered')).toBeTruthy();
+    } finally {
+      RN.Platform.OS = originalOS;
+    }
   });
 });
