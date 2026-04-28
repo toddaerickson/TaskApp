@@ -197,9 +197,13 @@ Three layers, all optional and free at this scale:
   5xx + network errors; ambient features like `MissedRemindersBanner`
   route their fetch failures to `reportError` instead of UI so a deploy
   lag doesn't show the user a scary red banner.
-- **GitHub Actions email** for CI / deploy failures (Settings → Notifications
-  → Watch this repo → Custom → check Actions). Also enable Fly deploy
-  notifications at https://fly.io/dashboard/personal/notifications.
+- **GitHub email for failed CI runs**: <https://github.com/settings/notifications>
+  → System → Actions → "Only notify for failed workflows". Don't "Watch"
+  the repo — watching overrides the per-system Actions setting and you'll
+  get notified for *every* run.
+- **Fly email for failed deploys**: enable per-membership at
+  <https://fly.io/dashboard> → org → Members, then per-app at the app's
+  Settings page → "Receive deploy failure notifications".
 - **`/health/detailed`** behind `Authorization: Bearer $SNAPSHOT_AUTH_TOKEN`
   for ad-hoc curl checks of secret presence + DB reachability.
 
