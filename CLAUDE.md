@@ -60,12 +60,43 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   in commit 788a5b9.
 - **Set logging** is race-safe: don't send `set_number` from the client;
   the server assigns it atomically. See `/sessions/{id}/sets`.
-- **Multi-agent plan review** — for any plan that ships in 2+ PRs or
-  touches more than one module: (1) adversarial agent critiques the
-  plan; (2) UI + software-architect + project-manager agents review
-  *in parallel* to add value; (3) silent-killer agent finds problems;
-  (4) whichever agent owns each finding refines the plan; (5) ask me
-  to approve before starting work.
+- **Multi-agent plan review (pre-implementation)** — for any plan
+  that ships in 2+ PRs or touches more than one module: (1)
+  adversarial agent critiques the plan; (2) UI + software-architect +
+  project-manager agents review *in parallel* to add value; (3)
+  silent-killer agent finds problems; (4) whichever agent owns each
+  finding refines the plan; (5) ask me to approve before starting
+  work.
+- **Multi-agent post-ship audit (after a multi-PR feature lands)** —
+  separate convention from the plan review above; runs *after* the
+  PRs merge to find what shipped that we'd want to fix in a follow-up
+  sequence. Five agents in parallel, each writing back a SEVERE /
+  IMPORTANT / NICE-TO-HAVE punch list:
+  1. **adversarial-reviewer** — hostile read of the merged diff
+  2. **silent-killer** — focus on bugs that are silent in dev but
+     surface in prod (race conditions, TZ/DST, schema drift, route
+     ordering, lock files)
+  3. **code-reviewer** — SOLID + complexity + dead code + module size
+  4. *Deferred-tracker pass* — read every "deferred" / "punted" /
+     "out of scope" comment in CLAUDE.md + recent PRs, sanity-check
+     they're still the right call given what shipped
+  5. **Synthesis agent** — dedupes the four findings into a
+     prioritized PR sequence, calls out which agent flagged each
+     item (so when two agents converge on the same finding, you know
+     it's a real BLOCK not a one-agent opinion).
+
+  Then ship the BLOCK / SEVERE items in a numbered PR sequence
+  (e.g. PR-X1..PR-X5 for the April 2026 audit: critical fixes →
+  a11y → validation → architecture → docs). Each PR description
+  links the audit findings back to which agent flagged them.
+  See PRs #116, #117, #118, #119, #120 for the canonical example.
+
+  **Don't** trust an audit agent's claim without spot-checking — in
+  the April 2026 run the deferred-tracker flagged "Settings PIN
+  management UI" as missing; it was already shipped end-to-end at
+  `mobile/app/settings/account.tsx`. The agent followed
+  `(tabs)/settings.tsx` and missed the chevron link. Skip findings
+  that don't survive a 30-second look at the file.
 - **Self-hosted exercise images** — image bytes live at
   `backend/seed_data/exercise_images/<sha256>.<ext>`, served via the
   `/static/exercise-images` mount on Fly. DB rows store the sentinel
@@ -116,11 +147,16 @@ cd mobile && npx expo start
 
 ## Tests
 
-200 tests across backend (pytest) and mobile (jest). Run:
+660 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 155 cases
-cd mobile && npm test            # 45 cases (3 suites, pure-function libs only)
+cd backend && venv/bin/pytest    # 416 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 244 cases (23 suites: pure-function libs + RN snapshots)
 ```
+
+Counts drift fast — when you bump these, also bump the matching line
+in [README.md](README.md). The `test_seed_snapshot` ratchet pattern is
+the canonical example: a numeric expectation in the test that has to
+move down when seed gaps close.
 
 ## CI / pre-commit
 

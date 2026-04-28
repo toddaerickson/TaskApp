@@ -75,9 +75,42 @@ After multi-agent review of the full codebase surfaced several silent prod-only 
 - **#112** Tier 3-V1 missed-reminder inbox banner on Workouts tab. `GET /routines/missed-reminders` + client-side dismiss in `kvStorage`. Single-tenant TZ via `TASKAPP_TZ` env. Full web push (V2) deferred — V1 captures most of the morning-routine UX with one PR and zero infra.
 - **#113** banner fails silently on fetch errors → telemetry only via `reportError` (Sentry sink). Caught: a deploy-lag window made `/routines/missed-reminders` 422 (FastAPI matched it as `/{routine_id}` against the older backend), banner showed "Some required information is missing or invalid" in red over the routine list. Now an ambient feature failure is invisible to the user.
 
+### Post-ship audit (PRs #116–#120)
+
+Five-agent post-ship audit (adversarial / silent-killer / code-QA /
+deferred-tracker / synthesis) on the #107–#113 work surfaced ~30
+items; convergent BLOCKs shipped as a numbered sequence:
+
+- **#116** PR-X1 critical fixes: rename `002_fix_boolean_columns.sql` → `003_fix_boolean_columns.sql` (numeric-prefix collision with `002_drop_phases.sql`); `004_evidence_tier_and_target_minutes_safety.sql` corrective ALTER (PR #107 retroactively edited `001_schema.sql`, leaving stamped-pre-#107 prod DBs missing the new columns); `MissedRemindersBanner` stale closure on first focus + don't-wipe-state on transient error; silent-fail telemetry pattern propagated to `loadRoutines` + `listSessions`; `test_snapshot_evidence_tier_matches_seed_workouts` value-equality ratchet.
+- **#117** PR-X2 a11y + UX: REHAB chip white-on-`#e67e22` (2.65:1) → `colors.warningText` (≥ 4.63:1); PRIORITY chip white-on-`#d4a017` (2.2:1) → new `colors.accentText` `#7a5500` (≥ 7.8:1); banner Start + Dismiss 32pt → 44×44pt; tier filter empty-state copy split into query/tier/both branches with action button.
+- **#118** PR-X3 validation + observability: Pydantic field validators on `reminder_time` (`^([01]\d|2[0-3]):[0-5]\d$`) + `reminder_days` (CSV gate); DST-safe `expected_local` via explicit `datetime(...,tzinfo=tz)` (replaces `now_local.replace(hour=hh)` which broke on US spring-forward); `_operator_tz` cache + warn-once on invalid `TASKAPP_TZ`; `_preflight_log()` startup audit (one structured `preflight=` line with TZ + presence-only env flags).
+- **#119** PR-X4 architectural cleanup: `app/reminders.py` extracted (TZ + day-token + `compute_missed_reminders()`); `MissedReminder` Pydantic moved to `models.py`; `tests/test_route_order.py` asserts `/missed-reminders` declared before `/{routine_id}`; `conftest.tz_pinned` fixture replaces ad-hoc `fixed_now` + monkeypatch + cache-bust dance.
+- **#120** PR-X5 docs (this PR): ROADMAP updated; CLAUDE.md test counts (200 → 660); CLAUDE.md post-ship audit convention codified; `docs/v2-web-push-plan.md` captures the deferred Tier 3-V2 plan.
+
 ## Open
 
-None tracked here today. The audit's UI-tier features (onboarding, dark mode, tasks export, NL quick-add, smart lists, persistent in-progress pill) and architectural debt items (`models.py` split, optimistic Zustand updates, `task_routes` hydration consolidation, error contract types) remain queued — pick from the post-audit synthesis when you want the next chunk of work.
+Audit's Tier-2 / Tier-3 items remain queued. Pick from this list when
+you want the next chunk of work — each is sized to one PR unless noted.
+
+**UI-tier features**
+
+- [ ] **Onboarding** — single-screen "what is this" + "what would you like to track first" → routes to `/(auth)/register` with the chosen first-tab pinned. Replaces the cold-start `(auth)/login` for first-launch users. (no spec yet)
+- [ ] **Dark mode** — `colors.ts` is already token-driven; need a `useColorScheme()` hook + variant tokens + persist in `kvStorage`. ~3 day chunk because every StyleSheet that picks a hex literal has to migrate to a token. Half the work was done implicitly when `colors.warning` etc. landed.
+- [ ] **Tasks export** — `/tasks/export` JSON endpoint + Settings row, mirroring the Workouts pattern. The hard part is the recurrence-rule round-trip; copy from the iCal-style serializer in mobile.
+- [ ] **NL quick-add** — "tomorrow at 7am buy milk @errands #urgent" → folder + due + tag + priority. Use chrono-node-style parsing on the client (no LLM round-trip; latency matters). Ship to tasks tab first.
+- [ ] **Smart lists** — saved query → pinned in the folders sidebar. Schema: `smart_lists(user_id, name, query_json)`. Reuse the existing tasks filter shape.
+- [ ] **Persistent in-progress workout pill** — when a session is open and you tab away, show a 2-line pill above the tab bar. Tap → resume. Subscribe a Zustand selector to `currentSessionId`. Cross-tab via `BroadcastChannel` on web.
+
+**Architectural debt**
+
+- [ ] **`models.py` split** — `backend/app/models.py` is approaching 600 lines; split into `models/{auth,task,routine,session,exercise,reminder}.py`. PR #119 already extracted `MissedReminder` next to `RoutineResponse`; the rest are similar. Update imports + add `model_rebuild()` shims.
+- [ ] **Optimistic Zustand updates** — `useWorkoutStore` + `useTaskStore` always wait for the server to reflect mutations. Switch to optimistic-with-rollback for the common cases (toggle complete, reorder, edit name). Pattern: action sets the new state, calls API, rolls back on failure with `UndoSnackbar` already wired.
+- [ ] **`task_routes.py` hydration consolidation** — uses one-off SELECTs; should batch via `app/hydrate.py` like routines did in commit 788a5b9. ~50 N+1 candidates. Add a benchmark before/after.
+- [ ] **Error contract types** — backend returns `{detail, code, request_id}` but the mobile axios layer treats `e.response.data.detail` ad-hoc. Define a shared `ApiError` type; centralize the unpack in `lib/apiErrors.ts`; remove the ~12 places that re-walk the same shape.
+- [ ] **`colors.warning` text-on-white debt** — used as text color (not bg) in ~6 spots (streak text, reminder chip, due-date). 2.65:1 — fails AA at body sizes. Documented in `docs/a11y-audit-2026-04.md`. Fix: introduce `colors.warningTextSoft` or switch to `warningText` everywhere it's used as text. Bundle with the next a11y sweep.
+
+Pull from the synthesis when you want the next chunk; each item is
+its own PR.
 
 ## Deferred / parked (with rationale)
 
