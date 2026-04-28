@@ -42,12 +42,54 @@ logging.basicConfig(
 install_logging_filter()
 log = logging.getLogger("taskapp")
 
+def _preflight_log() -> None:
+    """One-shot startup audit. Surfaces operator-misconfiguration that
+    would otherwise drift silently — TASKAPP_TZ pointing at a non-IANA
+    name (banner times go wrong by a continent), SNAPSHOT_AUTH_TOKEN
+    unset (/health/detailed and /admin/snapshot fail-closed but the
+    operator only learns when monitoring breaks), BACKEND_PUBLIC_URL
+    unset (RN native rejects relative image URIs). Each line is one
+    structured log entry so operators can grep for `preflight=`.
+    PR-X3 observability."""
+    import os
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    # TZ — the most common misconfig because `TASKAPP_TZ=ET` looks
+    # plausible but isn't IANA. Resolve once; if it errors, log loud.
+    tz_name = os.environ.get("TASKAPP_TZ", "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(tz_name)
+        tz_status = "ok"
+    except ZoneInfoNotFoundError:
+        tz_status = "INVALID"
+    log.info(
+        "preflight= tz_name=%r tz_status=%s db_type=%s "
+        "backend_public_url_set=%s snapshot_token_set=%s "
+        "sentry_dsn_set=%s cors_origins_set=%s",
+        tz_name,
+        tz_status,
+        DB_TYPE,
+        bool(os.environ.get("BACKEND_PUBLIC_URL")),
+        bool(os.environ.get("SNAPSHOT_AUTH_TOKEN")),
+        bool(os.environ.get("SENTRY_DSN")),
+        bool(os.environ.get("CORS_ORIGINS")),
+    )
+    if tz_status == "INVALID":
+        log.warning(
+            "preflight: TASKAPP_TZ=%r not found in tzdata. Missed-reminder "
+            "banner will silently fall back to UTC. Fix with: "
+            "fly secrets set TASKAPP_TZ=America/New_York",
+            tz_name,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import time as _time
     t0 = _time.monotonic()
     init_db()
     log.info("DB initialized in %.1fs (type=%s)", _time.monotonic() - t0, DB_TYPE)
+    _preflight_log()
     yield
 
 

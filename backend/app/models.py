@@ -15,6 +15,51 @@ EvidenceTier = Literal["RCT", "MECHANISM", "PRACTITIONER", "THEORETICAL"]
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+# Match HH:MM with leading zeros — 00:00..23:59. The missed-reminders
+# route fans out integer parsing of this string in a tight loop; an
+# unvalidated client could store "0:5" or "garbage" and either fail
+# silently (the route's try/except eats it and skips the row) or run
+# tests against an int(hh) that happens to land in [0, 23]. Validate
+# at model-write time so the invariant is one place. PR-X3.
+_REMINDER_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_DAY_TOKENS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
+
+
+def _validate_reminder_time(value: Optional[str]) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if not _REMINDER_TIME_RE.match(value):
+        raise ValueError(
+            "reminder_time must be HH:MM in 24h with leading zeros "
+            "(e.g. '06:30' or '17:00'); got " + repr(value)
+        )
+    return value
+
+
+def _validate_reminder_days(value: Optional[str]) -> Optional[str]:
+    """CSV of weekday tokens or the literal 'daily'. Empty/None opts the
+    routine out of reminders entirely. Tokens are normalized lowercase
+    on read (`_parse_reminder_days` in routine_routes.py); the validator
+    just gates the storable shape so a typo'd 'mun' on a write fails
+    fast instead of silently dropping that day at read-time."""
+    if value is None or value == "":
+        return None
+    norm = value.strip().lower()
+    if norm == "daily":
+        return "daily"
+    parts = [p.strip() for p in norm.split(",") if p.strip()]
+    if not parts:
+        return None
+    bad = [p for p in parts if p not in _DAY_TOKENS]
+    if bad:
+        raise ValueError(
+            f"reminder_days contains unknown day tokens: {bad}. "
+            "Allowed: mon,tue,wed,thu,fri,sat,sun (CSV) or 'daily'."
+        )
+    return ",".join(parts)
+
+
+
 # --- Auth ---
 class RegisterRequest(BaseModel):
     email: str
@@ -343,6 +388,17 @@ class RoutineCreate(BaseModel):
     target_minutes: Optional[int] = Field(default=None, ge=1, le=180)
     exercises: Optional[list[RoutineExerciseCreate]] = []
 
+    @field_validator("reminder_time")
+    @classmethod
+    def _check_reminder_time(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_reminder_time(v)
+
+    @field_validator("reminder_days")
+    @classmethod
+    def _check_reminder_days(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_reminder_days(v)
+
+
 class RoutineUpdate(BaseModel):
     name: Optional[str] = None
     goal: Optional[str] = None
@@ -356,6 +412,16 @@ class RoutineUpdate(BaseModel):
     # if the row's current updated_at has moved past this value since the
     # client's last GET. Omit to opt out (silent last-write-wins).
     expected_updated_at: Optional[datetime] = None
+
+    @field_validator("reminder_time")
+    @classmethod
+    def _check_reminder_time(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_reminder_time(v)
+
+    @field_validator("reminder_days")
+    @classmethod
+    def _check_reminder_days(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_reminder_days(v)
 
 class RoutineResponse(BaseModel):
     id: int

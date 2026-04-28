@@ -213,3 +213,142 @@ def test_parse_reminder_days_null_returns_empty():
     from app.routes.routine_routes import _parse_reminder_days
     assert _parse_reminder_days(None) == frozenset()
     assert _parse_reminder_days("") == frozenset()
+
+
+# ---------- PR-X3: reminder_time + reminder_days model validators ----------
+# Silent-killer #4: an unvalidated client could store "0:5" or "garbage"
+# in reminder_time. The route's try/except eats the parse error and
+# silently skips that row from the missed-reminders banner, so the
+# operator never sees a reminder that was never visible. Validators
+# now catch this at write time with a 422.
+
+def test_routine_create_rejects_malformed_reminder_time(auth_client):
+    client, token, _ = auth_client
+    bad_values = ["0:5", "7:00:00", "25:00", "07-00", "garbage", "07:60"]
+    for v in bad_values:
+        r = client.post(
+            "/routines",
+            headers=_h(token),
+            json={"name": "X", "reminder_time": v, "reminder_days": "daily"},
+        )
+        assert r.status_code == 422, f"{v!r} should 422 but got {r.status_code}: {r.text}"
+
+
+def test_routine_create_accepts_valid_reminder_time(auth_client):
+    client, token, _ = auth_client
+    for v in ["00:00", "07:30", "23:59", "12:05"]:
+        r = client.post(
+            "/routines",
+            headers=_h(token),
+            json={"name": f"X-{v}", "reminder_time": v, "reminder_days": "daily"},
+        )
+        assert r.status_code == 200, f"{v!r} should accept: {r.text}"
+
+
+def test_routine_create_rejects_unknown_day_token(auth_client):
+    client, token, _ = auth_client
+    r = client.post(
+        "/routines",
+        headers=_h(token),
+        json={"name": "X", "reminder_time": "07:00", "reminder_days": "mon,xyz,fri"},
+    )
+    assert r.status_code == 422
+    assert "xyz" in r.text
+
+
+def test_routine_update_rejects_malformed_reminder_time(auth_client):
+    client, token, _ = auth_client
+    rid = _make_routine(client, token)
+    r = client.put(
+        f"/routines/{rid}",
+        headers=_h(token),
+        json={"reminder_time": "29:99"},
+    )
+    assert r.status_code == 422
+
+
+def test_routine_create_accepts_null_reminder_fields(auth_client):
+    """Null/empty opts the routine out of reminders entirely; the
+    validator must accept that, not require HH:MM."""
+    client, token, _ = auth_client
+    r = client.post(
+        "/routines",
+        headers=_h(token),
+        json={"name": "Quiet", "reminder_time": None, "reminder_days": None},
+    )
+    assert r.status_code == 200
+
+
+# ---------- PR-X3: DST-safe expected_local construction ----------
+# Adversarial finding: `now_local.replace(hour=hh, minute=mm)` is not
+# DST-safe. On US spring-forward (2026-03-08 02:00 → 03:00) a 02:30
+# reminder doesn't exist as wall-clock time. The new code uses
+# `datetime(..., tzinfo=tz)` which resolves the gap forward via fold=0.
+
+def test_dst_spring_forward_does_not_explode(auth_client, monkeypatch):
+    """Pin `now_local` to 2026-03-08 04:00 America/New_York (after the
+    DST jump). A routine with reminder_time=02:30 on Sunday should be
+    findable: the wall-clock 02:30 didn't exist, but ZoneInfo collapses
+    it to 03:30 UTC-equivalent and the route should treat it as
+    "passed earlier today". The previous .replace(hour=...) path
+    produced a datetime whose UTC offset was wrong by an hour."""
+    client, token, _ = auth_client
+    from zoneinfo import ZoneInfo
+    monkeypatch.setenv("TASKAPP_TZ", "America/New_York")
+    # Bust the module-level cache.
+    from app.routes import routine_routes as rr
+    rr._TZ_CACHE["name"] = None
+    rr._TZ_CACHE["zone"] = None
+    rr._TZ_CACHE["warned"] = False
+
+    # Sunday 2026-03-08, 04:00 local = 08:00 UTC (post-DST)
+    pinned_local = datetime(2026, 3, 8, 4, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    rid = _make_routine(
+        client, token,
+        name="Sunday DST Test",
+        reminder_time="02:30",
+        reminder_days="sun",
+    )
+
+    class _DT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return pinned_local.astimezone(tz) if tz else pinned_local
+    with patch("app.routes.routine_routes.datetime", _DT):
+        r = client.get("/routines/missed-reminders", headers=_h(token))
+    assert r.status_code == 200, r.text
+    ids = [m["routine_id"] for m in r.json()]
+    assert rid in ids
+
+
+# ---------- PR-X3: _operator_tz cache + warn-on-invalid ----------
+
+def test_operator_tz_warns_once_on_invalid(monkeypatch, caplog):
+    """Invalid TASKAPP_TZ should fall back to UTC AND log a warning
+    exactly once across multiple calls — the previous silent fallback
+    meant operators only noticed when banner times drifted."""
+    from app.routes import routine_routes as rr
+    monkeypatch.setenv("TASKAPP_TZ", "Mars/Olympus_Mons")
+    rr._TZ_CACHE["name"] = None
+    rr._TZ_CACHE["zone"] = None
+    rr._TZ_CACHE["warned"] = False
+    with caplog.at_level("WARNING", logger="app.routes.routine_routes"):
+        z1 = rr._operator_tz()
+        z2 = rr._operator_tz()
+        z3 = rr._operator_tz()
+    assert str(z1) == "UTC"
+    assert z1 is z2 is z3  # cached
+    warns = [r for r in caplog.records if "Mars/Olympus_Mons" in r.message]
+    assert len(warns) == 1, f"expected exactly one warning, got {len(warns)}"
+
+
+def test_operator_tz_caches_valid_zone(monkeypatch):
+    from app.routes import routine_routes as rr
+    monkeypatch.setenv("TASKAPP_TZ", "America/New_York")
+    rr._TZ_CACHE["name"] = None
+    rr._TZ_CACHE["zone"] = None
+    z1 = rr._operator_tz()
+    z2 = rr._operator_tz()
+    assert z1 is z2
+    assert str(z1) == "America/New_York"
