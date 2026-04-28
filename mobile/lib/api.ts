@@ -314,6 +314,11 @@ export async function completeTask(id: number) {
   return data;
 }
 
+export async function uncompleteTask(id: number) {
+  const { data } = await api.post(`/tasks/${id}/uncomplete`);
+  return data;
+}
+
 export async function reorderTasks(taskIds: number[]) {
   const { data } = await api.post('/tasks/reorder', { task_ids: taskIds });
   return data;

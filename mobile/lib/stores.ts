@@ -235,7 +235,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   complete: async (id) => {
-    await api.completeTask(id);
+    // Toggle: if the task is currently completed, reopen via /uncomplete;
+    // otherwise mark complete via /complete. Lets the Completed filter
+    // view un-check rows in place — the user no longer has to open the
+    // detail screen to move a task back to the active list.
+    const current = get().tasks.find((t) => t.id === id);
+    if (current?.completed) {
+      await api.uncompleteTask(id);
+    } else {
+      await api.completeTask(id);
+    }
     haptics.success();
     get().load();
   },
