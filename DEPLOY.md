@@ -312,9 +312,48 @@ Sentry.
    fly secrets set SENTRY_DSN='https://xxx@oXXX.ingest.sentry.io/YYY' -a taskapp-workout
    ```
 4. Mobile env on Vercel: project → Settings → Environment Variables → add `EXPO_PUBLIC_SENTRY_DSN` (the React-Native DSN from step 2) for **Production + Preview + Development**. The `EXPO_PUBLIC_` prefix is what makes the value reach the browser bundle at build time. Save, then trigger a redeploy — Vercel doesn't auto-rebuild on env-var changes alone.
-5. Verify by waiting for the next genuine 5xx, or fire a test error deliberately. Easiest path: trigger an unhandled exception by hitting an internal route while DB is misconfigured — but that's destructive. Cleaner: temporarily add `raise RuntimeError("sentry test")` to a route handler in a throwaway commit, deploy, hit the route, revert. Or just leave it and wait — `app/sentry_setup.py` will forward the next real 5xx automatically. The mobile-side ErrorBoundary catches uncaught render errors; one easy trigger is `throw new Error('test')` in a component during a dev build, then revert.
+5. **Verify the wire-up.** Three options, in order of cleanness:
 
-After this is set, `/health/detailed` reports `sentry_configured: true`.
+   **Option A — non-destructive backend probe (recommended):**
+   The backend exposes no dedicated `/sentry-test` route by design (anything
+   reachable + idempotent is also reachable by an attacker who finds the URL).
+   Instead, use the `app/sentry_setup.py` API directly via `fly ssh`:
+   ```bash
+   fly ssh console -a taskapp-workout -C "cd /app && python -c \"
+   import sentry_sdk
+   from app.sentry_setup import init_sentry
+   init_sentry()
+   sentry_sdk.capture_message('preflight: deploy verification', level='info')
+   sentry_sdk.flush(timeout=5)
+   print('flushed')
+   \""
+   ```
+   Should print `flushed`. Within ~30s a `preflight: deploy verification`
+   info-level event appears under the `taskapp-backend` Sentry project.
+   No code change, no deploy, no production user impact.
+
+   **Option B — mobile probe (browser console):**
+   Open the deployed Vercel URL in an incognito window with the **dev
+   console open**, log in, then run:
+   ```js
+   import('@sentry/react-native').then(s => s.captureMessage('mobile preflight'))
+   ```
+   The dynamic import works because the bundler already pulled the SDK in.
+   Within ~30s a `mobile preflight` event appears under the `taskapp-mobile`
+   Sentry project. Reload the page once you've confirmed.
+
+   **Option C — wait for the real thing:**
+   Skip both — `app/sentry_setup.py` forwards the next genuine 5xx
+   automatically; the missed-reminders banner's `reportError(e, ...)`
+   path will fire on any backend hiccup. If your event volume is
+   non-zero, you'll see something within a few hours of normal use.
+
+After Option A or B fires successfully, `/health/detailed` will
+report `sentry_configured: true` AND you'll have a real timestamped
+event in the dashboard proving end-to-end delivery (DNS, TLS,
+auth-token, project-routing). The flag-only check on
+`/health/detailed` only proves the env var is set; it doesn't prove
+events actually land.
 
 **GitHub email notifications for failed CI runs** (corrected Apr 2026):
 

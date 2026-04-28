@@ -123,7 +123,7 @@ an `rn-components` project (renders PinGate, Login, Register):
 cd mobile && npm test
 ```
 
-Current totals: **405 backend (3 PG-only skipped on the SQLite leg) + 244 mobile**, `tsc --noEmit` + `ruff --select F` clean.
+Current totals: **416 backend (3 PG-only skipped on the SQLite leg) + 244 mobile**, `tsc --noEmit` + `ruff --select F` clean.
 
 ## CI
 
