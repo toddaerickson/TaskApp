@@ -301,21 +301,37 @@ ErrorBoundary catches + ambient `reportError` calls (e.g. the
 missed-reminders banner that fails silently in the UI) all flow to
 Sentry.
 
-1. Sign up at <https://sentry.io> (GitHub login). Free tier: 5k errors/month, 1 user.
-2. Create **two projects** in Sentry: `taskapp-backend` (platform: Python) and `taskapp-mobile` (platform: React Native). Copy each project's DSN.
+1. Sign up at <https://sentry.io> (GitHub login). Free **Developer plan**: 5,000 errors/month, 1 user, 14-day retention. (Verified Apr 2026; Sentry stops accepting new events when you hit the cap, no overage charges.)
+2. Create **two projects** in Sentry's dashboard. Platform pickers are searchable:
+   - `taskapp-backend` — pick **Python** (FastAPI specifically, if offered). Matches what `app/sentry_setup.py` already uses.
+   - `taskapp-mobile` — pick **React Native**. The codebase uses `@sentry/react-native` (the canonical package; `sentry-expo` was deprecated with Expo SDK 50, and we're on SDK 52).
+
+   Copy each project's DSN from its Settings → Client Keys (DSN) page. Looks like `https://xxx@oXXX.ingest.sentry.io/YYY`.
 3. Backend secret on Fly:
    ```bash
    fly secrets set SENTRY_DSN='https://xxx@oXXX.ingest.sentry.io/YYY' -a taskapp-workout
    ```
-4. Mobile env on Vercel: Settings → Environment Variables → add `EXPO_PUBLIC_SENTRY_DSN` for **Production + Preview**.
-5. Trigger a test error to verify wiring (`curl https://taskapp-workout.fly.dev/admin/snapshot` without a token = 401, doesn't help; instead force a 500 by setting `JWT_SECRET` to garbage temporarily, hit any auth-required endpoint, then revert). Or just ship a deploy and watch for incoming events.
+4. Mobile env on Vercel: project → Settings → Environment Variables → add `EXPO_PUBLIC_SENTRY_DSN` (the React-Native DSN from step 2) for **Production + Preview + Development**. The `EXPO_PUBLIC_` prefix is what makes the value reach the browser bundle at build time. Save, then trigger a redeploy — Vercel doesn't auto-rebuild on env-var changes alone.
+5. Verify by waiting for the next genuine 5xx, or fire a test error deliberately. Easiest path: trigger an unhandled exception by hitting an internal route while DB is misconfigured — but that's destructive. Cleaner: temporarily add `raise RuntimeError("sentry test")` to a route handler in a throwaway commit, deploy, hit the route, revert. Or just leave it and wait — `app/sentry_setup.py` will forward the next real 5xx automatically. The mobile-side ErrorBoundary catches uncaught render errors; one easy trigger is `throw new Error('test')` in a component during a dev build, then revert.
 
 After this is set, `/health/detailed` reports `sentry_configured: true`.
 
-Pair with **GitHub Actions email notifications** (Settings → Notifications →
-Watch repo → Custom → check Actions failures) and **Fly deploy notifications**
-(<https://fly.io/dashboard/personal/notifications>) for the full
-solo-dev triplet: errors via Sentry, deploy failures via email.
+**GitHub email notifications for failed CI runs** (corrected Apr 2026):
+
+The notification hierarchy is: **Watch status → Account-level Actions setting → repo subscription**. Watching a repo overrides everything else, so the cleanest setup is:
+
+1. Account-level: <https://github.com/settings/notifications> → **System** → **Actions** → set to **"Only notify for failed workflows"** → Save.
+2. **Don't "Watch" the repo** — watching overrides the per-system Actions setting and you get notified for *every* run, not just failures. If you've already watched, change to "Custom" and uncheck Actions, OR unwatch entirely.
+3. The default email is the address on your GitHub account; tune destinations under **Notification preferences → Email** on the same page.
+
+**Fly deploy failure notifications** (corrected Apr 2026):
+
+Two-layer setup; both must be on:
+
+1. **Org-level**: <https://fly.io/dashboard> → your organization → **Members** → confirm your membership row has **"Receive notifications"** enabled.
+2. **Per-app**: <https://fly.io/dashboard/{org}/apps/taskapp-workout/settings> → toggle **"Receive deploy failure notifications"** on. Failure emails include the failure reason + a link to the release inline (added 2024-25).
+
+That triplet — **Sentry for app errors, GitHub email for failed CI runs, Fly email for failed deploys** — is the realistic-for-solo monitoring stack. Anything more (PagerDuty, Datadog, BetterStack uptime) is overkill for a single user.
 
 ---
 
