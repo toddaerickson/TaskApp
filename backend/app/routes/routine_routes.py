@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 import os
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,6 +8,8 @@ from app.database import get_db
 from app.auth import get_current_user_id
 from pydantic import BaseModel, Field
 from typing import Optional
+
+log = logging.getLogger(__name__)
 from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
@@ -33,17 +36,42 @@ def _parse_reminder_days(csv: str | None) -> frozenset[str]:
     return frozenset(d.strip() for d in norm.split(",") if d.strip() in _DAY_SET)
 
 
+# Module-level cache: resolve TASKAPP_TZ exactly once. The /missed-reminders
+# route is hot enough that re-parsing the env var per call shows up in
+# profiles, and an invalid value used to fall back silently every call —
+# now we log once on first miss. PR-X3.
+_TZ_CACHE: dict[str, object] = {"name": None, "zone": None, "warned": False}
+
+
 def _operator_tz() -> ZoneInfo:
     """Single-tenant TZ source: env var, default UTC. V1 hack to avoid
     a `users.timezone` schema migration; revisit when this app goes
-    multi-user. Fly secret: `fly secrets set TASKAPP_TZ=America/New_York`."""
+    multi-user. Fly secret: `fly secrets set TASKAPP_TZ=America/New_York`.
+
+    Cached after first resolution. Invalid values fall back to UTC
+    *with a logged warning* — the previous silent fallback meant
+    operators only discovered the typo by noticing the banner had
+    drifted hours off, with no breadcrumb in `fly logs`."""
     tz_name = os.environ.get("TASKAPP_TZ", "UTC").strip() or "UTC"
+    if _TZ_CACHE["name"] == tz_name and _TZ_CACHE["zone"] is not None:
+        return _TZ_CACHE["zone"]  # type: ignore[return-value]
     try:
-        return ZoneInfo(tz_name)
+        zone = ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
-        # Falls back silently rather than crashing the API. The diagnostic
-        # lives at /health/detailed if we ever want to surface it.
-        return ZoneInfo("UTC")
+        if not _TZ_CACHE["warned"]:
+            log.warning(
+                "TASKAPP_TZ=%r is not a valid IANA zone; falling back to UTC. "
+                "Set with: fly secrets set TASKAPP_TZ=America/New_York",
+                tz_name,
+            )
+            _TZ_CACHE["warned"] = True
+        zone = ZoneInfo("UTC")
+        _TZ_CACHE["name"] = tz_name  # cache the bad name too so we don't re-warn
+        _TZ_CACHE["zone"] = zone
+        return zone
+    _TZ_CACHE["name"] = tz_name
+    _TZ_CACHE["zone"] = zone
+    return zone
 
 
 class MissedReminder(BaseModel):
@@ -186,12 +214,29 @@ def missed_reminders(user_id: int = Depends(get_current_user_id)):
                 continue
             try:
                 hh, mm = r["reminder_time"].split(":", 1)
-                expected_local = now_local.replace(
-                    hour=int(hh), minute=int(mm),
-                    second=0, microsecond=0,
+                # Construct the local datetime explicitly rather than via
+                # `now_local.replace(hour=...)`. On a DST-spring-forward
+                # day the wall-clock time may not exist (US: 2:30 AM
+                # → 3:30 AM); ZoneInfo's __init__ resolves the gap
+                # forward via fold=0 — i.e. "if the reminder was set
+                # for a non-existent hour, treat it as the moment the
+                # clock jumped past it." On fall-back ambiguity ZoneInfo
+                # picks the first occurrence, which is also the right
+                # semantic for a missed reminder. PR-X3 DST fix.
+                expected_local = datetime(
+                    now_local.year, now_local.month, now_local.day,
+                    int(hh), int(mm), 0, 0,
+                    tzinfo=tz,
                 )
             except (ValueError, AttributeError):
                 # Malformed reminder_time — skip rather than 500.
+                # Validator on RoutineCreate/Update gates the create
+                # path; this guards legacy rows + raw SQL inserts.
+                log.warning(
+                    "missed-reminders: skipping malformed reminder_time=%r "
+                    "for routine_id=%s user_id=%s",
+                    r["reminder_time"], r["id"], user_id,
+                )
                 continue
             if expected_local > now_local:
                 continue  # reminder still in the future
