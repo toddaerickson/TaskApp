@@ -1,7 +1,5 @@
 import logging
 from datetime import datetime, timezone
-import os
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from app.database import get_db
@@ -14,74 +12,20 @@ from app.models import (
     RoutineCreate, RoutineUpdate, RoutineResponse,
     RoutineExerciseCreate, RoutineExerciseResponse,
     RoutineImportRequest,
+    MissedReminder,
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
-
-
-# Day-of-week parser that mirrors mobile/lib/reminders.ts parseDays.
-# Wire format on the server is `null | "daily" | "mon,wed,fri"`. Lower
-# bound is 7 days a week (no fortnightly etc.) — same as the mobile
-# parser which is the canonical UI contract.
-_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-_DAY_SET = frozenset(_DAYS)
-
-
-def _parse_reminder_days(csv: str | None) -> frozenset[str]:
-    if not csv:
-        return frozenset()
-    norm = csv.lower().strip()
-    if norm == "daily":
-        return _DAY_SET
-    return frozenset(d.strip() for d in norm.split(",") if d.strip() in _DAY_SET)
-
-
-# Module-level cache: resolve TASKAPP_TZ exactly once. The /missed-reminders
-# route is hot enough that re-parsing the env var per call shows up in
-# profiles, and an invalid value used to fall back silently every call —
-# now we log once on first miss. PR-X3.
-_TZ_CACHE: dict[str, object] = {"name": None, "zone": None, "warned": False}
-
-
-def _operator_tz() -> ZoneInfo:
-    """Single-tenant TZ source: env var, default UTC. V1 hack to avoid
-    a `users.timezone` schema migration; revisit when this app goes
-    multi-user. Fly secret: `fly secrets set TASKAPP_TZ=America/New_York`.
-
-    Cached after first resolution. Invalid values fall back to UTC
-    *with a logged warning* — the previous silent fallback meant
-    operators only discovered the typo by noticing the banner had
-    drifted hours off, with no breadcrumb in `fly logs`."""
-    tz_name = os.environ.get("TASKAPP_TZ", "UTC").strip() or "UTC"
-    if _TZ_CACHE["name"] == tz_name and _TZ_CACHE["zone"] is not None:
-        return _TZ_CACHE["zone"]  # type: ignore[return-value]
-    try:
-        zone = ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        if not _TZ_CACHE["warned"]:
-            log.warning(
-                "TASKAPP_TZ=%r is not a valid IANA zone; falling back to UTC. "
-                "Set with: fly secrets set TASKAPP_TZ=America/New_York",
-                tz_name,
-            )
-            _TZ_CACHE["warned"] = True
-        zone = ZoneInfo("UTC")
-        _TZ_CACHE["name"] = tz_name  # cache the bad name too so we don't re-warn
-        _TZ_CACHE["zone"] = zone
-        return zone
-    _TZ_CACHE["name"] = tz_name
-    _TZ_CACHE["zone"] = zone
-    return zone
-
-
-class MissedReminder(BaseModel):
-    routine_id: int
-    name: str
-    goal: str
-    reminder_time: str  # "HH:MM"
-    expected_at: datetime
-    target_minutes: Optional[int] = None
-
+# Reminder helpers extracted to app/reminders.py in PR-X4. Re-exported
+# below so existing test imports
+# `from app.routes.routine_routes import _parse_reminder_days, _DAYS`
+# keep working without touching every test that touched the old API.
+# F401 silenced because the un-used-here imports ARE the export.
+from app.reminders import (  # noqa: F401
+    _DAYS, _DAY_SET, _parse_reminder_days,
+    _TZ_CACHE, _operator_tz,
+    compute_missed_reminders,
+)
 
 
 class RoutineExerciseUpdate(BaseModel):
@@ -184,84 +128,17 @@ def missed_reminders(user_id: int = Depends(get_current_user_id)):
     push (the iOS-Safari PWA primary surface needs install-PWA gating,
     VAPID, etc.).
 
-    NOT registered before /{routine_id} purely by good luck — FastAPI
-    matches in declaration order, and `routine_id="missed-reminders"`
-    would 422 on int validation anyway, but declare this route ahead
-    so the contract is explicit.
+    Route MUST be declared above `GET /{routine_id}` — FastAPI matches
+    in declaration order. With "missed-reminders" registered second,
+    `/routines/missed-reminders` would 422 on the int validation of
+    `routine_id` and never reach this handler. The path is asserted
+    in `tests/test_route_order.py` so a future refactor that moves
+    this handler down breaks CI immediately rather than at runtime.
 
-    Single-tenant assumption: `TASKAPP_TZ` env var. Each routine row
-    is filtered in Python after a small SELECT — for ~50 routines the
-    cost is trivial; if this ever scales we move to a SQL-side
-    `(CURRENT_DATE + reminder_time) AT TIME ZONE :tz` filter."""
-    tz = _operator_tz()
-    now_local = datetime.now(tz)
-    today_code = _DAYS[now_local.weekday()]
-
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, name, goal, reminder_time, reminder_days, target_minutes "
-            "FROM routines WHERE user_id = ? "
-            "AND reminder_time IS NOT NULL AND reminder_days IS NOT NULL",
-            (user_id,),
-        )
-        candidates = cur.fetchall()
-
-        out: list[MissedReminder] = []
-        for r in candidates:
-            days = _parse_reminder_days(r["reminder_days"])
-            if today_code not in days:
-                continue
-            try:
-                hh, mm = r["reminder_time"].split(":", 1)
-                # Construct the local datetime explicitly rather than via
-                # `now_local.replace(hour=...)`. On a DST-spring-forward
-                # day the wall-clock time may not exist (US: 2:30 AM
-                # → 3:30 AM); ZoneInfo's __init__ resolves the gap
-                # forward via fold=0 — i.e. "if the reminder was set
-                # for a non-existent hour, treat it as the moment the
-                # clock jumped past it." On fall-back ambiguity ZoneInfo
-                # picks the first occurrence, which is also the right
-                # semantic for a missed reminder. PR-X3 DST fix.
-                expected_local = datetime(
-                    now_local.year, now_local.month, now_local.day,
-                    int(hh), int(mm), 0, 0,
-                    tzinfo=tz,
-                )
-            except (ValueError, AttributeError):
-                # Malformed reminder_time — skip rather than 500.
-                # Validator on RoutineCreate/Update gates the create
-                # path; this guards legacy rows + raw SQL inserts.
-                log.warning(
-                    "missed-reminders: skipping malformed reminder_time=%r "
-                    "for routine_id=%s user_id=%s",
-                    r["reminder_time"], r["id"], user_id,
-                )
-                continue
-            if expected_local > now_local:
-                continue  # reminder still in the future
-            expected_utc = expected_local.astimezone(timezone.utc)
-            # Has the user already started a session since the reminder?
-            cur.execute(
-                "SELECT 1 FROM workout_sessions "
-                "WHERE user_id = ? AND routine_id = ? AND started_at >= ? LIMIT 1",
-                (user_id, r["id"], expected_utc.isoformat(sep=" ")),
-            )
-            if cur.fetchone():
-                continue
-            out.append(MissedReminder(
-                routine_id=r["id"],
-                name=r["name"],
-                goal=r["goal"],
-                reminder_time=r["reminder_time"],
-                expected_at=expected_utc,
-                target_minutes=r["target_minutes"],
-            ))
-
-        # Most recent first — operator scanning the banner sees the
-        # freshest miss at the top.
-        out.sort(key=lambda m: m.expected_at, reverse=True)
-        return out
+    Computation extracted to `app/reminders.py` — see that module for
+    DST handling, TZ resolution, and the "no session started since"
+    SQL check."""
+    return compute_missed_reminders(user_id)
 
 
 @router.get("/{routine_id}", response_model=RoutineResponse)

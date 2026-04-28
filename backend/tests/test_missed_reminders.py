@@ -51,7 +51,11 @@ def fixed_now():
                 return pinned.replace(tzinfo=None)
             return pinned.astimezone(tz)
 
-    with patch("app.routes.routine_routes.datetime", _PinnedDatetime):
+    # Patch the datetime symbol bound inside the helper module — the
+    # computation moved out of routine_routes.py and into
+    # app/reminders.py in PR-X4. Patching the route file no longer
+    # works because the route just delegates.
+    with patch("app.reminders.datetime", _PinnedDatetime):
         yield pinned
 
 
@@ -315,7 +319,7 @@ def test_dst_spring_forward_does_not_explode(auth_client, monkeypatch):
         @classmethod
         def now(cls, tz=None):
             return pinned_local.astimezone(tz) if tz else pinned_local
-    with patch("app.routes.routine_routes.datetime", _DT):
+    with patch("app.reminders.datetime", _DT):
         r = client.get("/routines/missed-reminders", headers=_h(token))
     assert r.status_code == 200, r.text
     ids = [m["routine_id"] for m in r.json()]
@@ -333,7 +337,7 @@ def test_operator_tz_warns_once_on_invalid(monkeypatch, caplog):
     rr._TZ_CACHE["name"] = None
     rr._TZ_CACHE["zone"] = None
     rr._TZ_CACHE["warned"] = False
-    with caplog.at_level("WARNING", logger="app.routes.routine_routes"):
+    with caplog.at_level("WARNING", logger="app.reminders"):
         z1 = rr._operator_tz()
         z2 = rr._operator_tz()
         z3 = rr._operator_tz()

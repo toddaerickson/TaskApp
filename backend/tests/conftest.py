@@ -151,3 +151,49 @@ def seeded_globals(client):
         )
         bridge_id = cur.lastrowid
     return {"wall": wall_id, "bridge": bridge_id}
+
+
+@pytest.fixture
+def tz_pinned(monkeypatch):
+    """Reusable TZ + datetime fixture for any reminder-shaped test that
+    needs deterministic wall-clock arithmetic. Returns a callable
+    `pin(year, month, day, hour, minute, tz_name='UTC')` that:
+
+      1. Sets `TASKAPP_TZ=tz_name` for the duration of the test.
+      2. Resets the `_TZ_CACHE` so `_operator_tz()` re-resolves.
+      3. Patches `app.reminders.datetime` so `datetime.now(tz)` returns
+         the pinned moment (correctly converted into the requested tz).
+      4. Yields the pinned tz-aware datetime so the test can compute
+         relative expectations.
+
+    Extracted in PR-X4 from the ad-hoc `fixed_now` + manual monkeypatch
+    + cache-bust pattern that test_missed_reminders.py was repeating.
+    Used by both reminder-route tests and any future TZ-sensitive
+    helper test."""
+    from datetime import datetime as _dt
+    from unittest.mock import patch
+    from contextlib import ExitStack
+    from zoneinfo import ZoneInfo
+
+    stack = ExitStack()
+
+    def pin(year, month, day, hour, minute, tz_name="UTC"):
+        from app import reminders as _rem
+        monkeypatch.setenv("TASKAPP_TZ", tz_name)
+        # Bust the module-level resolver cache so the new env var wins.
+        _rem._TZ_CACHE["name"] = None
+        _rem._TZ_CACHE["zone"] = None
+        _rem._TZ_CACHE["warned"] = False
+        zone = ZoneInfo(tz_name)
+        pinned = _dt(year, month, day, hour, minute, 0, 0, tzinfo=zone)
+
+        class _PinnedDatetime(_dt):
+            @classmethod
+            def now(cls, tz=None):
+                return pinned.astimezone(tz) if tz else pinned.replace(tzinfo=None)
+
+        stack.enter_context(patch("app.reminders.datetime", _PinnedDatetime))
+        return pinned
+
+    yield pin
+    stack.close()
