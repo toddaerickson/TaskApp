@@ -898,6 +898,57 @@ ROUTINES["copenhagen_prehab"] = {
 }
 
 
+# --- User-authored rehab protocols --------------------------------------
+# Live in the seed file so they ship with the codebase + can be re-seeded
+# after a DB rebuild. Distinguish from the joint-snacks library by the
+# `tracks_symptoms: True` flag — these routines opt sessions into the
+# pain-monitored progression path (Silbernagel-style advance / hold /
+# back-off rather than the default RPE algorithm).
+
+ROUTINES["knee_valgus_pt"] = {
+    "name": "Knee Valgus PT",
+    "goal": "rehab",
+    "tracks_symptoms": True,
+    "target_minutes": 28,
+    "notes": (
+        "Three-block knee-valgus PT protocol: hip stabilizers + posterior-chain → "
+        "ankle/calf mobility + eccentric loading → hip flexor mobility. "
+        "Right side prioritized (operator's affected side); per-exercise notes "
+        "carry the L/R bias so set logging stays asymmetric. tracks_symptoms=True "
+        "→ pain chip per set drives advance/hold/back-off."
+    ),
+    "exercises": [
+        # Block 1 — strength / activation
+        ("clamshell_banded", {"target_sets": 3, "target_reps": 15, "rest_sec": 45,
+                              "tempo": "2-2-3-0",
+                              "keystone": True,
+                              "notes": "Right side only. Band above knees. 2s up, 2s hold, 3s down."}),
+        ("banded_lateral_walk", {"target_sets": 3, "target_reps": 10, "rest_sec": 45,
+                                 "notes": "10 steps each direction (R then L). Quarter squat, toes pointed forward."}),
+        ("side_lying_hip_abduction", {"target_sets": 3, "target_reps": 12, "rest_sec": 45,
+                                       "notes": "Right side only. Straight leg, toe rotated toward ceiling. Slow + controlled."}),
+        ("single_leg_glute_bridge", {"target_sets": 3, "target_reps": 12, "rest_sec": 45,
+                                      "notes": "Both sides — focus right. Hold 1s at the top."}),
+        # Block 2 — ankle / calf mobility + eccentric load
+        ("banded_ankle_mobilization", {"target_sets": 1, "target_duration_sec": 120, "rest_sec": 30,
+                                        "notes": "Right side only. Half-kneeling, band pulls talus posterior."}),
+        ("seated_soleus_stretch", {"target_sets": 1, "target_duration_sec": 90, "rest_sec": 30,
+                                    "notes": "Right side. Chair, lean forward, drive knee over toes."}),
+        ("eccentric_calf_raise_straight", {"target_sets": 3, "target_reps": 15, "rest_sec": 60,
+                                            "tempo": "0-0-3-0",
+                                            "notes": "Both sides. 3-second lowering. Off step edge, full stretch at bottom."}),
+        ("eccentric_calf_raise_bent", {"target_sets": 3, "target_reps": 15, "rest_sec": 60,
+                                        "tempo": "0-0-3-0",
+                                        "notes": "Both sides. 3-second lowering. Knees bent ~20° to bias soleus."}),
+        ("plantar_fascia_roll", {"target_sets": 1, "target_duration_sec": 120, "rest_sec": 30,
+                                  "notes": "Right side only. Lacrosse ball or frozen bottle on sole."}),
+        # Block 3 — hip flexor mobility
+        ("half_kneeling_hip_flexor", {"target_sets": 2, "target_duration_sec": 90, "rest_sec": 30,
+                                       "notes": "Both sides — prioritize right (run R first + add a 3rd 90s set on R if time allows). Squeeze glute on the stretching side."}),
+    ],
+}
+
+
 # Backwards-compat alias
 ANKLE_ROUTINE_TARGETS = ROUTINES["ankle"]["exercises"]
 
@@ -1053,9 +1104,15 @@ def seed_routine_for(email: str, routine_key: str):
             print(f"Routine '{spec['name']}' already exists for this user — skipping.")
             return
 
+        # tracks_symptoms is opt-in per-routine (default False) and honored
+        # at seed time so rehab protocols inherit the pain-monitored
+        # progression path without a manual toggle after seed runs.
         cur.execute(
-            "INSERT INTO routines (user_id, name, goal, notes, target_minutes) VALUES (?, ?, ?, ?, ?)",
-            (user_id, spec["name"], spec["goal"], spec["notes"], spec.get("target_minutes")),
+            """INSERT INTO routines
+               (user_id, name, goal, notes, target_minutes, tracks_symptoms)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, spec["name"], spec["goal"], spec["notes"],
+             spec.get("target_minutes"), bool(spec.get("tracks_symptoms", False))),
         )
         rid = cur.lastrowid
         for idx, (slug, t) in enumerate(spec["exercises"]):
