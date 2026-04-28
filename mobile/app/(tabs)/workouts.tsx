@@ -9,6 +9,7 @@ import { useWorkoutStore, WorkoutSession, Routine } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import ReminderSheet from '@/components/ReminderSheet';
 import { RoutineDurationPill } from '@/components/RoutineDurationPill';
+import { MissedRemindersBanner } from '@/components/MissedRemindersBanner';
 import SortPopover, { SortLevel } from '@/components/SortPopover';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
@@ -447,6 +448,7 @@ export default function WorkoutsScreen() {
           data={rows}
           keyExtractor={(row) => row.key}
           contentContainerStyle={{ padding: 12 }}
+          ListHeaderComponent={<MissedRemindersBanner />}
           renderItem={({ item }) => {
             if (item.type === 'header') {
               return (

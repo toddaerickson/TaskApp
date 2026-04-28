@@ -527,6 +527,25 @@ export async function searchExerciseImages(exerciseId: number, q?: string, n = 6
 }
 
 // --- Workouts: Routines ---
+
+/**
+ * Returns routines whose `reminder_time` already passed today (in the
+ * server's TZ — `TASKAPP_TZ`) and the user hasn't started since.
+ * Powers the missed-reminder banner on the Workouts tab. V1 of routine
+ * reminder UX in lieu of full web push.
+ */
+export async function getMissedReminders() {
+  const { data } = await api.get('/routines/missed-reminders');
+  return data as Array<{
+    routine_id: number;
+    name: string;
+    goal: string;
+    reminder_time: string;
+    expected_at: string;
+    target_minutes?: number | null;
+  }>;
+}
+
 export async function getRoutines() {
   // Backend caps each page at `limit` (default 50, max 200) with cursor-based
   // pagination on `(sort_order, id)`. Loop until a short page comes back so

@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import os
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from app.database import get_db
@@ -12,6 +14,46 @@ from app.models import (
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
+
+
+# Day-of-week parser that mirrors mobile/lib/reminders.ts parseDays.
+# Wire format on the server is `null | "daily" | "mon,wed,fri"`. Lower
+# bound is 7 days a week (no fortnightly etc.) — same as the mobile
+# parser which is the canonical UI contract.
+_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_DAY_SET = frozenset(_DAYS)
+
+
+def _parse_reminder_days(csv: str | None) -> frozenset[str]:
+    if not csv:
+        return frozenset()
+    norm = csv.lower().strip()
+    if norm == "daily":
+        return _DAY_SET
+    return frozenset(d.strip() for d in norm.split(",") if d.strip() in _DAY_SET)
+
+
+def _operator_tz() -> ZoneInfo:
+    """Single-tenant TZ source: env var, default UTC. V1 hack to avoid
+    a `users.timezone` schema migration; revisit when this app goes
+    multi-user. Fly secret: `fly secrets set TASKAPP_TZ=America/New_York`."""
+    tz_name = os.environ.get("TASKAPP_TZ", "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        # Falls back silently rather than crashing the API. The diagnostic
+        # lives at /health/detailed if we ever want to surface it.
+        return ZoneInfo("UTC")
+
+
+class MissedReminder(BaseModel):
+    routine_id: int
+    name: str
+    goal: str
+    reminder_time: str  # "HH:MM"
+    expected_at: datetime
+    target_minutes: Optional[int] = None
+
 
 
 class RoutineExerciseUpdate(BaseModel):
@@ -103,6 +145,78 @@ def list_routines(
         params.append(limit)
         cur.execute(sql, tuple(params))
         return hydrate_routines_full(cur, cur.fetchall())
+
+
+@router.get("/missed-reminders", response_model=list[MissedReminder])
+def missed_reminders(user_id: int = Depends(get_current_user_id)):
+    """Routines whose `reminder_time` already passed today (in operator
+    TZ), where today is in `reminder_days`, and no session has been
+    started since the reminder time. Surfaced as a banner on the
+    Workouts tab — V1 of the routine-reminder UX, in lieu of full web
+    push (the iOS-Safari PWA primary surface needs install-PWA gating,
+    VAPID, etc.).
+
+    NOT registered before /{routine_id} purely by good luck — FastAPI
+    matches in declaration order, and `routine_id="missed-reminders"`
+    would 422 on int validation anyway, but declare this route ahead
+    so the contract is explicit.
+
+    Single-tenant assumption: `TASKAPP_TZ` env var. Each routine row
+    is filtered in Python after a small SELECT — for ~50 routines the
+    cost is trivial; if this ever scales we move to a SQL-side
+    `(CURRENT_DATE + reminder_time) AT TIME ZONE :tz` filter."""
+    tz = _operator_tz()
+    now_local = datetime.now(tz)
+    today_code = _DAYS[now_local.weekday()]
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, goal, reminder_time, reminder_days, target_minutes "
+            "FROM routines WHERE user_id = ? "
+            "AND reminder_time IS NOT NULL AND reminder_days IS NOT NULL",
+            (user_id,),
+        )
+        candidates = cur.fetchall()
+
+        out: list[MissedReminder] = []
+        for r in candidates:
+            days = _parse_reminder_days(r["reminder_days"])
+            if today_code not in days:
+                continue
+            try:
+                hh, mm = r["reminder_time"].split(":", 1)
+                expected_local = now_local.replace(
+                    hour=int(hh), minute=int(mm),
+                    second=0, microsecond=0,
+                )
+            except (ValueError, AttributeError):
+                # Malformed reminder_time — skip rather than 500.
+                continue
+            if expected_local > now_local:
+                continue  # reminder still in the future
+            expected_utc = expected_local.astimezone(timezone.utc)
+            # Has the user already started a session since the reminder?
+            cur.execute(
+                "SELECT 1 FROM workout_sessions "
+                "WHERE user_id = ? AND routine_id = ? AND started_at >= ? LIMIT 1",
+                (user_id, r["id"], expected_utc.isoformat(sep=" ")),
+            )
+            if cur.fetchone():
+                continue
+            out.append(MissedReminder(
+                routine_id=r["id"],
+                name=r["name"],
+                goal=r["goal"],
+                reminder_time=r["reminder_time"],
+                expected_at=expected_utc,
+                target_minutes=r["target_minutes"],
+            ))
+
+        # Most recent first — operator scanning the banner sees the
+        # freshest miss at the top.
+        out.sort(key=lambda m: m.expected_at, reverse=True)
+        return out
 
 
 @router.get("/{routine_id}", response_model=RoutineResponse)
