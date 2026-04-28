@@ -345,6 +345,24 @@ export const useWorkoutStore = create<WorkoutState>((set, get) => ({
     try {
       const data = await api.getRoutines();
       set({ routines: data });
+    } catch (e: any) {
+      // Routines list is the primary surface of the Workouts tab. A silent
+      // fetch failure (transient 5xx, deploy lag) currently shows the
+      // empty state, indistinguishable from "no routines yet" — propagate
+      // the same telemetry pattern used by MissedRemindersBanner so the
+      // operator sees real failures in Sentry. Last-known-good state
+      // stays in `routines` so the user keeps seeing yesterday's list
+      // until the next successful refresh. 401 is suppressed (the axios
+      // interceptor handles session-expired separately).
+      const status = e?.response?.status;
+      if (status !== 401) {
+        const { reportError } = require('./errorReporter');
+        reportError(e, {
+          route: 'GET /routines',
+          status,
+          tags: { feature: 'workout_store_loadRoutines' },
+        });
+      }
     } finally {
       set({ isLoading: false });
     }
