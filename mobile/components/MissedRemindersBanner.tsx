@@ -206,14 +206,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: colors.primary,
-    paddingHorizontal: 10,
-    minHeight: 32,
+    paddingHorizontal: 14,
+    // WCAG 2.2 AA minimum target size for pointer inputs (2.5.8) is
+    // 24×24 CSS px; Apple HIG + Android Material both push to 44pt.
+    // Earlier 32pt was below both bars — bumped to 44pt + matched
+    // dismissBtn so the row aligns. PR-X2 a11y fix.
+    minHeight: 44,
+    minWidth: 44,
     borderRadius: 6,
     justifyContent: 'center',
   },
-  startBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  startBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   dismissBtn: {
-    width: 32, height: 32,
+    width: 44, height: 44,
     alignItems: 'center', justifyContent: 'center',
   },
   errorRow: {

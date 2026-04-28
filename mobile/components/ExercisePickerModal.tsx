@@ -39,6 +39,18 @@ const MEASUREMENT_OPTIONS: { value: Measurement; label: string }[] = [
 ];
 
 
+// Mirror of the chip strip's display labels; used by the empty-state
+// copy so "RCT", "MECH", "PRACT.", "THEORY" stay consistent between
+// the filter row and the "No <tier> exercises tagged yet" message.
+function labelFor(tier: string | null): string {
+  if (!tier) return 'All';
+  if (tier === 'RCT') return 'RCT';
+  if (tier === 'MECHANISM') return 'MECH';
+  if (tier === 'PRACTITIONER') return 'PRACT.';
+  if (tier === 'THEORETICAL') return 'THEORY';
+  return tier;
+}
+
 export function ExercisePickerModal({
   visible, onClose, onPick,
 }: {
@@ -344,9 +356,59 @@ export function ExercisePickerModal({
         {all && (
           <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 40 }}>
             {results.length === 0 ? (
-              <Text style={styles.empty}>
-                {query ? `No exercises match "${query.trim()}"` : 'No exercises in the library yet.'}
-              </Text>
+              // Three empty states: query alone, tier alone, or both.
+              // Untagged libraries currently have nothing under any tier
+              // except "All", which silently produced an unhelpful "No
+              // exercises match …" — the user couldn't tell whether the
+              // tier filter was wrong or the search was wrong. Each
+              // branch tells the user what to clear. Pressables let
+              // them clear without leaving the picker. PR-X2 UX fix.
+              <View style={styles.emptyBlock}>
+                {query && tierFilter ? (
+                  <>
+                    <Text style={styles.empty}>
+                      No <Text style={styles.emptyEmphasis}>{labelFor(tierFilter)}</Text>
+                      {' '}exercises match &ldquo;{query.trim()}&rdquo;.
+                    </Text>
+                    <View style={styles.emptyActionRow}>
+                      <Pressable
+                        onPress={() => setTierFilter(null)}
+                        style={styles.emptyAction}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.emptyActionText}>Clear tier filter</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : query ? (
+                  <Text style={styles.empty}>
+                    No exercises match &ldquo;{query.trim()}&rdquo;.
+                  </Text>
+                ) : tierFilter ? (
+                  <>
+                    <Text style={styles.empty}>
+                      No exercises tagged{' '}
+                      <Text style={styles.emptyEmphasis}>{labelFor(tierFilter)}</Text>
+                      {' '}yet.
+                    </Text>
+                    <Text style={styles.emptyHint}>
+                      Tier tags ship on the joint-snacks library; tag custom
+                      exercises by editing them in the Library screen.
+                    </Text>
+                    <View style={styles.emptyActionRow}>
+                      <Pressable
+                        onPress={() => setTierFilter(null)}
+                        style={styles.emptyAction}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.emptyActionText}>Show all exercises</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <Text style={styles.empty}>No exercises in the library yet.</Text>
+                )}
+              </View>
             ) : (
               results.map((ex) => (
                 <Pressable
@@ -489,6 +551,19 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginTop: 32,
     color: colors.textMuted, fontStyle: 'italic',
   },
+  emptyBlock: { paddingHorizontal: 16, gap: 10 },
+  emptyEmphasis: { fontWeight: '700', color: colors.text, fontStyle: 'normal' },
+  emptyHint: {
+    textAlign: 'center', color: colors.textMuted, fontSize: 12,
+    marginTop: -4,
+  },
+  emptyActionRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 4 },
+  emptyAction: {
+    paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: colors.primaryOnLight, borderRadius: 8,
+    minHeight: 44, justifyContent: 'center',
+  },
+  emptyActionText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: colors.surface, borderRadius: 8, padding: 10,
