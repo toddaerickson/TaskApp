@@ -72,15 +72,45 @@ def test_complete_task_sets_flag_and_timestamp(auth_client):
     assert body["completed_at"] is not None
 
 
-def test_complete_then_uncomplete_via_update(auth_client):
+def test_uncomplete_task_clears_flag_and_timestamp(auth_client):
+    """Symmetric to /complete: the Tasks tab's Completed filter view
+    needs an un-check action so the user can move a row back to the
+    active list without opening the detail screen."""
     c, tok, _ = auth_client
     t = c.post("/tasks", headers=_h(tok), json={"title": "Flip"}).json()
     c.post(f"/tasks/{t['id']}/complete", headers=_h(tok))
-    c.put(f"/tasks/{t['id']}", headers=_h(tok), json={"completed": False})
-    # If /complete is a toggle this may 200 already; either way not-completed.
-    fresh = c.get(f"/tasks/{t['id']}", headers=_h(tok)).json()
-    # Accept either: PUT un-completed explicitly, or endpoint toggles.
-    assert fresh["completed"] in (False, True)
+    completed = c.get(f"/tasks/{t['id']}", headers=_h(tok)).json()
+    assert completed["completed"] is True
+    assert completed["completed_at"] is not None
+
+    r = c.post(f"/tasks/{t['id']}/uncomplete", headers=_h(tok))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["completed"] is False
+    assert body["completed_at"] is None
+
+
+def test_uncomplete_is_idempotent_on_already_active_task(auth_client):
+    """Double-tap protection: the mobile toggle is allowed to call
+    /uncomplete on a task that's already not-completed without 4xx —
+    keeps optimistic-UI rollback simple."""
+    c, tok, _ = auth_client
+    t = c.post("/tasks", headers=_h(tok), json={"title": "Active"}).json()
+    r = c.post(f"/tasks/{t['id']}/uncomplete", headers=_h(tok))
+    assert r.status_code == 200
+    assert r.json()["completed"] is False
+
+
+def test_uncomplete_404_for_other_users_task(auth_client, client):
+    """Auth check: posting /uncomplete against another user's task id
+    should 404 like every other ownership-scoped route."""
+    c, tok, _ = auth_client
+    t = c.post("/tasks", headers=_h(tok), json={"title": "Mine"}).json()
+    # Register a second user via the bare client.
+    r = client.post("/auth/register", json={"email": "other@x.com", "password": "pw12345!"})
+    other_tok = r.json()["access_token"]
+    r = client.post(f"/tasks/{t['id']}/uncomplete", headers=_h(other_tok))
+    assert r.status_code == 404
 
 
 # ---------- Filters ----------

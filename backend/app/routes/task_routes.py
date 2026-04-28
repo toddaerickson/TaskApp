@@ -376,6 +376,33 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
     return task
 
 
+@router.post("/{task_id}/uncomplete", response_model=TaskResponse)
+def uncomplete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
+    """Reopen a previously-completed task. Symmetric to /complete; the
+    Tasks tab's Completed filter view needs an un-check action so the
+    user can move a row back to the active list without opening the
+    detail screen and editing through the form. Recurring-task semantics
+    don't apply here — completing a recurring task advances `due_date`
+    instead of setting `completed=True`, so a recurring row never lands
+    in the Completed view in the first place."""
+    now = datetime.now(timezone.utc)
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
+        task = cur.fetchone()
+        if not task:
+            raise HTTPException(404, "Task not found")
+        if not task["completed"]:
+            # No-op rather than 400 — keeps the mobile toggle path
+            # idempotent if the user double-taps.
+            return _get_task_by_id(cur, task_id)
+        cur.execute(
+            "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (False, None, now.isoformat(sep=" ", timespec="seconds"), task_id),
+        )
+        return _get_task_by_id(cur, task_id)
+
+
 @router.post("/reorder")
 def reorder_tasks(req: ReorderRequest, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
