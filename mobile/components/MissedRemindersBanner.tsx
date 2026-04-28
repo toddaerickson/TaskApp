@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -13,6 +13,7 @@ import {
   localDateKey,
 } from '@/lib/missedReminders';
 import { describeApiError } from '@/lib/apiErrors';
+import { reportError } from '@/lib/errorReporter';
 import { RoutineDurationPill } from '@/components/RoutineDurationPill';
 
 /**
@@ -30,22 +31,39 @@ import { RoutineDurationPill } from '@/components/RoutineDurationPill';
  * session screen. "Dismiss" persists `${PREFIX}:${routine_id}:${YMD}`
  * in kvStorage; banner filters dismissed entries client-side. No
  * server round-trip on dismiss.
+ *
+ * **Fetch failures are silent.** This is an ambient feature — when the
+ * endpoint 4xx/5xx (e.g. backend deploy lag means the route doesn't
+ * exist yet, or the operator never set `TASKAPP_TZ`), surfacing a red
+ * banner above the routine list is more confusing than the bug it
+ * reports. Errors go to Sentry via `reportError` so the operator can
+ * see them in the dashboard without spooking the user. Action errors
+ * (Start now hitting a bad routine_id) still surface inline because
+ * those are user-driven and need feedback.
  */
 export function MissedRemindersBanner() {
   const router = useRouter();
   const [reminders, setReminders] = useState<MissedReminder[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [starting, setStarting] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const today = localDateKey();
 
   const reload = useCallback(async () => {
-    setError(null);
     try {
       const fresh = await api.getMissedReminders();
       setReminders(fresh);
-    } catch (e) {
-      setError(describeApiError(e, "Couldn't load missed reminders."));
+    } catch (e: any) {
+      // Silent fail. Telemetry only — don't show the user.
+      reportError(e, {
+        route: '/routines/missed-reminders',
+        status: e?.response?.status,
+        tags: { feature: 'missed_reminders_banner' },
+      });
+      // Belt + suspenders: if a previous call succeeded and a later one
+      // 4xx'd, clear stale data so the banner doesn't render a row
+      // that the server now doesn't know about.
+      setReminders([]);
     }
   }, []);
 
@@ -57,9 +75,6 @@ export function MissedRemindersBanner() {
       let cancelled = false;
       (async () => {
         await reload();
-        // Read every dismiss key for today. The set is small (one entry
-        // per routine the user dismissed today), so a per-key loop is
-        // cheaper than a getAllKeys filter.
         if (cancelled) return;
         // Pre-populate `dismissed` from storage so a dismiss that
         // happened on a prior screen / yesterday-still-active session
@@ -81,15 +96,22 @@ export function MissedRemindersBanner() {
   );
 
   const visible = filterDismissed(reminders, dismissed, today);
-  if (!visible.length && !error) return null;
+  if (!visible.length && !actionError) return null;
 
   const handleStart = async (routineId: number) => {
     setStarting(routineId);
+    setActionError(null);
     try {
       const session = await api.startSession(routineId);
       router.push(`/workout/session/${session.id}`);
     } catch (e) {
-      setError(describeApiError(e, "Couldn't start the session."));
+      // User-action error — surface inline so they know the tap didn't
+      // land. Telemetry too so a systemic 5xx is visible in Sentry.
+      setActionError(describeApiError(e, "Couldn't start the session."));
+      reportError(e, {
+        route: 'POST /sessions',
+        tags: { feature: 'missed_reminders_banner', action: 'start' },
+      });
     } finally {
       setStarting(null);
     }
@@ -110,10 +132,10 @@ export function MissedRemindersBanner() {
 
   return (
     <View style={styles.container} accessibilityLabel="Missed routine reminders">
-      {error ? (
+      {actionError ? (
         <View style={styles.errorRow}>
           <Ionicons name="alert-circle-outline" size={14} color={colors.dangerText} />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{actionError}</Text>
         </View>
       ) : null}
       {visible.map((m) => (
