@@ -126,3 +126,39 @@ def test_seed_routine_persists_target_minutes(client, auth_client):
         row = cur.fetchone()
     assert row is not None
     assert row["target_minutes"] == 5
+
+
+def test_seed_routine_persists_tracks_symptoms(client, auth_client):
+    """End-to-end: seed_routine_for must honor `tracks_symptoms: True`
+    on rehab protocols so sessions started from them auto-enable the
+    pain-monitored progression path. Caught a gap in the seeder
+    (only inserted name/goal/notes/target_minutes); without this row
+    a new user seeded with knee_valgus_pt would have to flip the
+    rehab toggle manually after seeding."""
+    from app.database import get_db
+    import seed_workouts
+
+    _, _, user_id = auth_client
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+        email = cur.fetchone()["email"]
+
+    seed_workouts.seed_exercises()
+    seed_workouts.seed_routine_for(email, "knee_valgus_pt")
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT tracks_symptoms, goal, target_minutes FROM routines "
+            "WHERE user_id = ? AND name = ?",
+            (user_id, "Knee Valgus PT"),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert bool(row["tracks_symptoms"]) is True, (
+        "knee_valgus_pt seeded without tracks_symptoms — sessions "
+        "won't enter the pain-monitored progression path."
+    )
+    assert row["goal"] == "rehab"
+    assert row["target_minutes"] == 28
