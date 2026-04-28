@@ -61,6 +61,43 @@ def test_snapshot_every_exercise_carries_evidence_tier_field():
             )
 
 
+def test_snapshot_evidence_tier_matches_seed_workouts():
+    """Value-equality ratchet. Caught by the post-ship audit: the seed
+    file (seed_workouts.EXERCISES) has `evidence_tier` populated on the
+    11 joint-snacks entries, but the committed snapshot.json had every
+    tier as `null` because nobody ran scripts/snapshot_exercises.py
+    after PR #107. CI was green because the field-presence test only
+    checks the key, not the value — the UI's tier chip + filter showed
+    nothing for prod users.
+
+    This test guards against the same drift recurring: any tier set in
+    EXERCISES must round-trip through the snapshot. Run
+    `scripts/snapshot_exercises.py --user <email> --out
+    seed_data/exercise_snapshot.json` to refresh."""
+    from seed_workouts import EXERCISES
+    snap = _load_snapshot()
+    snap_tier_by_slug = {e["slug"]: e.get("evidence_tier") for e in snap["exercises"]}
+    drift: list[str] = []
+    for ex in EXERCISES:
+        seed_tier = ex.get("evidence_tier")
+        if seed_tier is None:
+            continue  # untiered seed entries don't constrain the snapshot
+        slug = ex["slug"]
+        snap_tier = snap_tier_by_slug.get(slug)
+        if snap_tier != seed_tier:
+            drift.append(
+                f"  {slug}: seed_workouts.EXERCISES has {seed_tier!r}, "
+                f"snapshot has {snap_tier!r}"
+            )
+    if drift:
+        raise AssertionError(
+            "evidence_tier drift between seed_workouts.EXERCISES and the "
+            "snapshot. Regenerate via "
+            "`venv/bin/python scripts/snapshot_exercises.py --user <email> "
+            "--out seed_data/exercise_snapshot.json`:\n" + "\n".join(drift)
+        )
+
+
 def test_snapshot_image_coverage_not_regressed():
     """Ratchet: the shipped snapshot should have no more than
     MAX_IMAGELESS exercises without at least one image. When the count

@@ -21,11 +21,16 @@ def test_discover_migrations_returns_sorted_list():
     past `100_`. This test guards against a regression where someone
     drops the sort or returns by mtime."""
     files = migrate.discover_migrations()
-    assert len(files) >= 2  # at least 001_schema.sql + 002_fix_boolean_columns.sql
+    assert len(files) >= 2  # at least 001_schema.sql + the boolean-columns fix
     names = [p.name for p in files]
     assert names == sorted(names)
     assert "001_schema.sql" in names
-    assert "002_fix_boolean_columns.sql" in names
+    # Renamed 002→003 in PR-X1 to break the 002_drop_phases vs
+    # 002_fix_boolean_columns numeric-prefix collision flagged by the
+    # post-ship audit. Old prod DBs stamped under "002_fix_boolean_columns.sql"
+    # in schema_migrations stay as orphans (harmless); the rename causes a
+    # one-shot re-run of the DO-block DDL which is idempotent.
+    assert "003_fix_boolean_columns.sql" in names
 
 
 @PG_ONLY

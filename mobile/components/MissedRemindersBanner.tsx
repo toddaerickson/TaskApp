@@ -49,23 +49,34 @@ export function MissedRemindersBanner() {
   const [actionError, setActionError] = useState<string | null>(null);
   const today = localDateKey();
 
-  const reload = useCallback(async () => {
+  // Returns the list it just set, so callers (the focus effect) can
+  // pre-populate the dismiss-state from kvStorage against the actually-
+  // fetched rows — earlier draft iterated `reminders` from a stale
+  // closure (eslint-disable hid the bug; first focus saw `[]` and
+  // subsequent focuses saw yesterday's array). On error we DON'T wipe
+  // existing state — a transient 5xx mid-day shouldn't make the banner
+  // forget what was already on it. Telemetry-only; the user never sees
+  // a 4xx/5xx through this surface. 401 is suppressed to avoid Sentry
+  // noise on every PIN-locked launch.
+  const reload = useCallback(async (): Promise<MissedReminder[]> => {
     try {
       const fresh = await api.getMissedReminders();
       setReminders(fresh);
+      return fresh;
     } catch (e: any) {
-      // Silent fail. Telemetry only — don't show the user.
-      reportError(e, {
-        route: '/routines/missed-reminders',
-        status: e?.response?.status,
-        tags: { feature: 'missed_reminders_banner' },
-      });
-      // Belt + suspenders: if a previous call succeeded and a later one
-      // 4xx'd, clear stale data so the banner doesn't render a row
-      // that the server now doesn't know about.
-      setReminders([]);
+      const status = e?.response?.status;
+      if (status !== 401) {
+        reportError(e, {
+          route: '/routines/missed-reminders',
+          status,
+          tags: { feature: 'missed_reminders_banner' },
+        });
+      }
+      // Preserve last-known-good state. The banner stays exactly as it
+      // was before the failed refresh; user dismisses still work.
+      return reminders;
     }
-  }, []);
+  }, [reminders]);
 
   // Refetch + reload dismisses each time the Workouts tab regains focus.
   // Tracking dismisses in component state lets the banner update
@@ -74,13 +85,13 @@ export function MissedRemindersBanner() {
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        await reload();
+        const fresh = await reload();
         if (cancelled) return;
-        // Pre-populate `dismissed` from storage so a dismiss that
-        // happened on a prior screen / yesterday-still-active session
-        // survives a reload.
+        // Pre-populate `dismissed` from storage against the freshly-
+        // fetched list — NOT the closure-captured `reminders`, which
+        // is stale for one render after `setReminders(fresh)` runs.
         const next = new Set<string>();
-        for (const m of reminders) {
+        for (const m of fresh) {
           const k = dismissKey(m.routine_id, today);
           const v = await kv.getItem(k);
           if (v) next.add(k);
@@ -88,10 +99,6 @@ export function MissedRemindersBanner() {
         if (!cancelled) setDismissed(next);
       })();
       return () => { cancelled = true; };
-      // `reminders` intentionally NOT in the dep array — we only want
-      // to refetch on focus, not on every state update. The storage
-      // read uses whatever was just fetched.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reload, today]),
   );
 

@@ -167,7 +167,22 @@ export default function WorkoutsScreen() {
     loadRoutines();
     api.listSessions({ limit: 10 })
       .then(setRecent)
-      .catch((e) => console.warn('[workouts] listSessions failed:', e));
+      .catch((e: any) => {
+        // Ambient fetch — drives the "last performed" + streak badges.
+        // Silent in the UI (the badges fall back to "—" / 0), telemetry
+        // via Sentry so transient 5xx is visible to the operator. 401
+        // suppressed because the axios interceptor handles session
+        // expiry separately.
+        const status = e?.response?.status;
+        if (status !== 401) {
+          const { reportError } = require('@/lib/errorReporter');
+          reportError(e, {
+            route: 'GET /sessions',
+            status,
+            tags: { feature: 'workouts_recent_streak' },
+          });
+        }
+      });
   }, [loadRoutines]));
 
   // Re-sync local notifications whenever the routine list (and therefore
