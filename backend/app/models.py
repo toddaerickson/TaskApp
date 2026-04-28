@@ -439,6 +439,22 @@ class RoutineResponse(BaseModel):
     exercises: list[RoutineExerciseResponse] = []
 
 
+class MissedReminder(BaseModel):
+    """Surfaced by `GET /routines/missed-reminders` — V1 of the routine
+    reminder UX (in lieu of full web push). One row per routine that
+    was scheduled for today, the reminder_time has passed, and no
+    session has been started since. Lives in models.py rather than
+    the route file so the schema can be referenced from the
+    `app/reminders.py` extracted helper without a circular import.
+    PR-X4 architectural cleanup."""
+    routine_id: int
+    name: str
+    goal: str
+    reminder_time: str  # "HH:MM"
+    expected_at: datetime
+    target_minutes: Optional[int] = None
+
+
 # Portable JSON format for routine import/export. Uses `slug` instead of
 # `exercise_id` so a routine authored against one user's library survives
 # import into another user's library — as long as the seeded slugs match.
