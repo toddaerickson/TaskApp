@@ -1024,7 +1024,11 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   rehabBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: colors.warning,
+    // colors.warning (#e67e22) on #fff at 9pt = 2.65:1 — AA fail. The
+    // *Text variant is the AA-compliant darker hue intended for body
+    // text — repurposed here as a small-chip background. ≥ 4.63:1
+    // against white text. PR-X2 a11y fix.
+    backgroundColor: colors.warningText,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
   rehabBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
@@ -1099,7 +1103,11 @@ const styles = StyleSheet.create({
   suggestReason: { fontStyle: 'italic', color: '#2e7d32' },
   keystoneBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: colors.accent, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    // colors.accent (#d4a017) on #fff at 9pt = 2.2:1 — AA fail. The
+    // accentText variant added in colors.ts is a darker hue that clears
+    // 7.8:1 against white text. PR-X2 a11y fix.
+    backgroundColor: colors.accentText,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
   },
   keystoneBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 

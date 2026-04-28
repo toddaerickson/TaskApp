@@ -32,8 +32,13 @@ export const colors = {
   dangerText: '#a52a1a',     // ≥ 6.22:1 on every surface
   // Priority (was "keystone") + starred tasks. Warm dark gold — reads as
   // "important" without competing with the warning/danger oranges and
-  // reds. Matches the gold-star intuition the UI already used.
+  // reds. Matches the gold-star intuition the UI already used. The
+  // `accentText` variant is the AA-compliant darker hue used as the
+  // *background* on the PRIORITY chip — `#d4a017` failed white-text
+  // contrast at 2.2:1, `#7a5500` clears 7.8:1 on #fff. See PR-X2 +
+  // docs/a11y-audit-2026-04.md.
   accent: '#d4a017',
+  accentText: '#7a5500',     // ≥ 7.8:1 on every surface; chip-bg use
   violet: '#8e44ad',   // tag badges
   group: '#6c5ce7',    // group-by pill
 
