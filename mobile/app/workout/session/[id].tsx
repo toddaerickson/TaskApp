@@ -683,11 +683,24 @@ function ExerciseBlock({
   };
 
   return (
-    <Pressable
-      onPress={onActivate}
+    // Outer container is a non-interactive View. The previous shape
+    // wrapped the whole block in a Pressable with onPress={onActivate}
+    // — fine on native but on RN Web every inner Pressable's tap
+    // bubbled to onActivate. Worked today only because setActiveIdx(idx)
+    // is idempotent when the block is already the active one (and the
+    // inner pressables only render in that state). One careless future
+    // change to onActivate would have flipped this to SEVERE. Restored
+    // the design intent: tap the header to activate.
+    <View
       style={[styles.exBlock, isActive && styles.exBlockActive, isDone && styles.exBlockDone]}
     >
-      <View style={styles.exHead}>
+      <Pressable
+        onPress={onActivate}
+        style={styles.exHead}
+        accessibilityRole="button"
+        accessibilityLabel={isActive ? `${ex.name}, expanded` : `Expand ${ex.name}`}
+        accessibilityState={{ expanded: isActive }}
+      >
         <Text style={[styles.exHeadNum, isDone && { backgroundColor: colors.success }]}>{idx + 1}</Text>
         <View style={{ flex: 1 }}>
           <Text style={styles.exHeadName}>{ex.name}</Text>
@@ -697,7 +710,7 @@ function ExerciseBlock({
           </Text>
         </View>
         {isDone && <Ionicons name="checkmark-circle" size={24} color={colors.success} />}
-      </View>
+      </Pressable>
 
       {isActive && (
         <>
@@ -887,7 +900,7 @@ function ExerciseBlock({
           </Pressable>
         </>
       )}
-    </Pressable>
+    </View>
   );
 }
 
