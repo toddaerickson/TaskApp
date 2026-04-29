@@ -721,7 +721,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#fff5e6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
   },
-  streakText: { fontWeight: '700', color: colors.warning, fontSize: 12 },
+  streakText: { fontWeight: '700', color: colors.warningText, fontSize: 12 },
   newBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
@@ -812,7 +812,7 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
   cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
   reminderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  reminderText: { fontSize: 12, color: colors.warning, fontWeight: '600' },
+  reminderText: { fontSize: 12, color: colors.warningText, fontWeight: '600' },
   alarmBtn: {
     // 44×44 tap target above the WCAG minimum, separate from the
     // card-level press that navigates to detail.

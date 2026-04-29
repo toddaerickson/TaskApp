@@ -174,9 +174,10 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: colors.textMuted, marginBottom: 8 },
   smallBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6,
+    paddingHorizontal: 12, paddingVertical: 10,
     backgroundColor: '#f5f6fa', borderRadius: 6,
-    minHeight: 32,
+    // 32 → 44 to clear WCAG 2.5.8 / Apple HIG / Material tap targets.
+    minHeight: 44,
   },
   smallBtnText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   pasteBox: {
