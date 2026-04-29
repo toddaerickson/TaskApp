@@ -399,7 +399,7 @@ export default function ExerciseLibraryScreen() {
                           prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
                         );
                       }}
-                      hitSlop={4}
+                      hitSlop={8}
                       accessibilityRole="button"
                       accessibilityLabel="Remove image"
                     >

@@ -853,8 +853,8 @@ const styles = StyleSheet.create({
   cellText: { fontSize: 13, color: '#444' },
   titleText: { fontWeight: '500' },
   completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
-  startDateText: { color: colors.success },
-  dueDateText: { color: colors.warning },
+  startDateText: { color: colors.successText },
+  dueDateText: { color: colors.warningText },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
@@ -890,5 +890,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff5e6', paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 10,
   },
-  reminderChipText: { fontSize: 11, color: colors.warning, fontWeight: '600' },
+  reminderChipText: { fontSize: 11, color: colors.warningText, fontWeight: '600' },
 });

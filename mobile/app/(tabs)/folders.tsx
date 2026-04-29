@@ -225,6 +225,9 @@ export default function FoldersScreen() {
         <Pressable
           style={[styles.folderRow, selectedFolderId === null && styles.folderRowActive]}
           onPress={() => handleSelectFolder(null)}
+          accessibilityRole="button"
+          accessibilityLabel="All tasks (no folder filter)"
+          accessibilityState={{ selected: selectedFolderId === null }}
         >
           <Ionicons name="list" size={18} color={selectedFolderId === null ? '#fff' : colors.primary} />
           <Text style={[styles.folderName, selectedFolderId === null && styles.folderNameActive]}>All Tasks</Text>
@@ -261,6 +264,9 @@ export default function FoldersScreen() {
               <Pressable
                 style={[styles.folderRow, active && styles.folderRowActive]}
                 onPress={() => handleSelectFolder(item.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Folder ${item.name}`}
+                accessibilityState={{ selected: active }}
               >
                 <Ionicons
                   name="folder-outline" size={18}
@@ -469,7 +475,7 @@ const styles = StyleSheet.create({
   completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskMeta: { flexDirection: 'row', gap: 6, marginTop: 2, flexWrap: 'wrap' },
   tagBadge: { fontSize: 11, color: colors.violet, backgroundColor: '#f3e8ff', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
-  dueDateText: { fontSize: 11, color: colors.warning },
+  dueDateText: { fontSize: 11, color: colors.warningText },
   priorityBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, marginLeft: 8 },
   priorityText: { fontSize: 11, color: '#fff', fontWeight: '600' },
 
