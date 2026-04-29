@@ -82,7 +82,14 @@ export default function SortPopover<K extends string>({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => { /* swallow */ }}>
+        <Pressable
+          style={styles.sheet}
+          // See FiltersSheet.tsx — same fix. The "swallow" no-op
+          // doesn't actually swallow anything on RN Web; the press
+          // bubbles to the overlay's onClose. stopPropagation is the
+          // working pattern.
+          onPress={(e) => e.stopPropagation()}
+        >
           <View style={styles.grabHandle} />
           <View style={styles.head}>
             <Text style={styles.title}>Sort</Text>
