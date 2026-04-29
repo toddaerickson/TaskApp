@@ -29,7 +29,7 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
       accessibilityLabel={`Open task: ${task.title}`}
     >
       <Pressable
-        onPress={onComplete}
+        onPress={(e) => { e.stopPropagation(); onComplete(); }}
         style={styles.checkBox}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: task.completed }}
@@ -41,7 +41,7 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
         />
       </Pressable>
       <Pressable
-        onPress={onStar}
+        onPress={(e) => { e.stopPropagation(); onStar(); }}
         style={{ marginRight: 8 }}
         accessibilityRole="button"
         accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}

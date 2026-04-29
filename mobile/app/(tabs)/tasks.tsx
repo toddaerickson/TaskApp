@@ -598,7 +598,7 @@ export default function TasksScreen() {
                   accessibilityLabel={`Open task: ${task.title}`}
                 >
                   <Pressable
-                    onPress={() => complete(task.id)}
+                    onPress={(e) => { e.stopPropagation(); complete(task.id); }}
                     style={styles.cardCheck}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: task.completed }}
@@ -635,7 +635,7 @@ export default function TasksScreen() {
                     </View>
                   </View>
                   <Pressable
-                    onPress={() => toggleStar(task.id, task.starred)}
+                    onPress={(e) => { e.stopPropagation(); toggleStar(task.id, task.starred); }}
                     style={styles.cardStar}
                     accessibilityRole="button"
                     accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
@@ -656,7 +656,7 @@ export default function TasksScreen() {
                 >
                   <View style={styles.actionCell}>
                     <Pressable
-                      onPress={() => complete(task.id)}
+                      onPress={(e) => { e.stopPropagation(); complete(task.id); }}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: task.completed }}
                       accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
@@ -710,7 +710,7 @@ export default function TasksScreen() {
 
                   <View style={[styles.cell, { flex: 0.4, alignItems: 'center' }]}>
                     <Pressable
-                      onPress={() => toggleStar(task.id, task.starred)}
+                      onPress={(e) => { e.stopPropagation(); toggleStar(task.id, task.starred); }}
                       accessibilityRole="button"
                       accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
                     >
