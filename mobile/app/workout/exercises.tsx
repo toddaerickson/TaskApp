@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, ActivityIndicator,
-  Modal, Platform,
+  Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,7 @@ import { filterExercises } from '@/lib/exercisePicker';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
+import { showError } from '@/lib/alerts';
 
 type Measurement = 'reps' | 'reps_weight' | 'duration' | 'distance';
 const MEASUREMENT_OPTIONS: { value: Measurement; label: string }[] = [
@@ -108,7 +109,7 @@ export default function ExerciseLibraryScreen() {
       reload();
     } catch (e: any) {
       const msg = e?.response?.data?.detail || 'Save failed';
-      if (Platform.OS === 'web') window.alert(msg);
+      showError('Save failed', msg);
     } finally {
       setEBusy(false);
     }

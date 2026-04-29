@@ -1,13 +1,14 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Platform, Modal,
+  View, Text, ScrollView, Pressable, StyleSheet, TextInput, Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '@/lib/api';
 import { severityColor, prettyPart, formatRel } from '@/lib/format';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import { showError } from '@/lib/alerts';
 
 interface SymptomLog {
   id: number;
@@ -79,7 +80,7 @@ export default function TrackScreen() {
       setEditing(null);
       reload();
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Save failed');
+      showError('Save failed', e?.response?.data?.detail || 'Try again.');
     } finally {
       setEBusy(false);
     }
@@ -139,7 +140,7 @@ export default function TrackScreen() {
       setSeverity(3);
       reload();
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Save failed');
+      showError('Save failed', e?.response?.data?.detail || 'Try again.');
     } finally {
       setSaving(false);
     }

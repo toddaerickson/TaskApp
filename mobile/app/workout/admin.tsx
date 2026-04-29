@@ -10,6 +10,7 @@ import * as api from '@/lib/api';
 import { RoutineImportCard } from '@/components/RoutineImportCard';
 import { ExerciseImage } from '@/components/ExerciseImage';
 import ImageSearchModal from '@/components/ImageSearchModal';
+import { showError } from '@/lib/alerts';
 
 const SAMPLE = `# Paste one row per URL: slug<TAB>url
 # Or multiple URLs per slug on one row: slug<TAB>url1<TAB>url2
@@ -412,7 +413,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
       });
       onChange();
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed');
+      showError('Failed', e?.response?.data?.detail || 'Try again.');
     } finally {
       setBusy(false);
     }
@@ -426,7 +427,7 @@ function ExerciseRow({ exercise, onChange }: { exercise: Exercise; onChange: () 
       setUrl('');
       onChange();
     } catch (e: any) {
-      if (Platform.OS === 'web') window.alert(e?.response?.data?.detail || 'Failed');
+      showError('Failed', e?.response?.data?.detail || 'Try again.');
     } finally {
       setBusy(false);
     }

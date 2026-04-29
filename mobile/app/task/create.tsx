@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Alert, Pressable, KeyboardAvoidingView, Platform,
+  ScrollView, Pressable, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +12,7 @@ import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
 import * as api from '@/lib/api';
 import { parseBatch, titlesToText, MAX_BATCH } from '@/lib/multiAdd';
+import { showError } from '@/lib/alerts';
 
 // GTD's "capture" inbox — the folder new brain-dump tasks land in by
 // default. See original comments for the fuzzy matching rationale.
@@ -137,8 +138,7 @@ export default function CreateTaskScreen() {
       flashSaved();
     } catch (e: any) {
       const msg = e?.response?.data?.detail || 'Failed to create task';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Error', msg);
+      showError('Error', msg);
     }
   };
 
@@ -180,7 +180,8 @@ export default function CreateTaskScreen() {
         });
       }
     } catch (e: any) {
-      Alert.alert('Tag not created', e?.response?.data?.detail || 'Try again.');
+      // showError handles RN-Web's bare-Alert.alert silent-no-op.
+      showError('Tag not created', e?.response?.data?.detail || 'Try again.');
     } finally {
       setAddingTag(false);
     }
