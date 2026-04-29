@@ -26,15 +26,26 @@ export default function SettingsScreen() {
     saveHomeTab(tab);
   };
 
-  const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: async () => {
-          await logout();
-          router.replace('/(auth)/login');
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    // Alert.alert on RN Web doesn't reliably fire onPress callbacks —
+    // logging out from the home-screen PWA was a silent no-op. Mirror
+    // the platform-aware confirm pattern used by task / routine delete:
+    // window.confirm on web, native Alert.alert elsewhere. Keeps the
+    // destructive-confirmation UX consistent and actually invokes the
+    // logout call.
+    const confirmed: boolean = await new Promise((resolve) => {
+      if (Platform.OS === 'web') {
+        resolve(window.confirm('Logout?\n\nAre you sure?'));
+        return;
+      }
+      Alert.alert('Logout', 'Are you sure?', [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Logout', style: 'destructive', onPress: () => resolve(true) },
+      ]);
+    });
+    if (!confirmed) return;
+    await logout();
+    router.replace('/(auth)/login');
   };
 
   const handleExport = async () => {
