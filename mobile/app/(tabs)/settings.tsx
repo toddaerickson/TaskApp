@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/stores';
 import { useRouter } from 'expo-router';
 import * as api from '@/lib/api';
 import { loadHomeTab, saveHomeTab, HomeTab } from '@/lib/homeTab';
+import { BUILD_SHA, BUILD_TIME } from '@/lib/buildInfo';
 
 const HOME_TAB_OPTIONS: { value: HomeTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'tasks', label: 'Tasks', icon: 'checkmark-circle-outline' },
@@ -211,6 +212,14 @@ export default function SettingsScreen() {
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
         <Text style={[styles.rowText, { color: '#e74c3c' }]}>Logout</Text>
       </TouchableOpacity>
+
+      <Text
+        style={styles.buildStamp}
+        accessibilityLabel={`Build ${BUILD_SHA}${BUILD_TIME ? ', built ' + BUILD_TIME : ''}`}
+      >
+        Build {BUILD_SHA}
+        {BUILD_TIME ? ` · ${BUILD_TIME}` : ''}
+      </Text>
     </ScrollView>
   );
 }
@@ -250,5 +259,13 @@ const styles = StyleSheet.create({
   resultText: {
     fontSize: 13, color: '#555', padding: 12, backgroundColor: '#eaf2fe',
     margin: 12, borderRadius: 6,
+  },
+  // Footer build identifier — small monospace, low-key, but selectable
+  // for copy-paste into bug reports. Lives below Logout so it doesn't
+  // crowd the action rows.
+  buildStamp: {
+    fontSize: 11, color: colors.textMuted, textAlign: 'center',
+    paddingTop: 18, paddingBottom: 12,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
   },
 });
