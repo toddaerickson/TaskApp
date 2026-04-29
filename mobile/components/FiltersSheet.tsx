@@ -47,7 +47,15 @@ export default function FiltersSheet({
       {/* Tap-to-dismiss backdrop. Keep the sheet itself inside a separate
           Pressable so taps on controls don't bubble up and close. */}
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => { /* swallow */ }}>
+        <Pressable
+          style={styles.sheet}
+          // PR #128 / sheet-dismiss fix. The earlier "swallow" comment
+          // was misleading: on RN Web the inner press still bubbles to
+          // the overlay's onPress={onClose} unless we call
+          // e.stopPropagation(), so any non-Pressable tap inside the
+          // sheet would silently dismiss it.
+          onPress={(e) => e.stopPropagation()}
+        >
           <View style={styles.grabHandle} />
 
           <View style={styles.head}>
