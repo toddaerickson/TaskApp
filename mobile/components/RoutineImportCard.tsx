@@ -4,12 +4,13 @@
  * card is for fast feedback, not the security boundary.
  */
 import { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/lib/colors';
 import { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { parseAndValidate, Measurement } from '@/lib/routineImport';
+import { showError, showInfo } from '@/lib/alerts';
 
 const SAMPLE = `{
   "name": "Achilles Rehab (Silbernagel)",
@@ -19,11 +20,6 @@ const SAMPLE = `{
     { "slug": "single_leg_glute_bridge", "target_sets": 3, "target_reps": 15, "keystone": true }
   ]
 }`;
-
-function showError(title: string, message: string) {
-  if (Platform.OS === 'web') window.alert(`${title}: ${message}`);
-  else Alert.alert(title, message);
-}
 
 interface Props {
   exercises: Exercise[];
@@ -58,8 +54,7 @@ export function RoutineImportCard({ exercises, onImported }: Props) {
       const created = await api.importRoutine(result.preview.request);
       onImported?.(created.id);
       setPaste('');
-      if (Platform.OS === 'web') window.alert(`Imported "${created.name}".`);
-      else Alert.alert('Imported', `"${created.name}" is in your routines.`);
+      showInfo('Imported', `"${created.name}" is in your routines.`);
     } catch (e) {
       const detail =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??

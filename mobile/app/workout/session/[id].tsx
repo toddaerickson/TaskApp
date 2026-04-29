@@ -19,14 +19,7 @@ import { useRestTimer } from '@/lib/useRestTimer';
 import { computePRs, toBestsMap } from '@/lib/pr';
 import { drainQueue, enqueueSet, pendingCount } from '@/lib/offlineQueue';
 import { kv } from '@/lib/kvStorage';
-
-function showError(title: string, message: string) {
-  if (Platform.OS === 'web') {
-    window.alert(`${title}: ${message}`);
-  } else {
-    Alert.alert(title, message);
-  }
-}
+import { showError } from '@/lib/alerts';
 
 export default function ActiveSessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

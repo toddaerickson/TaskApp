@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore, Task, Tag, Reminder } from '@/lib/stores';
 import * as api from '@/lib/api';
+import { showError } from '@/lib/alerts';
 import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
@@ -112,7 +113,9 @@ export default function TaskDetailScreen() {
       setSelectedTagIds(t.tags?.map((tg: Tag) => tg.id) || []);
       setReminders(t.reminders || []);
     } catch {
-      Alert.alert('Error', 'Task not found');
+      // showError handles RN-Web's bare-Alert.alert silent-no-op so a
+      // 404 doesn't pop the user back with no explanation.
+      showError('Error', 'Task not found');
       router.back();
     } finally {
       setLoading(false);
@@ -204,8 +207,7 @@ export default function TaskDetailScreen() {
       }
     } catch (e: any) {
       const msg = e?.response?.data?.detail || 'Try again.';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Tag not created', msg);
+      showError('Tag not created', msg);
     } finally {
       setAddingTag(false);
     }
