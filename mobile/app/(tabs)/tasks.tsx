@@ -590,15 +590,9 @@ export default function TasksScreen() {
                 const nextRem = nextUpcomingReminder(task.reminders, Date.now());
                 const nextRemLabel = nextRem ? formatReminderChip(nextRem.remind_at) : null;
                 return isNarrow ? (
-                <Pressable
-                  key={task.id}
-                  style={({ pressed }) => [styles.cardRow, pressed && { backgroundColor: '#f0f4ff' }]}
-                  onPress={() => router.push(`/task/${task.id}`)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open task: ${task.title}`}
-                >
+                <View key={task.id} style={styles.cardRow}>
                   <Pressable
-                    onPress={(e) => { e.stopPropagation(); complete(task.id); }}
+                    onPress={() => complete(task.id)}
                     style={styles.cardCheck}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: task.completed }}
@@ -609,7 +603,12 @@ export default function TasksScreen() {
                       size={22} color={task.completed ? colors.success : '#ccc'}
                     />
                   </Pressable>
-                  <View style={{ flex: 1, minWidth: 0 }}>
+                  <Pressable
+                    style={({ pressed }) => [styles.cardBody, pressed && { backgroundColor: '#f0f4ff' }]}
+                    onPress={() => router.push(`/task/${task.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open task: ${task.title}`}
+                  >
                     <Text style={[styles.cardTitle, task.completed && styles.completedText]} numberOfLines={2}>
                       {task.subtasks && task.subtasks.length > 0 ? `${task.title} [${task.subtasks.length}]` : task.title}
                     </Text>
@@ -633,9 +632,9 @@ export default function TasksScreen() {
                         </View>
                       )}
                     </View>
-                  </View>
+                  </Pressable>
                   <Pressable
-                    onPress={(e) => { e.stopPropagation(); toggleStar(task.id, task.starred); }}
+                    onPress={() => toggleStar(task.id, task.starred)}
                     style={styles.cardStar}
                     accessibilityRole="button"
                     accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
@@ -645,18 +644,15 @@ export default function TasksScreen() {
                       size={18} color={task.starred ? colors.accent : '#ddd'}
                     />
                   </Pressable>
-                </Pressable>
+                </View>
               ) : (
-                <Pressable
+                <View
                   key={task.id}
-                  style={({ pressed }) => [styles.dataRow, pressed && { backgroundColor: '#f0f4ff' }]}
-                  onPress={() => router.push(`/task/${task.id}`)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open task: ${task.title}`}
+                  style={styles.dataRow}
                 >
                   <View style={styles.actionCell}>
                     <Pressable
-                      onPress={(e) => { e.stopPropagation(); complete(task.id); }}
+                      onPress={() => complete(task.id)}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: task.completed }}
                       accessibilityLabel={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
@@ -668,49 +664,56 @@ export default function TasksScreen() {
                     </Pressable>
                   </View>
 
-                  <View style={[styles.cell, { flex: 1.1 }]}>
-                    <Text style={styles.cellText} numberOfLines={1}>{task.folder_name || '—'}</Text>
-                  </View>
-
-                  <View style={[styles.cell, { flex: 1.8, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-                    <Text style={[styles.cellText, styles.titleText, task.completed && styles.completedText]} numberOfLines={1}>
-                      {task.subtasks && task.subtasks.length > 0 ? `${task.title} [${task.subtasks.length}]` : task.title}
-                    </Text>
-                    {nextRemLabel && (
-                      <View style={styles.reminderChip}>
-                        <Ionicons name="alarm" size={11} color={colors.warning} />
-                        <Text style={styles.reminderChipText}>{nextRemLabel}</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={[styles.cell, { flex: 0.6 }]}>
-                    <View style={[styles.priorityBadge, { backgroundColor: PRIORITY_COLORS[task.priority] }]}>
-                      <Text style={styles.priorityText}>{PRIORITY_LABELS[task.priority]}</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.dataRowNav, pressed && { backgroundColor: '#f0f4ff' }]}
+                    onPress={() => router.push(`/task/${task.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open task: ${task.title}`}
+                  >
+                    <View style={[styles.cell, { flex: 1.1 }]}>
+                      <Text style={styles.cellText} numberOfLines={1}>{task.folder_name || '—'}</Text>
                     </View>
-                  </View>
 
-                  <View style={[styles.cell, { flex: 0.8 }]}>
-                    <Text style={styles.cellText} numberOfLines={1}>
-                      {task.status === 'none' ? '—' : task.status.replace(/_/g, ' ')}
-                    </Text>
-                  </View>
+                    <View style={[styles.cell, { flex: 1.8, flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                      <Text style={[styles.cellText, styles.titleText, task.completed && styles.completedText]} numberOfLines={1}>
+                        {task.subtasks && task.subtasks.length > 0 ? `${task.title} [${task.subtasks.length}]` : task.title}
+                      </Text>
+                      {nextRemLabel && (
+                        <View style={styles.reminderChip}>
+                          <Ionicons name="alarm" size={11} color={colors.warning} />
+                          <Text style={styles.reminderChipText}>{nextRemLabel}</Text>
+                        </View>
+                      )}
+                    </View>
 
-                  <View style={[styles.cell, { flex: 0.7 }]}>
-                    <Text style={[styles.cellText, task.start_date && styles.startDateText]}>
-                      {formatDate(task.start_date)}
-                    </Text>
-                  </View>
+                    <View style={[styles.cell, { flex: 0.6 }]}>
+                      <View style={[styles.priorityBadge, { backgroundColor: PRIORITY_COLORS[task.priority] }]}>
+                        <Text style={styles.priorityText}>{PRIORITY_LABELS[task.priority]}</Text>
+                      </View>
+                    </View>
 
-                  <View style={[styles.cell, { flex: 0.7 }]}>
-                    <Text style={[styles.cellText, task.due_date && styles.dueDateText]}>
-                      {formatDate(task.due_date)}
-                    </Text>
-                  </View>
+                    <View style={[styles.cell, { flex: 0.8 }]}>
+                      <Text style={styles.cellText} numberOfLines={1}>
+                        {task.status === 'none' ? '—' : task.status.replace(/_/g, ' ')}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.cell, { flex: 0.7 }]}>
+                      <Text style={[styles.cellText, task.start_date && styles.startDateText]}>
+                        {formatDate(task.start_date)}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.cell, { flex: 0.7 }]}>
+                      <Text style={[styles.cellText, task.due_date && styles.dueDateText]}>
+                        {formatDate(task.due_date)}
+                      </Text>
+                    </View>
+                  </Pressable>
 
                   <View style={[styles.cell, { flex: 0.4, alignItems: 'center' }]}>
                     <Pressable
-                      onPress={(e) => { e.stopPropagation(); toggleStar(task.id, task.starred); }}
+                      onPress={() => toggleStar(task.id, task.starred)}
                       accessibilityRole="button"
                       accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
                     >
@@ -726,7 +729,7 @@ export default function TasksScreen() {
                       {task.repeat_type === 'none' ? '—' : task.repeat_type}
                     </Text>
                   </View>
-                </Pressable>
+                </View>
               );
               })}
             </View>
@@ -844,6 +847,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     paddingVertical: 8, paddingHorizontal: 4,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+  },
+  // The middle navigation Pressable wraps the data cells (folder, title,
+  // priority, status, start, due) but NOT the leading checkbox or trailing
+  // star — those are sibling Pressables. Splitting this way avoids the
+  // RN Web nested-Pressable bubble bug where the inner toggles fired
+  // alongside an unwanted navigation. See PR plan for the full trace.
+  dataRowNav: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
     cursor: 'pointer' as any,
   },
   actionCell: {
@@ -870,11 +881,20 @@ const styles = StyleSheet.create({
   },
   emptyCtaText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 
-  // Mobile card row (replaces the desktop table on <700px viewports)
+  // Mobile card row (replaces the desktop table on <700px viewports).
+  // Container is a non-interactive View; the title-area cardBody is the
+  // navigation Pressable, with cardCheck + cardStar as sibling Pressables.
+  // See PR plan: this avoids the RN Web nested-Pressable bubble bug.
   cardRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+  },
+  // The middle pane that owns the navigate-to-detail tap. Same flex
+  // posture the previous View had so layout math is byte-for-byte
+  // unchanged.
+  cardBody: {
+    flex: 1, minWidth: 0,
     cursor: 'pointer' as any,
   },
   cardCheck: { padding: 2 },

@@ -21,15 +21,16 @@ const PRIORITY_LABELS: Record<number, string> = {
 function TaskRow({ task, onPress, onStar, onComplete }: {
   task: Task; onPress: () => void; onStar: () => void; onComplete: () => void;
 }) {
+  // Container is a non-interactive View. Each tap target is a sibling
+  // Pressable. The previous shape nested the toggle / star Pressables
+  // INSIDE the row's navigation Pressable — RN Web's PressResponder
+  // routes a native click to the outer ancestor regardless of
+  // stopPropagation, so the navigate handler always fired alongside the
+  // intended toggle. Restructured per PR #130 ExerciseBlock pattern.
   return (
-    <Pressable
-      style={styles.taskRow}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Open task: ${task.title}`}
-    >
+    <View style={styles.taskRow}>
       <Pressable
-        onPress={(e) => { e.stopPropagation(); onComplete(); }}
+        onPress={onComplete}
         style={styles.checkBox}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: task.completed }}
@@ -41,7 +42,7 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
         />
       </Pressable>
       <Pressable
-        onPress={(e) => { e.stopPropagation(); onStar(); }}
+        onPress={onStar}
         style={{ marginRight: 8 }}
         accessibilityRole="button"
         accessibilityLabel={task.starred ? 'Remove star' : 'Star this task'}
@@ -51,7 +52,12 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
           size={18} color={task.starred ? colors.accent : '#ccc'}
         />
       </Pressable>
-      <View style={styles.taskContent}>
+      <Pressable
+        style={({ pressed }) => [styles.taskContent, pressed && { backgroundColor: '#f0f4ff' }]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Open task: ${task.title}`}
+      >
         <Text style={[styles.taskTitle, task.completed && styles.completedText]} numberOfLines={1}>
           {task.title}
         </Text>
@@ -61,11 +67,11 @@ function TaskRow({ task, onPress, onStar, onComplete }: {
             <Text key={t.id} style={styles.tagBadge}>{t.name}</Text>
           ))}
         </View>
-      </View>
+      </Pressable>
       <View style={[styles.priorityBadge, { backgroundColor: PRIORITY_COLORS[task.priority] }]}>
         <Text style={styles.priorityText}>{PRIORITY_LABELS[task.priority]}</Text>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -462,15 +468,21 @@ const styles = StyleSheet.create({
   },
   newTaskText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
-  // Task rows
+  // Task rows. Outer is a non-interactive View; tap targets are sibling
+  // Pressables (check, star, body-navigation). See PR plan.
   taskRow: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     paddingVertical: 10, paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
-    cursor: 'pointer' as any,
   },
   checkBox: { marginRight: 8 },
-  taskContent: { flex: 1 },
+  // The middle Pressable that owns navigate-to-detail. Padding gives a
+  // comfortable web tap target since the icons no longer share the row's
+  // press surface.
+  taskContent: {
+    flex: 1, paddingVertical: 6,
+    cursor: 'pointer' as any,
+  },
   taskTitle: { fontSize: 14, color: '#333' },
   completedText: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskMeta: { flexDirection: 'row', gap: 6, marginTop: 2, flexWrap: 'wrap' },
