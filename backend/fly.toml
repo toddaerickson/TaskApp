@@ -24,7 +24,16 @@ primary_region = "iad"   # pick closer to you if desired
   # requires schema_migrations to be populated; if migrate.py fails the
   # next-version machine refuses to start, so traffic continues to flow
   # to the prior version.
-  release_command = "python scripts/migrate.py && python seed_workouts.py"
+  # Wrapped in `sh -c` because Fly passes release_command as a single
+  # argv when it doesn't see shell metacharacters interpreted by a
+  # shell — without the wrapper, `&&` and the second command are passed
+  # as ARGS to migrate.py, which fails with
+  # `unrecognized arguments: && python seed_workouts.py`. This bit us
+  # in late April 2026 — auto-deploy silently failed for several PRs
+  # (#122 backend route landed in master but never reached Fly,
+  # producing 404s on /tasks/N/uncomplete in prod). See README's
+  # "deploy notes" for the symptom.
+  release_command = "sh -c 'python scripts/migrate.py && python seed_workouts.py'"
 
 [env]
   PORT = "8080"
