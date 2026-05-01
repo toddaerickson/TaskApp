@@ -87,6 +87,21 @@ items; convergent BLOCKs shipped as a numbered sequence:
 - **#119** PR-X4 architectural cleanup: `app/reminders.py` extracted (TZ + day-token + `compute_missed_reminders()`); `MissedReminder` Pydantic moved to `models.py`; `tests/test_route_order.py` asserts `/missed-reminders` declared before `/{routine_id}`; `conftest.tz_pinned` fixture replaces ad-hoc `fixed_now` + monkeypatch + cache-bust dance.
 - **#120** PR-X5 docs (this PR): ROADMAP updated; CLAUDE.md test counts (200 → 660); CLAUDE.md post-ship audit convention codified; `docs/v2-web-push-plan.md` captures the deferred Tier 3-V2 plan.
 
+### Silent-deploy recovery + web-tap polish (PRs #121–#134)
+
+A 4-day silent-deploy outage was discovered when the user reported "tap green check on completed task does nothing." Four front-end-hardening PRs (#128/#129/#130/#131) shipped before the build-stamp diagnostic from #127 broke the misdiagnosis pattern and surfaced the actual root cause: `fly.toml`'s `release_command` had been silently aborting deploys since PR #111 due to a `&&`-without-`sh -c` parsing bug. Six backend PRs sat in master without ever reaching prod.
+
+- **#121 / #134** Knee Valgus PT rehab routine seed; `GLOBAL_ROUTINES` auto-materializes for every registered user on every release_command run. Pattern: add a slug to that list to make a routine "shipped to everyone."
+- **#122** task uncomplete toggle — `POST /tasks/{id}/uncomplete` (symmetric to `/complete`) + `useTaskStore.complete` reads `current.completed` and dispatches accordingly. Idempotent on already-active tasks.
+- **#123** PinGate keyboard input on web — digits 0–9 + Backspace via `document.addEventListener('keydown')`. jsdom-pinned tests guard the path.
+- **#124** logout button no-op on web — `Alert.alert` `onPress` callbacks don't fire reliably on RN Web. Mirrored the platform-aware `confirmDestructive` pattern (`Platform.OS === 'web'` falls back to `window.confirm`).
+- **#125** hoisted `showError` / `showInfo` to `mobile/lib/alerts.ts`; replaced 9 callsites that were either bare `Alert.alert(title, msg)` (silent on web) or `if (Platform.OS === 'web') window.alert(...)` with no else (silent on native).
+- **#126** a11y sweep — `colors.warning` text → `colors.warningText` on streak/reminder/due-date callsites (2.65:1 → 4.63:1); `RoutineImportCard` `smallBtn` minHeight 32→44; image-delete X hitSlop 4→8; folder rows `accessibilityRole="button"`.
+- **#127** **build SHA + timestamp footer in Settings** — sourced via `EXPO_PUBLIC_BUILD_SHA` baked at build time by `scripts/build-web.sh`. Made post-deploy verification a one-tap check instead of requiring devtools. THIS is what unstuck the toggle-bug arc.
+- **#128–#131** RN Web nested-Pressable bubble class. Lesson: RN Web's `Pressable` uses a dual event system; `e.stopPropagation()` only stops the responder bubble, but the outer Pressable's native DOM `onClick` still fires regardless. The proper fix (#131) is to STOP NESTING — outer container becomes a `<View>`, action handlers are sibling Pressables. Closes the bubble class across tasks/folders/sheets/ExerciseBlock.
+- **#132** **`fly.toml release_command` `sh -c` wrapper** — THE root cause. Fly tokenizes `release_command` with shlex and execs directly without an implicit shell, so `&&` was passed as a literal argv to `migrate.py`. Six backend PRs (#112, #116, #118, #119, #121, #122) silently failed to deploy for 4 days. Fix wraps in `sh -c '...'` per Fly's canonical recipe.
+- **#133** CI lint — `backend/scripts/lint_fly_release_command.py` blocks the regression class. Future contributors who try to "simplify" the wrapper get a red build with the exact fix recipe in the failure output.
+
 ## Open
 
 Audit's Tier-2 / Tier-3 items remain queued. Pick from this list when
@@ -107,7 +122,10 @@ you want the next chunk of work — each is sized to one PR unless noted.
 - [ ] **Optimistic Zustand updates** — `useWorkoutStore` + `useTaskStore` always wait for the server to reflect mutations. Switch to optimistic-with-rollback for the common cases (toggle complete, reorder, edit name). Pattern: action sets the new state, calls API, rolls back on failure with `UndoSnackbar` already wired.
 - [ ] **`task_routes.py` hydration consolidation** — uses one-off SELECTs; should batch via `app/hydrate.py` like routines did in commit 788a5b9. ~50 N+1 candidates. Add a benchmark before/after.
 - [ ] **Error contract types** — backend returns `{detail, code, request_id}` but the mobile axios layer treats `e.response.data.detail` ad-hoc. Define a shared `ApiError` type; centralize the unpack in `lib/apiErrors.ts`; remove the ~12 places that re-walk the same shape.
-- [ ] **`colors.warning` text-on-white debt** — used as text color (not bg) in ~6 spots (streak text, reminder chip, due-date). 2.65:1 — fails AA at body sizes. Documented in `docs/a11y-audit-2026-04.md`. Fix: introduce `colors.warningTextSoft` or switch to `warningText` everywhere it's used as text. Bundle with the next a11y sweep.
+- [ ] **Residual `colors.warning` non-body callsites** — body-text instances were swept in #126. Remaining instances are workout-screen labels + chip backgrounds + icons (`workout/session/[id].tsx:940`, `workout/admin.tsx:351`, `workout/[routineId].tsx:340`, `task/[id].tsx:34`, `task/create.tsx:29`). Documented in `docs/a11y-audit-2026-04.md` "Residual" section; cleanest path is the AST-linter sweep below.
+- [ ] **RN a11y AST linter + CI gate** — walk `mobile/app` and `mobile/components` for missing `accessibilityLabel`, undersized tap targets, and bad contrast tokens. ~50–100 LOC pure Python over a TS regex fallback or `@typescript-eslint/parser`. Wire into `.github/workflows/ci.yml` once it lands. Closes the only unticked items in `docs/a11y-audit-2026-04.md`.
+- [ ] **Deploy-failure observability** — Fly's auto-deploy silently failed for 4 days in late April 2026 because failure-only email notifications weren't wired. Options: Fly release webhook → Sentry breadcrumb, or one-line `if: failure()` step in `.github/workflows/fly-deploy.yml` that posts to a channel. The CI lint in #133 catches the *static* class; this catches the runtime class.
+- [ ] **Backend SHA in `/health/detailed`** — extends #127's frontend-SHA pattern so a single Settings tap can compare frontend SHA + backend SHA. Makes future "is it actually deployed?" questions a 5-second check.
 
 Pull from the synthesis when you want the next chunk; each item is
 its own PR.
