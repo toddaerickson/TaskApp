@@ -128,6 +128,57 @@ def test_seed_routine_persists_target_minutes(client, auth_client):
     assert row["target_minutes"] == 5
 
 
+def test_global_routines_auto_seed_for_all_users(client, auth_client):
+    """`seed_global_routines_for_all_users()` must materialize each
+    GLOBAL_ROUTINES slug for every registered user. Ships in the bare-
+    args `python seed_workouts.py` path so the Fly release_command
+    creates the rehab routine for the operator without a manual
+    `fly ssh` per-user invocation. Idempotent — re-running is a no-op
+    once rows exist."""
+    from app.database import get_db
+    import seed_workouts
+
+    _, _, user_id = auth_client
+    seed_workouts.seed_exercises()
+
+    # First run materializes the routine.
+    created_first = seed_workouts.seed_global_routines_for_all_users()
+    assert created_first >= 1, (
+        "expected at least one global-routine seed for the registered user; "
+        f"got {created_first}"
+    )
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT name FROM routines WHERE user_id = ?",
+            (user_id,),
+        )
+        names = {r["name"] for r in cur.fetchall()}
+    assert "Knee Valgus PT" in names, (
+        f"Knee Valgus PT not present after global seed; got {names}"
+    )
+
+    # Second run is a no-op (idempotent) — guards the release_command
+    # from creating duplicates on every deploy.
+    created_second = seed_workouts.seed_global_routines_for_all_users()
+    assert created_second == 0, (
+        f"second run of seed_global_routines_for_all_users should be a no-op; "
+        f"got {created_second} new routines created"
+    )
+
+
+def test_global_routines_list_references_known_slugs():
+    """Every slug in GLOBAL_ROUTINES must exist in the ROUTINES dict.
+    A typo would silently warn at runtime; this test fails CI."""
+    import seed_workouts
+    for slug in seed_workouts.GLOBAL_ROUTINES:
+        assert slug in seed_workouts.ROUTINES, (
+            f"GLOBAL_ROUTINES references unknown slug '{slug}' — "
+            "either fix the slug or remove the entry."
+        )
+
+
 def test_seed_routine_persists_tracks_symptoms(client, auth_client):
     """End-to-end: seed_routine_for must honor `tracks_symptoms: True`
     on rehab protocols so sessions started from them auto-enable the
