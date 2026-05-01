@@ -49,6 +49,9 @@ jobs:
       - name: Lint (ruff — real bugs only, not style)
         run: ruff check --select F .
 
+      - name: Lint fly.toml release_command (catches the Apr 2026 silent-deploy bug)
+        run: python scripts/lint_fly_release_command.py
+
       - name: Test
         run: pytest -q
 
