@@ -133,6 +133,35 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   changes. The in-app banner captures most of the value at one PR;
   revisit V2 if dogfooding shows the open-app-when-you-remember path
   is insufficient.
+- **Global vs per-user routines** — `seed_workouts.GLOBAL_ROUTINES`
+  (e.g. `["knee_valgus_pt"]`) auto-materializes for every registered
+  user on every `release_command` run via
+  `seed_global_routines_for_all_users()`. To make a routine "shipped
+  to everyone," add the slug there. To make a routine **per-user-only**
+  (someone's custom plan, an ad-hoc protocol), leave it out of
+  `GLOBAL_ROUTINES` and seed manually:
+  `fly ssh console -a taskapp-workout -C "cd /app && python seed_workouts.py user@email.com <slug>"`.
+  Both paths use the same idempotent `seed_routine_for(email, slug)`
+  helper, so re-runs are safe.
+- **Verify deploy before debugging code** — when a freshly-merged
+  endpoint or screen "doesn't work," the FIRST diagnostic is the
+  build-stamp, NOT a source dive. PWA Settings tab footer shows
+  `Build <sha> · <timestamp>` (PR #127); compare against the latest
+  master commit on GitHub. If SHA matches: it's a real bug, dig into
+  source. If SHA mismatches: the user is on a stale bundle — full
+  Safari Clear-Data + delete-and-re-add home-screen icon. The April
+  2026 toggle-bug arc spent 4 PRs hardening front-end Pressables
+  before realizing the backend route literally didn't exist on prod
+  because Fly's `release_command` had been silently aborting deploys
+  for 4 days. The build-stamp diagnostic is what finally broke the
+  misdiagnosis pattern; treat it as the first question for any
+  user-reported "doesn't work" report.
+- **`fly.toml release_command` MUST be wrapped in `sh -c '...'`**
+  for any multi-command chain. Fly tokenizes via shlex and execs
+  directly without an implicit shell — `&&`, `|`, `;` etc. become
+  literal argv tokens to the first program. Caught in CI by
+  `backend/scripts/lint_fly_release_command.py` (PR #133). Don't
+  "simplify" the wrapper.
 
 ## Running locally
 
