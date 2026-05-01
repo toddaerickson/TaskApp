@@ -953,6 +953,55 @@ ROUTINES["knee_valgus_pt"] = {
 ANKLE_ROUTINE_TARGETS = ROUTINES["ankle"]["exercises"]
 
 
+# Routines that should auto-seed for every existing user on every release.
+# Treated as "global" — same shape as the global exercise library, but
+# routines are inherently user-scoped because they carry user_id, so we
+# materialize one row per (user, routine) pair. `seed_routine_for` is
+# idempotent (skips when a row with the same name already exists for the
+# user), so re-running this on every deploy is safe.
+#
+# Add a slug here to make it part of the default install for every user.
+# Per-user-only routines (e.g. someone's custom rehab plan) stay out of
+# this list and only seed when explicitly invoked with
+# `python seed_workouts.py <email> <slug>`.
+GLOBAL_ROUTINES: list[str] = ["knee_valgus_pt"]
+
+
+def seed_global_routines_for_all_users() -> int:
+    """Iterate every registered user and ensure each has rows for every
+    slug in GLOBAL_ROUTINES. Returns the count of routines created
+    (skipped duplicates aren't counted). Called from the bare-args
+    `python seed_workouts.py` path that runs as part of the Fly
+    release_command — so a fresh deploy after adding to GLOBAL_ROUTINES
+    materializes the new routine for the operator without manual
+    `fly ssh`."""
+    created = 0
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT email FROM users ORDER BY id")
+        emails = [r["email"] for r in cur.fetchall()]
+    for email in emails:
+        for slug in GLOBAL_ROUTINES:
+            if slug not in ROUTINES:
+                print(f"WARN: GLOBAL_ROUTINES references unknown slug '{slug}' — skipping")
+                continue
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM users u "
+                    "JOIN routines r ON r.user_id = u.id "
+                    "WHERE u.email = ? AND r.name = ? LIMIT 1",
+                    (email, ROUTINES[slug]["name"]),
+                )
+                if cur.fetchone():
+                    continue
+            seed_routine_for(email, slug)
+            created += 1
+    if not emails:
+        print("seed_global_routines_for_all_users: no users yet — nothing to seed")
+    return created
+
+
 def seed_exercises():
     inserted = 0
     with get_db() as conn:
@@ -1154,6 +1203,10 @@ if __name__ == "__main__":
     # list only runs when no snapshot exists (fresh-env bootstrap).
     if seed_from_snapshot() == 0:
         seed_exercises()
+    # GLOBAL_ROUTINES auto-materialize for every registered user on every
+    # release — this is what makes `knee_valgus_pt` appear in the
+    # operator's account without a manual `fly ssh` step. Idempotent.
+    seed_global_routines_for_all_users()
     if len(sys.argv) > 1:
         email = sys.argv[1]
         which = sys.argv[2] if len(sys.argv) > 2 else "ankle"
