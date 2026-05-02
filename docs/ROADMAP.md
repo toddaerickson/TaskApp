@@ -102,6 +102,64 @@ A 4-day silent-deploy outage was discovered when the user reported "tap green ch
 - **#132** **`fly.toml release_command` `sh -c` wrapper** — THE root cause. Fly tokenizes `release_command` with shlex and execs directly without an implicit shell, so `&&` was passed as a literal argv to `migrate.py`. Six backend PRs (#112, #116, #118, #119, #121, #122) silently failed to deploy for 4 days. Fix wraps in `sh -c '...'` per Fly's canonical recipe.
 - **#133** CI lint — `backend/scripts/lint_fly_release_command.py` blocks the regression class. Future contributors who try to "simplify" the wrapper get a red build with the exact fix recipe in the failure output.
 
+### Backup pipeline rebuild (PRs #136–#143)
+
+The May 2026 backup-pipeline rebuild after the discovery that the
+nightly `backup-neon.yml` had failed every single night for 9 nights
+straight (2026-04-22 → 2026-05-01) without anyone noticing — full
+10-day silent gap with no off-site backup. Each PR closes a distinct
+deficit class; together they push the pipeline from "publishes a
+file" theatre to "publishes a known-restorable file with three
+independent failure detectors converging on one alert thread."
+
+- **#136** Pin `pg_dump` to PG 17. Root cause for the 9-night silent
+  failure: `ubuntu-latest` ships `postgresql-client-16`, Neon prod
+  is on PG 17, `pg_dump` aborts with `server version mismatch`.
+  Lesson: workflow steps that "look fine" can be ratcheted broken
+  by upstream image refreshes; install from `apt.postgresql.org`
+  and pin explicitly so the version is in `git diff` when Neon
+  next majors-upgrades.
+- **#137** Failure alerting — `if: failure()` step opens / comments
+  on a `[backup]` GitHub issue. GitHub doesn't email on scheduled-
+  workflow failure by default; the only signal was the red Actions
+  badge. Issue notifications work under everyone's defaults.
+  Lesson: "the red badge in the UI" is not a notification.
+- **#138** Weekly automated restore drill. Decrypts the latest
+  backup, restores into a fresh PG 17 container, asserts critical
+  tables non-empty. Replaces the manual "quarterly drill" guidance
+  that was demonstrably skipped. Catches the "dump exists but is
+  a brick" mode that none of the publish-side checks detect.
+- **#139** Pre-flight client/server version probe. Surfaces the
+  PG-version mismatch that #136 fixed *before* `pg_dump` runs,
+  with an actionable error message ("bump postgresql-client-N to
+  N+1") instead of an opaque exit code in step output. Same probe
+  shipped as a warning in `backend/scripts/restore_from_dump.sh`.
+  Lesson: surface foreseeable regressions as named steps so the
+  Actions failure attribution names the right diagnosis.
+- **#140** `schema_state.txt` plaintext sidecar — published
+  alongside `backup.dump.gpg` in each Release. Lists `schema_migrations`
+  rows applied at dump time. Operator reads it BEFORE decrypting
+  to confirm vintage + know which migrations to apply forward.
+  Intentionally not encrypted — no row data, just filenames.
+- **#141** Optional Cloudflare R2 mirror. Closes the GitHub-outage
+  / repo-deletion correlation. Gated on `R2_ENDPOINT` secret
+  presence — workflow merges safely as a no-op until the operator
+  sets up the bucket + 4 secrets. Bucket lifecycle config (Cloudflare
+  side) must match the workflow's `RETENTION_DAYS=30`; not auto-synced.
+- **#142** `docs/DISASTER_RECOVERY.md` runbook refresh. Pre-rebuild
+  the doc described "when the backup workflow lands" and a manual
+  quarterly drill that was never performed. New shape: the
+  three-workflow pipeline + the `[backup]` alert thread + R2 fallback
+  steps + `schema_state.txt`-first restore order. Lesson: a runbook
+  that misleads during the actual disaster is worse than no runbook.
+- **#143** Heartbeat workflow. Catches the meta-failure mode none of
+  the other safety nets see: `backup-neon.yml` not running at all
+  (cron disabled by GH inactivity rule, scheduling outage, or de-
+  scheduled by a bad workflow edit). Daily 12:00 UTC poll of the
+  publish workflow's last-run age; alerts to the same `[backup]`
+  issue if >36h. Bilateral cron-disable (heartbeat + publish both
+  silent) is the residual gap; documented as deferred.
+
 ## Open
 
 Audit's Tier-2 / Tier-3 items remain queued. Pick from this list when
@@ -126,6 +184,13 @@ you want the next chunk of work — each is sized to one PR unless noted.
 - [ ] **RN a11y AST linter + CI gate** — walk `mobile/app` and `mobile/components` for missing `accessibilityLabel`, undersized tap targets, and bad contrast tokens. ~50–100 LOC pure Python over a TS regex fallback or `@typescript-eslint/parser`. Wire into `.github/workflows/ci.yml` once it lands. Closes the only unticked items in `docs/a11y-audit-2026-04.md`.
 - [ ] **Deploy-failure observability** — Fly's auto-deploy silently failed for 4 days in late April 2026 because failure-only email notifications weren't wired. Options: Fly release webhook → Sentry breadcrumb, or one-line `if: failure()` step in `.github/workflows/fly-deploy.yml` that posts to a channel. The CI lint in #133 catches the *static* class; this catches the runtime class.
 - [ ] **Backend SHA in `/health/detailed`** — extends #127's frontend-SHA pattern so a single Settings tap can compare frontend SHA + backend SHA. Makes future "is it actually deployed?" questions a 5-second check.
+
+**Backup-pipeline residuals** (post-rebuild from PRs #136–#143; none urgent — the loud failure modes are closed)
+
+- [ ] **PG client pin sync linter** — pin lives in BOTH `.github/workflows/backup-neon.yml` and `.github/workflows/backup-restore-drill.yml`; bumping one without the other silently breaks the drill. ~30 LOC pure-stdlib script comparing the two `postgresql-client-N` lines, wired into `.github/workflows/ci.yml`. Same shape as PR #133's `lint_fly_release_command.py`.
+- [ ] **`restore_from_dump.sh` R2 + schema_state.txt awareness** — script today only knows the GitHub Releases path and only downloads `backup.dump.gpg`. During an actual GH-outage recovery the operator runs `aws s3 cp` manually then calls the script. Add `--from-r2` + auto-download `schema_state.txt`. Defensive — wait until R2 is actually used in a recovery before building (premature otherwise).
+- [ ] **Backup encryption-key rotation runbook** — `BACKUP_PASSPHRASE` is a single static secret. If it leaks, every retained backup is compromised. Rotation requires re-encrypting the entire 30-day retention window with the new key. Document the procedure in `docs/DISASTER_RECOVERY.md` so a future operator doesn't improvise during the wrong moment.
+- [ ] **Bilateral cron-disable detection** — `backup-heartbeat.yml` (PR #143) is itself a scheduled cron, so a global "GH disables both workflows on inactivity" event silences the alert. Mitigated today by regular operator activity keeping both enabled. The clean fix is a third-party uptime monitor (Better Uptime, Pingdom) polling a webhook the heartbeat updates. Worth ~$0–10/mo if the operator wants belt+suspenders.
 
 Pull from the synthesis when you want the next chunk; each item is
 its own PR.
