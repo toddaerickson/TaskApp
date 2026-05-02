@@ -34,12 +34,23 @@ All user-generated state — accounts, tasks, routines, sessions, set logs, symp
 | `EXPO_PUBLIC_API_URL` | Vercel (`taskapp` project, all environments) | Frontend bundle's backend URL, inlined at build time by Metro | Medium — re-build Vercel |
 | `GITHUB_DISPATCH_TOKEN` | Fly (optional) | Fine-grained PAT that fires the snapshot workflow | Low — create a new PAT, update the secret |
 
-**Backup secrets** (when the nightly backup workflow lands — see "Off-site backups" below):
+**Backup secrets** (the nightly backup workflow at `.github/workflows/backup-neon.yml` is live as of PR #136-#141):
 
 | Secret | Where stored | What it does |
 |---|---|---|
 | `NEON_READONLY_DATABASE_URL` | GitHub repo secrets | Read-only Neon role the workflow uses; isolated from the app role |
 | `BACKUP_PASSPHRASE` | GitHub repo secrets + operator's password manager | GPG symmetric key for the nightly dumps. **Losing this makes every backup unusable. Store it in two places.** |
+
+**Optional R2 mirror secrets** (PR #141 — when set, each nightly backup also uploads to a Cloudflare R2 bucket as a second-target hedge against GitHub-side failures):
+
+| Secret | Where stored | What it does |
+|---|---|---|
+| `R2_ENDPOINT` | GitHub repo secrets | `https://<account-id>.r2.cloudflarestorage.com` |
+| `R2_BUCKET` | GitHub repo secrets | Bucket name (suggested: `taskapp-backups`) |
+| `R2_ACCESS_KEY_ID` | GitHub repo secrets | R2 token id with object:write on the bucket only |
+| `R2_SECRET_ACCESS_KEY` | GitHub repo secrets | Paired secret |
+
+If `R2_ENDPOINT` is unset, the mirror step is a silent no-op — the GitHub Releases path still runs. Cloudflare R2 lifecycle rules (set in the dashboard, not the workflow) should match the 30-day retention enforced by the workflow's GH-Releases prune step. **Drift risk:** if you change the workflow's `RETENTION_DAYS`, also update the bucket lifecycle rule.
 
 ## Scenario 1 — User deletes data by mistake, or the app corrupts a table
 
@@ -105,31 +116,55 @@ When in doubt, do Mode A. It's mechanical and the "data loss" window is usually 
 
 ## Scenario 2 — Neon itself loses the database beyond the 7-day PITR window
 
-Recovery window: **hours**. Source of truth: the nightly encrypted `pg_dump` backups in GitHub Releases.
+Recovery window: **hours**. Source of truth: the nightly encrypted `pg_dump` backups in GitHub Releases (and, if R2 mirroring is enabled, Cloudflare R2 as a second copy).
 
-The nightly workflow (see "Off-site backups") uploads a `backup-YYYY-MM-DD.dump.gpg` to a GitHub Release every night. The most-recent one is at most 24 hours old.
+The nightly workflow uploads two artifacts to each Release:
+
+- `backup-YYYY-MM-DD.dump.gpg` — encrypted custom-format dump.
+- `schema_state.txt` — **plaintext** list of `schema_migrations` rows applied at dump time. Read this **first** to confirm the backup is the right vintage and to know which migrations to apply forward against current code.
+
+The most-recent Release is at most 24 hours old.
 
 ```bash
-# 1. Download the most recent backup and decrypt.
-gh release download backup-2026-04-21 -R toddaerickson/TaskApp -p backup-2026-04-21.dump.gpg
-gpg --decrypt --batch --passphrase "$BACKUP_PASSPHRASE" \
-  backup-2026-04-21.dump.gpg > backup-2026-04-21.dump
+# 1. (PRIMARY PATH) Download from the GitHub Release.
+gh release download backup-2026-04-21 -R toddaerickson/TaskApp \
+   -p backup.dump.gpg -p schema_state.txt
 
-# 2. Provision a fresh Neon database (or a new project).
+# 1-alt. (FALLBACK if GH itself is the failure mode, only if R2 mirror
+# is enabled — see "Backup secrets" table.) Pull from R2:
+aws s3 cp s3://taskapp-backups/backup-2026-04-21.dump.gpg . \
+  --endpoint-url "$R2_ENDPOINT"
+
+# 2. Inspect schema_state.txt — confirm the migration list matches what
+#    you expect, and note which migrations in current backend/migrations/
+#    are NOT in this list (those will need to apply forward).
+cat schema_state.txt
+
+# 3. Decrypt.
+gpg --decrypt --batch --passphrase "$BACKUP_PASSPHRASE" \
+    --output backup.dump backup.dump.gpg
+
+# 4. Provision a fresh Neon database (or a new project).
 # Dashboard → New project → copy the connection string.
 export FRESH_NEON_URL='postgresql://...'
 
-# 3. Restore the dump.
-pg_restore --dbname="$FRESH_NEON_URL" --clean --if-exists backup-2026-04-21.dump
+# 5. Restore the dump. Use pg_restore matching the dump's PG major
+#    (currently 17 — see backup-neon.yml's `postgresql-client-N` pin).
+pg_restore --dbname="$FRESH_NEON_URL" --clean --if-exists --no-owner --no-privileges backup.dump
 
-# 4. Update Fly to point at the new DB.
+# 6. Apply forward migrations newer than schema_state.txt.
+DATABASE_URL="$FRESH_NEON_URL" python backend/scripts/migrate.py
+
+# 7. Update Fly to point at the new DB.
 fly secrets set DATABASE_URL="$FRESH_NEON_URL" -a taskapp-workout
 
-# 5. Verify.
+# 8. Verify.
 curl -fsS https://taskapp-workout.fly.dev/health/detailed | jq
 ```
 
-A convenience wrapper lives at `backend/scripts/restore_from_dump.sh` — pipes steps 1 + 3 into one command.
+A convenience wrapper lives at `backend/scripts/restore_from_dump.sh` — pipes steps 1 + 3 + 5 into one command. **Note:** the script currently only knows the GitHub Releases path; if the GH-outage fallback is needed, run step 1-alt manually then call the script with the local `.dump.gpg` already in place. (Adding a `--from-r2` flag is tracked but deferred until R2 has actually been needed for a recovery.)
+
+The script also warns if `pg_restore`'s major is older than the dump's producer (PR #139). Heed it — silent partial restores during disaster recovery are catastrophic.
 
 ## Scenario 3 — Full rebuild on fresh Fly + fresh Vercel
 
@@ -164,18 +199,33 @@ In order — stop at the first red flag.
 
 ## Off-site backups
 
-When the backup workflow lands, nightly encrypted dumps go to GitHub Releases. Operator responsibilities:
+The backup pipeline is **two workflows + one alert thread**:
 
-- **Quarterly recovery drill** — download the latest backup, decrypt, restore against a Neon *branch* (not primary), verify `SELECT COUNT(*)` matches an independently-captured count from primary. If the drill fails, the prod backup is unusable — fix before the next real outage.
-- **Watch the workflow run history** — `.github/workflows/backup-neon.yml` fails if `NEON_READONLY_DATABASE_URL` rotates silently. Subscribe to workflow failure notifications.
-- **Two copies of `BACKUP_PASSPHRASE`** — password manager + sealed envelope / physical backup. Losing it makes every backup a brick.
+| Workflow | Cadence | What it does |
+|---|---|---|
+| `.github/workflows/backup-neon.yml` | Daily 07:00 UTC | Dumps Neon → GPG-encrypts → publishes to GH Release (and to R2 if configured). Captures `schema_state.txt` sidecar. |
+| `.github/workflows/backup-restore-drill.yml` | Weekly Mondays 09:00 UTC | Downloads the latest `backup-*` Release, decrypts, restores into a fresh PG 17 container, asserts `users` / `tasks` / `workout_sessions` / `session_sets` are non-empty. Catches "the dump exists but doesn't restore" / "the dump restored but a critical table is empty due to silent grant loss." |
+
+**Both workflows on failure:** open or comment on a single GitHub issue titled `[backup] Nightly Neon backup is failing`. Subscribe to repo issue notifications — this is the operator's heads-up that something in the backup pipeline needs attention.
+
+### Operator responsibilities
+
+- **Watch for the `[backup]` alert issue.** It re-uses the same title across publish + drill failures; one open issue means *something* in the pipeline is broken. Close the issue once a green run lands; subsequent failures will reopen the conversation in a fresh issue.
+- **Two copies of `BACKUP_PASSPHRASE`.** Password manager + sealed envelope / physical backup. Losing it makes every backup a brick.
+- **Bump the PG client pin when Neon majors-upgrade.** The "Pre-flight client/server version compat" step in `backup-neon.yml` will fail loudly when this is needed and tell you which version to bump to. Update the pin in **both** workflow files (the drill mirrors the same pin) and ship as one PR.
+- **R2 lifecycle drift.** If you change the workflow's `RETENTION_DAYS=30` or the R2 bucket's lifecycle rule, update the other to match. They're not auto-synced.
+
+### What replaced the manual quarterly drill
+
+The original plan called for an operator-run quarterly drill. It was demonstrably skipped in practice — the publish workflow ran red 9 nights in a row (2026-04-22 → 2026-05-01) before anyone noticed, and there was no "is this dump even restorable" check beyond byte-count > 1KB. The weekly automated drill (PR #138) replaces the manual one. Keep an eye on it — if the drill itself stops running, all the publish-side safety nets become "the file exists" theatre again.
 
 ## Anti-patterns to avoid
 
-- **Don't write user data to disk on Fly.** The fly.toml has no `[mounts]` block and no volume — that's by design. Any feature that needs to persist a file should go to Neon as a `bytea` column or to a dedicated object store (S3), not `/app/data`.
+- **Don't write user data to disk on Fly.** The fly.toml has no `[mounts]` block and no volume — that's by design. Any feature that needs to persist a file should go to Neon as a `bytea` column or to a dedicated object store (S3 / R2), not `/app/data`.
 - **Don't reuse the app's `DATABASE_URL` role for the backup workflow.** The backup role should be read-only — blast radius of a leaked GitHub Actions secret then stays at "read a nightly dump" rather than "drop the DB."
 - **Don't delete old GitHub Releases by hand.** The workflow has a retention step. If you need to clear space, update the retention count in the workflow, not the UI.
-- **Don't trust "it worked last time."** Schedule the quarterly drill on a calendar.
+- **Don't ignore the `[backup]` alert issue thread.** It is the operator's only push-style notification that the pipeline is failing. The 9-night silent failure happened *because* the only signal was the red badge on the Actions tab.
+- **Don't bump only one PG client pin.** The pin lives in both `.github/workflows/backup-neon.yml` and `.github/workflows/backup-restore-drill.yml`. They must move together; a workflow lint to enforce this is a deferred follow-up.
 
 ## See also
 
