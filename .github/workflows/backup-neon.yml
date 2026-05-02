@@ -94,6 +94,50 @@ jobs:
             exit 1
           }
 
+      - name: Pre-flight client/server version compat
+        env:
+          NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
+        # PR #136 fixed the symptom (PG 16 client vs PG 17 server)
+        # by pinning the client to 17. The next time Neon does a
+        # major upgrade, that pin goes stale and pg_dump aborts with
+        # an opaque "server version mismatch" line buried in step
+        # output. Surface the mismatch BEFORE the dump runs, with
+        # an actionable error message — "bump postgresql-client-N
+        # in this file" rather than "investigate pg_dump exit 1."
+        #
+        # Lives in its own step so the failure attribution in the
+        # GitHub Actions summary is unambiguous: the operator sees
+        # "Pre-flight ... failed" instead of "Dump + encrypt failed"
+        # and skips the wrong-rabbit-hole investigation.
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_URL:-}" ]; then
+            echo "::error::NEON_READONLY_DATABASE_URL secret is not set." >&2
+            exit 1
+          fi
+          # server_version_num is monotonically increasing across
+          # majors: 170000 = PG 17.0, 180000 = PG 18.0, etc.
+          # Integer division by 10000 yields the major.
+          SERVER_NUM=$(psql "$NEON_URL" -tA -c "SHOW server_version_num" | tr -d '[:space:]')
+          if [ -z "$SERVER_NUM" ] || ! [[ "$SERVER_NUM" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read server_version_num from Neon (got: '$SERVER_NUM')." >&2
+            exit 1
+          fi
+          SERVER_MAJOR=$((SERVER_NUM / 10000))
+          CLIENT_MAJOR=$(pg_dump --version | grep -oE '[0-9]+\.[0-9]+' | head -n 1 | cut -d. -f1)
+          echo "client major: $CLIENT_MAJOR"
+          echo "server major: $SERVER_MAJOR"
+          if [ "$CLIENT_MAJOR" -lt "$SERVER_MAJOR" ]; then
+            cat >&2 <<EOF
+          ::error::pg_dump major ($CLIENT_MAJOR) is older than the Neon server major ($SERVER_MAJOR).
+          pg_dump will abort with 'server version mismatch'. Bump the
+          'postgresql-client-N' line in this workflow (and in
+          backup-restore-drill.yml — both pins move together) to
+          $SERVER_MAJOR or newer.
+          EOF
+            exit 1
+          fi
+
       - name: Dump + encrypt
         env:
           NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
