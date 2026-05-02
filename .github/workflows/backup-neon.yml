@@ -58,17 +58,39 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install postgres client + gpg
-        # postgresql-client gives us pg_dump on Ubuntu. gnupg is
-        # pre-installed on GH runners; belt-and-suspenders.
+        # Ubuntu's default `postgresql-client` package lags the
+        # current Postgres major by 1-2 versions (24.04 ships
+        # PG 16; Neon production is on PG 17 as of 2026-Q2). A
+        # pg_dump that's older than the server aborts with
+        # `server version mismatch` — which is exactly how this
+        # workflow has been failing every night since it landed.
+        # Install from PostgreSQL's official apt repo and pin to
+        # PG 17 explicitly so the version is visible in the diff
+        # when Neon eventually moves to 18.
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client gnupg
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl gnupg lsb-release
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
 
       - name: Verify pg_dump version
         # Dumps created with newer pg_dump can't be restored by older
         # pg_restore. Log the version so a restore mismatch is
-        # diagnosable from the Actions log alone.
-        run: pg_dump --version
+        # diagnosable from the Actions log alone. Must report 17.x
+        # — anything older means the apt pin above silently fell
+        # back to Ubuntu's default package.
+        run: |
+          pg_dump --version
+          pg_dump --version | grep -q ' 17\.' || {
+            echo "::error::Expected pg_dump 17.x but got a different major. Restore-time mismatch likely." >&2
+            exit 1
+          }
 
       - name: Dump + encrypt
         env:
