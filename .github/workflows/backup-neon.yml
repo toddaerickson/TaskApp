@@ -30,6 +30,19 @@ name: Nightly Neon backup
 #       password manager. WITHOUT THIS PASSPHRASE, EVERY BACKUP IS
 #       A BRICK — document prominently (and we do, in
 #       docs/DISASTER_RECOVERY.md).
+#
+# Optional repo secrets (enable second-target mirroring to R2):
+#   R2_ENDPOINT          — e.g. https://<account>.r2.cloudflarestorage.com
+#   R2_BUCKET            — bucket name (suggest: taskapp-backups)
+#   R2_ACCESS_KEY_ID     — R2 token id with object:write on the bucket
+#   R2_SECRET_ACCESS_KEY — paired secret
+# When ALL FOUR are set, each successful nightly backup also uploads
+# to R2. When R2_ENDPOINT is unset, the mirror step is a silent
+# no-op — safe to merge this workflow without R2 configured. Why R2:
+# Cloudflare's blast radius differs from GitHub's, free at this size,
+# S3-compatible API works with the AWS CLI preinstalled on the
+# runner. Configure R2 lifecycle rules in the Cloudflare dashboard
+# to match the 30-day retention applied to GitHub Releases below.
 
 on:
   schedule:
@@ -151,6 +164,54 @@ jobs:
             --title "$TITLE" \
             --notes "Automated nightly backup. Restore with \`backend/scripts/restore_from_dump.sh\` — see docs/DISASTER_RECOVERY.md for the full runbook. Requires \`BACKUP_PASSPHRASE\` to decrypt." \
             --latest=false
+
+      - name: Mirror to Cloudflare R2 (optional second target)
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        # Why a second target: the Releases-only model has the
+        # same blast radius as the source repo. GitHub outage,
+        # account compromise, or accidental repo deletion takes
+        # both source AND backups out simultaneously. Mirroring
+        # to a different cloud (Cloudflare here, but any
+        # S3-compatible endpoint works) decouples those failure
+        # modes for ~$0/mo at this DB size.
+        #
+        # Gating: the `if:` condition checks the secret directly
+        # so the step doesn't even start when R2 isn't
+        # configured. This keeps the GitHub Actions UI clean —
+        # operators see "skipped" instead of "succeeded with
+        # nothing happened" when the operator hasn't opted in.
+        # When the operator IS partially configured (endpoint
+        # set but other secrets missing) the run script fails
+        # loudly: partial config is a worse failure mode than
+        # none, since it looks like mirroring is happening when
+        # it isn't.
+        if: ${{ secrets.R2_ENDPOINT != '' }}
+        run: |
+          set -euo pipefail
+          for var in R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::R2_ENDPOINT is set but $var is missing — partial config." >&2
+              exit 1
+            fi
+          done
+          DATE=$(date -u +%Y-%m-%d)
+          KEY="backup-${DATE}.dump.gpg"
+          # On a same-day re-run (manual dispatch after the
+          # scheduled run already mirrored) this overwrites.
+          # That's fine — last-write-wins matches the practical
+          # need: operator triggers a manual dump because the
+          # scheduled one was bad, and the manual one is the
+          # one we want kept.
+          aws s3 cp backup.dump.gpg "s3://${R2_BUCKET}/${KEY}" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --no-progress
+          aws s3 ls "s3://${R2_BUCKET}/${KEY}" --endpoint-url "$R2_ENDPOINT"
+          echo "Mirrored backup to R2: s3://${R2_BUCKET}/${KEY}"
 
       - name: Prune old backups (>30 days)
         env:
