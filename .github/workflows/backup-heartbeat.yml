@@ -1,0 +1,141 @@
+name: Backup heartbeat
+
+# Detects when the nightly backup workflow has stopped *running at all*.
+# This is the meta-failure mode that none of the other backup safety
+# nets catch:
+#
+#   - backup-neon.yml fails  → opens [backup] alert issue
+#   - backup-restore-drill.yml fails → comments on same issue
+#   - backup-neon.yml DOESN'T RUN → silence
+#
+# The third case is real. GitHub disables scheduled workflows on repos
+# with no commits in 60 days; cron can stop firing during GH Actions
+# scheduling outages; a bad workflow-file edit can de-schedule without
+# any other signal. The 9-night silent failure of April-May 2026
+# proved that "no signal" is the worst signal — the operator only
+# learns about it during an unrelated audit.
+#
+# This workflow polls daily for the age of the most recent
+# backup-neon.yml run. If the latest run is >36h old, it opens (or
+# comments on) the same `[backup]` alert issue used by the publish +
+# drill workflows. 36h = 1.5x the 24h nightly cadence; gives one full
+# missed run before flagging, absorbs cron drift.
+#
+# Limitation: this workflow is *itself* a scheduled cron, so a global
+# "disable scheduled workflows" event silences the heartbeat too. The
+# proper fix is a third-party uptime monitor (Better Uptime, etc.)
+# polling a webhook this workflow updates. Deferred — at single-tenant
+# scale, the operator's regular repo activity keeps both workflows
+# enabled, and the bilateral-disable failure mode is dominated by
+# other "all of GitHub is dead" scenarios that have their own
+# detection paths (Vercel + Fly health checks, user reports).
+
+on:
+  schedule:
+    # 12:00 UTC daily — 5h after backup-neon.yml's 07:00 UTC fire.
+    # Gives the publish workflow ample time to complete + variance,
+    # and lets a manually-triggered same-day backup count toward the
+    # heartbeat freshness window.
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  # Need actions:read to query workflow run history; issues:write to
+  # post the alert. No contents:write — heartbeat doesn't push code.
+  actions: read
+  issues: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check backup workflow recency
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # 36h freshness window. Bump only if you genuinely change
+          # the backup cadence (e.g. to weekly), and update the
+          # cron schedule above to match.
+          MAX_HOURS: 36
+        run: |
+          set -euo pipefail
+          # gh API: most recent run for backup-neon.yml. Includes both
+          # scheduled + workflow_dispatch triggers, so a manual run
+          # the operator did to recover from a failure counts toward
+          # freshness — exactly what we want.
+          LATEST=$(gh api "repos/$REPO/actions/workflows/backup-neon.yml/runs?per_page=1" \
+                   --jq '.workflow_runs[0] // empty')
+          if [ -z "$LATEST" ]; then
+            echo "::error::No runs found for backup-neon.yml. Workflow has never executed, was renamed, or was deleted." >&2
+            exit 1
+          fi
+          CREATED_AT=$(echo "$LATEST" | jq -r '.created_at')
+          STATUS=$(echo "$LATEST" | jq -r '.status')
+          CONCLUSION=$(echo "$LATEST" | jq -r '.conclusion // ""')
+          RUN_URL=$(echo "$LATEST" | jq -r '.html_url')
+          NOW_EPOCH=$(date -u +%s)
+          CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s)
+          AGE_HOURS=$(( (NOW_EPOCH - CREATED_EPOCH) / 3600 ))
+          echo "Latest backup-neon.yml run:"
+          echo "  created_at: $CREATED_AT"
+          echo "  status:     $STATUS"
+          echo "  conclusion: $CONCLUSION"
+          echo "  url:        $RUN_URL"
+          echo "  age:        ${AGE_HOURS}h"
+          echo "  threshold:  ${MAX_HOURS}h"
+          if [ "$AGE_HOURS" -gt "$MAX_HOURS" ]; then
+            echo "::error::Most recent backup-neon.yml run is ${AGE_HOURS}h old (>${MAX_HOURS}h)." >&2
+            echo "::error::Either cron stopped firing or the publish workflow is stuck/queued." >&2
+            exit 1
+          fi
+          echo "Heartbeat OK."
+
+      - name: Open or update failure issue
+        # Same dedup pattern + same issue title as the publish + drill
+        # workflows so all three converge on a single alert thread.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="[backup] Nightly Neon backup is failing"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          COMMENT="Heartbeat tripped — most recent backup-neon.yml run is too old. $RUN_URL  (UTC $NOW)"
+          EXISTING=$(gh issue list \
+              --state open \
+              --search "in:title \"$TITLE\"" \
+              --json number \
+              --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Appending to existing alert issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$COMMENT"
+          else
+            echo "Opening new alert issue"
+            BODY=$(cat <<EOF
+          The nightly backup heartbeat tripped — the most recent
+          \`backup-neon.yml\` run is more than 36 hours old. None of
+          the other backup safety nets catch this case (they only
+          fire when the publish or drill workflow runs and then
+          fails; "didn't run at all" is silent).
+
+          $COMMENT
+
+          **Common causes:**
+          - GitHub disabled the scheduled workflow due to repo
+            inactivity. Re-enable: Actions tab → "Nightly Neon backup"
+            workflow → "Enable workflow" button.
+          - GitHub Actions had a scheduling outage. Check
+            https://www.githubstatus.com.
+          - The workflow file was edited in a way that prevents
+            scheduling (rare; usually surfaces on push). \`git log
+            -p .github/workflows/backup-neon.yml\` to inspect.
+
+          **Close this issue** once a fresh \`backup-neon.yml\` run
+          lands (manual dispatch is fine). The next heartbeat run
+          will silently pass.
+          EOF
+          )
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
