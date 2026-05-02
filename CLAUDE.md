@@ -162,6 +162,39 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   literal argv tokens to the first program. Caught in CI by
   `backend/scripts/lint_fly_release_command.py` (PR #133). Don't
   "simplify" the wrapper.
+- **Backup pipeline = three workflows + one alert thread** (PRs
+  #136–#143). The pipeline survives the publish workflow itself
+  failing silently (which it did 9 nights in a row before this
+  rebuild), the dump being unrestorable, and cron stopping
+  altogether.
+
+  | Workflow | Cadence | Catches |
+  |---|---|---|
+  | `backup-neon.yml` | Daily 07:00 UTC | Publish dump → GH Release (+ optional R2 mirror) + `schema_state.txt` sidecar |
+  | `backup-restore-drill.yml` | Weekly Mon 09:00 UTC | Decrypt + restore into PG 17 container, assert critical tables non-empty (catches "dump exists but is a brick") |
+  | `backup-heartbeat.yml` | Daily 12:00 UTC | Polls publish workflow age — alerts if last run >36h old (catches "cron stopped firing") |
+
+  All three open / comment on a single `[backup] Nightly Neon
+  backup is failing` issue. **That issue thread is the operator's
+  only push-style notification.** Subscribe to repo issues; close
+  it when a green run lands. Subsequent failures re-open via a
+  fresh issue (since the search filters `state: open`).
+
+  **PG client pin lives in two workflows** (`backup-neon.yml` +
+  `backup-restore-drill.yml`). They MUST move together when Neon
+  majors-upgrade. The pre-flight step in publish (PR #139) fails
+  loudly with the bump-the-pin recipe when this is needed; obey
+  it. A workflow lint to enforce the two pins match is on the
+  open list — not yet built.
+
+  **R2 mirror is opt-in** — set the four `R2_*` repo secrets
+  (recipe in `docs/DISASTER_RECOVERY.md` § Required secrets) to
+  enable. Unset = silent skip. Lifecycle rules on the bucket
+  must match `RETENTION_DAYS=30` in the workflow; not auto-synced.
+
+  Full restore runbook: `docs/DISASTER_RECOVERY.md`. Don't
+  improvise during a real outage — read schema_state.txt first
+  (before decrypt) to confirm the backup vintage.
 
 ## Running locally
 
