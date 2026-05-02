@@ -107,6 +107,50 @@ jobs:
             exit 1
           }
 
+      - name: Pre-flight client/server version compat
+        env:
+          NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
+        # PR #136 fixed the symptom (PG 16 client vs PG 17 server)
+        # by pinning the client to 17. The next time Neon does a
+        # major upgrade, that pin goes stale and pg_dump aborts with
+        # an opaque "server version mismatch" line buried in step
+        # output. Surface the mismatch BEFORE the dump runs, with
+        # an actionable error message — "bump postgresql-client-N
+        # in this file" rather than "investigate pg_dump exit 1."
+        #
+        # Lives in its own step so the failure attribution in the
+        # GitHub Actions summary is unambiguous: the operator sees
+        # "Pre-flight ... failed" instead of "Dump + encrypt failed"
+        # and skips the wrong-rabbit-hole investigation.
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_URL:-}" ]; then
+            echo "::error::NEON_READONLY_DATABASE_URL secret is not set." >&2
+            exit 1
+          fi
+          # server_version_num is monotonically increasing across
+          # majors: 170000 = PG 17.0, 180000 = PG 18.0, etc.
+          # Integer division by 10000 yields the major.
+          SERVER_NUM=$(psql "$NEON_URL" -tA -c "SHOW server_version_num" | tr -d '[:space:]')
+          if [ -z "$SERVER_NUM" ] || ! [[ "$SERVER_NUM" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read server_version_num from Neon (got: '$SERVER_NUM')." >&2
+            exit 1
+          fi
+          SERVER_MAJOR=$((SERVER_NUM / 10000))
+          CLIENT_MAJOR=$(pg_dump --version | grep -oE '[0-9]+\.[0-9]+' | head -n 1 | cut -d. -f1)
+          echo "client major: $CLIENT_MAJOR"
+          echo "server major: $SERVER_MAJOR"
+          if [ "$CLIENT_MAJOR" -lt "$SERVER_MAJOR" ]; then
+            cat >&2 <<EOF
+          ::error::pg_dump major ($CLIENT_MAJOR) is older than the Neon server major ($SERVER_MAJOR).
+          pg_dump will abort with 'server version mismatch'. Bump the
+          'postgresql-client-N' line in this workflow (and in
+          backup-restore-drill.yml — both pins move together) to
+          $SERVER_MAJOR or newer.
+          EOF
+            exit 1
+          fi
+
       - name: Dump + encrypt
         env:
           NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
@@ -141,6 +185,43 @@ jobs:
             exit 1
           fi
 
+      - name: Capture schema state
+        env:
+          NEON_URL: ${{ secrets.NEON_READONLY_DATABASE_URL }}
+        # Restoring a backup against forward-migrated code is
+        # guesswork unless you know which `schema_migrations` rows
+        # were applied at dump time. Capture the applied list as a
+        # plaintext sidecar so the operator running the restore
+        # knows which migrations to apply forward (or that the
+        # dump pre-dates a schema change that's now load-bearing).
+        #
+        # Tiny race window vs. the dump (a migration committing
+        # between this query and pg_dump's snapshot start would
+        # show up in the dump but not in this file). For perfect
+        # coherence we'd export a snapshot id and pg_dump
+        # --snapshot, but that's complexity unjustified at this
+        # DB size + once-daily-at-02:00-ET deploy cadence.
+        run: |
+          set -euo pipefail
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "# schema_migrations as captured ${NOW}"
+            echo "# Sidecar to backup.dump.gpg in this Release."
+            echo "#"
+            echo "# Restore + bring forward:"
+            echo "#   1. Restore backup.dump.gpg into a fresh DB."
+            echo "#   2. Run backend/scripts/migrate.py against that DB."
+            echo "#      Any migration filenames present in current code"
+            echo "#      but ABSENT below are applied forward in order."
+            echo "#"
+            echo "# Format: filename<TAB>applied_at"
+            echo
+            psql "$NEON_URL" -tA -F $'\t' \
+              -c "SELECT filename, applied_at FROM schema_migrations ORDER BY applied_at, filename"
+          } > schema_state.txt
+          echo "----- schema_state.txt -----"
+          cat schema_state.txt
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -160,9 +241,21 @@ jobs:
           if [ -n "$NOTE" ]; then
             TITLE="$TITLE ($NOTE)"
           fi
-          gh release create "$TAG" backup.dump.gpg \
+          # Two assets uploaded:
+          #   backup.dump.gpg   — encrypted custom-format dump
+          #   schema_state.txt  — plaintext list of applied migrations
+          # The schema_state file is intentionally NOT encrypted: it
+          # contains migration filenames, not data. Operators need to
+          # read it BEFORE decrypting (to decide whether this backup
+          # is even the right vintage to restore).
+          gh release create "$TAG" backup.dump.gpg schema_state.txt \
             --title "$TITLE" \
-            --notes "Automated nightly backup. Restore with \`backend/scripts/restore_from_dump.sh\` — see docs/DISASTER_RECOVERY.md for the full runbook. Requires \`BACKUP_PASSPHRASE\` to decrypt." \
+            --notes "Automated nightly backup. Two artifacts:
+
+          - \`backup.dump.gpg\` — the encrypted custom-format pg_dump. Decrypt with \`BACKUP_PASSPHRASE\`; restore with \`backend/scripts/restore_from_dump.sh\`.
+          - \`schema_state.txt\` — plaintext list of \`schema_migrations\` rows applied at dump time. Read this BEFORE deciding to restore: it tells you which migrations to apply forward against current code.
+
+          See docs/DISASTER_RECOVERY.md for the full runbook." \
             --latest=false
 
       - name: Mirror to Cloudflare R2 (optional second target)
