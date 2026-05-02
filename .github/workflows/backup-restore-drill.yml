@@ -1,0 +1,250 @@
+name: Backup restore drill
+
+# Weekly automated proof that the latest nightly backup actually
+# restores. The 9-night silent failure of `backup-neon.yml`
+# (2026-04-22 → 2026-05-01) proved that a manual quarterly drill
+# schedule isn't enough — the manual gate gets skipped, and "the
+# backup ran" is not the same as "the backup is restorable."
+#
+# This workflow:
+#   1. Spins up a fresh PG 17 container on the runner.
+#   2. Pulls the most recent `backup-*` GitHub Release.
+#   3. Decrypts with `BACKUP_PASSPHRASE`.
+#   4. Restores into the container.
+#   5. Asserts critical tables (users, tasks, workout_sessions,
+#      session_sets) are non-empty after restore.
+#
+# We use a local PG container instead of a Neon branch on
+# purpose: no extra secrets to manage, no cleanup on failure
+# (containers die with the runner), no API quota concerns. The
+# trade-off is we don't exercise "restore into Neon-shaped
+# target" — but that's a Neon-platform problem, not a backup-
+# integrity problem, and the latter is what this drill catches.
+#
+# Failure path mirrors `backup-neon.yml`'s alert pattern: open
+# (or comment on) a single `[backup]` issue so all backup-
+# pipeline alerts converge in one notification thread.
+#
+# Required repo secrets:
+#   BACKUP_PASSPHRASE  — same passphrase used by backup-neon.yml.
+#   (No new secrets — that's the point.)
+
+on:
+  schedule:
+    # 09:00 UTC Mondays — two hours after Sunday night's 07:00
+    # UTC backup finishes, with slack for variance. Weekly is
+    # the right cadence: daily would burn runner minutes for
+    # diminishing return; quarterly was demonstrably too long.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Specific backup-YYYY-MM-DD tag to drill (default: latest)'
+        required: false
+        default: ''
+
+permissions:
+  # Read-only on contents — we download a release artifact, never
+  # create or modify one. `issues: write` so the failure-alert
+  # step can open / update the shared `[backup]` alert issue.
+  contents: read
+  issues: write
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        # Pin to PG 17 to match the pin in backup-neon.yml. If
+        # Neon moves to 18, both workflows update together.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill_target
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DRILL_URL: postgresql://postgres:drill@localhost:5432/drill_target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pg_restore + gpg
+        # Same apt-pin recipe as backup-neon.yml. pg_restore from
+        # PG 16 can sometimes restore PG 17 dumps but the version
+        # check in pg_dump is strict; mirror the pin so dump and
+        # restore use the same binary major.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl gnupg lsb-release
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Verify pg_restore version
+        run: |
+          pg_restore --version
+          pg_restore --version | grep -q ' 17\.' || {
+            echo "::error::Expected pg_restore 17.x. If Neon has moved past 17, bump the pin in BOTH this workflow AND backup-neon.yml." >&2
+            exit 1
+          }
+
+      - name: Resolve backup tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OVERRIDE:-}" ]; then
+            TAG="$OVERRIDE"
+            echo "Using explicit tag: $TAG"
+          else
+            TAG=$(gh release list --limit 50 --json tagName \
+                  | jq -r '.[] | select(.tagName | startswith("backup-")) | .tagName' \
+                  | head -n 1)
+            if [ -z "$TAG" ]; then
+              echo "::error::No backup-* releases found. Either backup-neon.yml has never produced one, or all have been pruned." >&2
+              exit 1
+            fi
+            echo "Using latest tag: $TAG"
+          fi
+          echo "BACKUP_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Download + decrypt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PASSPHRASE:-}" ]; then
+            echo "::error::BACKUP_PASSPHRASE secret is not set." >&2
+            exit 1
+          fi
+          gh release download "$BACKUP_TAG" -p 'backup.dump.gpg'
+          ls -lh backup.dump.gpg
+          gpg --decrypt --batch --passphrase "$PASSPHRASE" \
+              --output backup.dump backup.dump.gpg
+          size=$(stat -c%s backup.dump)
+          echo "Decrypted dump: $size bytes"
+          # 1 KB is below an empty-schema custom-format pg_dump
+          # header — anything smaller is corrupt.
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::Decrypted dump suspiciously small ($size bytes)." >&2
+            exit 1
+          fi
+
+      - name: List dump TOC (sanity)
+        # `pg_restore --list` parses the TOC without touching the
+        # target DB. If this fails, the dump is corrupt regardless
+        # of what the byte-count check said.
+        run: |
+          set -euo pipefail
+          pg_restore --list backup.dump > toc.txt
+          echo "TOC lines: $(wc -l < toc.txt)"
+          for t in users tasks workout_sessions session_sets; do
+            grep -q "TABLE DATA public $t " toc.txt || {
+              echo "::error::Dump missing TABLE DATA entry for public.$t — backup is incomplete." >&2
+              exit 1
+            }
+          done
+
+      - name: Restore into drill DB
+        run: |
+          set -euo pipefail
+          pg_restore --dbname="$DRILL_URL" \
+                     --clean --if-exists --no-owner --no-privileges \
+                     --exit-on-error \
+                     backup.dump
+
+      - name: Assert critical tables non-empty
+        # Catches the "dump TOC has the table but it's empty due
+        # to silent SELECT-grant loss on the readonly role" mode.
+        # Empty production tables are fine for a freshly-created
+        # account, so we don't gate on row counts > N — just > 0.
+        # Bump these per-table thresholds upward only if the prod
+        # data justifies it; over-tight bounds here will produce
+        # false alerts whenever a table is briefly drained.
+        run: |
+          set -euo pipefail
+          fail=0
+          for t in users tasks workout_sessions session_sets; do
+            n=$(psql "$DRILL_URL" -tA -c "SELECT COUNT(*) FROM $t")
+            printf "  %-20s %s rows\n" "$t" "$n"
+            if [ "$n" -le 0 ]; then
+              echo "::error::table $t is empty after restore — backup may be incomplete." >&2
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
+      - name: Open or update failure issue
+        # Reuses the SAME issue title as backup-neon.yml so every
+        # backup-pipeline alert lands on a single thread. This is
+        # deliberate: the operator response — "investigate the
+        # backup pipeline" — is identical for both modes, and a
+        # single thread keeps notification fatigue down.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="[backup] Nightly Neon backup is failing"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          COMMENT="Restore-drill failed (tag \`${BACKUP_TAG:-unknown}\`): $RUN_URL  (UTC $NOW)"
+          EXISTING=$(gh issue list \
+              --state open \
+              --search "in:title \"$TITLE\"" \
+              --json number \
+              --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Appending to existing alert issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$COMMENT"
+          else
+            echo "Opening new alert issue"
+            BODY=$(cat <<EOF
+          The weekly **restore drill** failed — i.e. the latest backup
+          exists but did not restore cleanly into a fresh PG 17 target,
+          OR a critical table came back empty after restore.
+
+          $COMMENT
+
+          **Why this is different from a backup-publish failure:** the
+          backup file may exist on a Release and look fine on disk, yet
+          be unrecoverable. This drill is the only signal that catches
+          that mode. See \`docs/DISASTER_RECOVERY.md\` § "Off-site
+          backups" — the quarterly manual drill it describes was
+          superseded by this workflow.
+
+          **First diagnostic:** open the failed run above. The order of
+          steps narrows the failure mode:
+          - "Resolve backup tag" failed → no backup release exists
+            (publish workflow has been red for > prune window).
+          - "Download + decrypt" failed → \`BACKUP_PASSPHRASE\` rotated
+            without re-encrypting historical backups, OR the release
+            artifact is corrupt.
+          - "List dump TOC" failed → dump is structurally invalid
+            (truncated upload, format-version skew).
+          - "Restore into drill DB" failed → schema-level incompat with
+            current PG 17 target (e.g. extension missing in the
+            container image).
+          - "Assert critical tables non-empty" failed → readonly role
+            silently lost SELECT grants on one or more tables; the
+            backup got published but is functionally a brick. Re-grant
+            via \`GRANT SELECT ON ALL TABLES IN SCHEMA public TO backup\`.
+
+          **Close this issue** once a green drill run lands.
+          EOF
+          )
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
