@@ -43,11 +43,13 @@ on:
         required: false
         default: ''
 
-# Permissions: we need to write Releases. `contents: write` is the
-# minimum required scope — explicitly narrow so a compromised workflow
-# can't do arbitrary pushes.
+# Permissions: `contents: write` is needed to publish Releases.
+# `issues: write` is needed by the failure-alerting step to open /
+# update an issue when a run fails. Explicitly narrow — a compromised
+# workflow can't do arbitrary pushes or read repo metadata.
 permissions:
   contents: write
+  issues: write
 
 jobs:
   backup:
@@ -173,3 +175,66 @@ jobs:
                 echo "Pruning old backup: $tag"
                 gh release delete "$tag" --cleanup-tag --yes
               done
+
+      - name: Open or update failure issue
+        # Why this exists: between 2026-04-22 and 2026-05-02 this
+        # workflow failed nine consecutive nights without anyone
+        # noticing — there were no off-site backups for ten days
+        # and the operator only learned about it during an
+        # unrelated audit. GitHub does not email on scheduled-
+        # workflow failure by default; the only signal was the
+        # red badge on the Actions tab. This step closes that gap
+        # by surfacing failures as GitHub issues, which DO send
+        # notifications and survive across scheduled runs.
+        #
+        # De-dup: if an open `[backup]` failure issue already
+        # exists, comment on it instead of opening a new one.
+        # Otherwise 30 nights of failure → 30 issues, which is
+        # noise that trains people to ignore the signal.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="[backup] Nightly Neon backup is failing"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          COMMENT="Failed run: $RUN_URL  (UTC $NOW)"
+          # `--search "in:title"` constrains to title-only matches
+          # so a stray issue that mentions the phrase in its body
+          # doesn't suppress legitimate alerts.
+          EXISTING=$(gh issue list \
+              --state open \
+              --search "in:title \"$TITLE\"" \
+              --json number \
+              --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Appending to existing alert issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$COMMENT"
+          else
+            echo "Opening new alert issue"
+            BODY=$(cat <<EOF
+          The nightly Neon backup workflow has failed.
+
+          $COMMENT
+
+          **Why this matters:** there is no off-site backup of production
+          for any night this issue stays open. See
+          \`docs/DISASTER_RECOVERY.md\` § Scenario 2 for what's at stake.
+
+          **First diagnostic:** open the failed run above, expand the
+          first red step. The most common failure modes are:
+          - \`pg_dump: server version mismatch\` — Neon upgraded the
+            server major; bump the \`postgresql-client-N\` pin in this
+            workflow (see PR #136 for the canonical fix shape).
+          - \`NEON_READONLY_DATABASE_URL secret is not set\` — secret
+            rotated or revoked.
+          - \`BACKUP_PASSPHRASE secret is not set\` — same.
+
+          **Close this issue** once a green run lands. Subsequent
+          failures will reopen it (technically: comment on the still-
+          open one) so the alert thread stays consolidated.
+          EOF
+          )
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
