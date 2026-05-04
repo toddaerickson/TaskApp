@@ -45,9 +45,19 @@ export const colors = {
   // Surface / text tokens.
   bg: '#f5f6fa',
   surface: '#fff',
+  // Subtle off-white for input fills + inactive chip backgrounds. Used
+  // anywhere we want a "depressed" feel against `surface` without a
+  // visible border.
+  surfaceAlt: '#fafafa',
   border: '#e0e0e0',
   borderSoft: '#eee',
+  // Slightly stronger than `border` — used by form inputs that need a
+  // visible enclosure even on `surfaceAlt` backgrounds.
+  borderInput: '#ddd',
   text: '#333',
+  // Stronger than `text` for sheet titles + section headers. Used to be
+  // hard-coded as `#222` in ~12 places.
+  textStrong: '#222',
   // Darkened from #999 (2.85:1 on #fff — AA Normal FAIL) to #595959
   // (~7:1 on #fff — AA Normal + Large PASS on every surface the app
   // uses). Applied at the token, so every consumer picks up the
@@ -57,6 +67,17 @@ export const colors = {
   // use for disabled backgrounds, placeholder chrome, or non-semantic
   // borders. If you need muted body text, use `textMuted`.
   textFaint: '#ccc',
+  // Placeholder text in inputs. ~3.7:1 on #fff — fails AA-Normal but
+  // matches platform convention for placeholder dimming. Never use as
+  // body text; use `textMuted` instead.
+  placeholder: '#bbb',
+  // Pure white for icon foregrounds + button text on colored backgrounds
+  // (primary, danger, success). Tokenized so any future "off-white"
+  // adjustment touches one place.
+  onColor: '#fff',
+  // Black, used only as a shadow color. RN shadow APIs need a literal
+  // hex; tokenized so iOS dark-mode work later can swap to off-black.
+  shadow: '#000',
 } as const;
 
 /** Priority → color. Tasks and folders both use this mapping. */
