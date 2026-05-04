@@ -55,6 +55,7 @@ export const type = {
  * normal rounded rect.
  */
 export const radii = {
+  xs: 4, // small accent shapes (goal dots, ribbons)
   sm: 8, // rows, inputs, secondary buttons
   md: 12, // cards (small), elevated chips
   lg: 16, // sheets, primary cards, modals
