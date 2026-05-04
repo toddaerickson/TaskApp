@@ -1,7 +1,8 @@
 import { colors } from "@/lib/colors";
+import { spacing, type as ftype, radii, shadow, minHitTarget } from '@/lib/theme';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, Modal, TextInput, Platform,
+  View, Text, FlatList, Pressable, StyleSheet, TextInput, Platform,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +12,8 @@ import ReminderSheet from '@/components/ReminderSheet';
 import { RoutineDurationPill } from '@/components/RoutineDurationPill';
 import { MissedRemindersBanner } from '@/components/MissedRemindersBanner';
 import SortPopover, { SortLevel } from '@/components/SortPopover';
+import { Chip, ChipStrip } from '@/components/Chip';
+import { Sheet } from '@/components/Sheet';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
@@ -377,62 +380,41 @@ export default function WorkoutsScreen() {
           squeeze into a vertical column. Order: goal chips, Sort, Group
           by — same rhythm as the Tasks tab. */}
       <View style={styles.filterBar}>
-        {GOAL_FILTER_OPTIONS.map((g) => {
-          const active = goalFilter === g.value;
-          // Per-goal accent color when active — matches the goal dot on
-          // each card so the filter state feels connected to the rows
-          // it's narrowing.
-          const bg = g.value === 'all' ? colors.primary : (GOAL_COLORS[g.value] ?? colors.primary);
-          return (
-            <Pressable
-              key={g.value}
-              onPress={() => handleGoalFilter(g.value)}
-              style={[
-                styles.filterChip,
-                active && { backgroundColor: bg, borderColor: bg },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={active ? `Goal filter: ${g.label} (active)` : `Filter by goal: ${g.label}`}
-              accessibilityState={{ selected: active }}
-            >
-              <Text style={active ? styles.filterTextActive : styles.filterText}>{g.label}</Text>
-            </Pressable>
-          );
-        })}
+        <ChipStrip
+          ariaLabel="Filter by goal"
+          value={goalFilter}
+          onChange={handleGoalFilter}
+          options={GOAL_FILTER_OPTIONS.map((g) => ({
+            value: g.value,
+            label: g.label,
+            // Per-goal accent color when active — matches the goal dot on
+            // each card so the filter state feels connected to the rows
+            // it's narrowing.
+            accentColor: g.value === 'all' ? colors.primary : (GOAL_COLORS[g.value] ?? colors.primary),
+          }))}
+        />
 
-        <Pressable
-          style={[styles.filterChip, sorts.length > 0 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+        <Chip
+          icon="swap-vertical"
+          label={sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
+          selected={sorts.length > 0}
           onPress={() => setSortOpen(true)}
-          accessibilityRole="button"
           accessibilityLabel={
             sorts.length > 0
               ? `Open sort, ${sorts.length} level${sorts.length === 1 ? '' : 's'} active`
               : 'Open sort'
           }
-        >
-          <Ionicons name="swap-vertical" size={14} color={sorts.length > 0 ? '#fff' : '#666'} />
-          <Text style={sorts.length > 0 ? styles.filterTextActive : styles.filterText}>
-            {sorts.length > 0 ? `Sort (${sorts.length})` : 'Sort'}
-          </Text>
-        </Pressable>
+        />
 
         <View style={styles.groupByContainer}>
-          <Pressable
-            style={[styles.filterChip, groupBy !== 'none' && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+          <Chip
+            icon="layers-outline"
+            iconRight={groupDropdownOpen ? 'chevron-up' : 'chevron-down'}
+            label={`Group: ${activeGroupLabel}`}
+            selected={groupBy !== 'none'}
             onPress={() => setGroupDropdownOpen(!groupDropdownOpen)}
-            accessibilityRole="button"
             accessibilityLabel={`Group by ${activeGroupLabel}. Tap to change.`}
-          >
-            <Ionicons name="layers-outline" size={14} color={groupBy !== 'none' ? '#fff' : '#666'} />
-            <Text style={groupBy !== 'none' ? styles.filterTextActive : styles.filterText}>
-              Group: {activeGroupLabel}
-            </Text>
-            <Ionicons
-              name={groupDropdownOpen ? 'chevron-up' : 'chevron-down'}
-              size={12}
-              color={groupBy !== 'none' ? '#fff' : '#666'}
-            />
-          </Pressable>
+          />
           {groupDropdownOpen && (
             <View style={styles.dropdown}>
               {GROUP_OPTIONS.map((opt) => (
@@ -580,106 +562,75 @@ export default function WorkoutsScreen() {
         onChange={handleSortsChange}
       />
 
-      <Modal
+      <Sheet
         visible={createOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setCreateOpen(false)}
+        onClose={() => setCreateOpen(false)}
+        title="New routine"
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>New routine</Text>
-              <Pressable
-                onPress={() => setCreateOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close new-routine dialog"
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={22} color="#888" />
-              </Pressable>
-            </View>
+        <Text style={styles.modalLabel}>Name</Text>
+        <TextInput
+          value={newName}
+          onChangeText={setNewName}
+          placeholder="e.g. Morning mobility"
+          accessibilityLabel="Routine name"
+          placeholderTextColor={colors.placeholder}
+          style={styles.modalInput}
+          autoFocus
+          autoCapitalize="sentences"
+          onSubmitEditing={submitCreate}
+          returnKeyType="done"
+        />
 
-            <Text style={styles.modalLabel}>Name</Text>
-            <TextInput
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="e.g. Morning mobility"
-              accessibilityLabel="Routine name"
-              placeholderTextColor="#bbb"
-              style={styles.modalInput}
-              autoFocus
-              autoCapitalize="sentences"
-              onSubmitEditing={submitCreate}
-              returnKeyType="done"
-            />
+        <Text style={styles.modalLabel}>Goal</Text>
+        <ChipStrip
+          ariaLabel="Goal"
+          value={newGoal}
+          onChange={setNewGoal}
+          options={GOAL_OPTIONS.map((g) => ({
+            value: g.value,
+            label: g.label,
+            accentColor: GOAL_COLORS[g.value],
+          }))}
+        />
 
-            <Text style={styles.modalLabel}>Goal</Text>
-            <View style={styles.goalRow}>
-              {GOAL_OPTIONS.map((g) => (
-                <Pressable
-                  key={g.value}
-                  onPress={() => setNewGoal(g.value)}
-                  style={[
-                    styles.goalChip,
-                    newGoal === g.value && {
-                      backgroundColor: GOAL_COLORS[g.value],
-                      borderColor: GOAL_COLORS[g.value],
-                    },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: newGoal === g.value }}
-                >
-                  <Text style={[
-                    styles.goalChipText,
-                    newGoal === g.value && { color: '#fff', fontWeight: '700' },
-                  ]}>
-                    {g.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Rehab toggle — mirrors the in-detail chip from #51. Declared
-                at creation so the first session honors the flag without a
-                round-trip flip. */}
-            <Pressable
-              onPress={() => setNewTracksSymptoms((v) => !v)}
-              style={[styles.rehabModalToggle, newTracksSymptoms && styles.rehabModalToggleOn]}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: newTracksSymptoms }}
-              accessibilityLabel="Track pain and symptoms in this routine"
-              accessibilityHint="When on, sessions render a per-set pain chip and use Silbernagel-style advance/hold/back-off suggestions"
-            >
-              <Ionicons
-                name={newTracksSymptoms ? 'checkmark-circle' : 'ellipse-outline'}
-                size={18}
-                color={newTracksSymptoms ? '#fff' : '#888'}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rehabModalText, newTracksSymptoms && styles.rehabModalTextOn]}>
-                  {newTracksSymptoms ? 'Tracking pain and symptoms' : 'Track pain and symptoms'}
-                </Text>
-                <Text style={[styles.rehabModalHint, newTracksSymptoms && styles.rehabModalHintOn]}>
-                  Pain chip per set · pain-monitored progression
-                </Text>
-              </View>
-            </Pressable>
-
-            {createError && <Text style={styles.modalError}>{createError}</Text>}
-
-            <Pressable
-              style={[styles.modalSave, (!newName.trim() || creating) && { opacity: 0.5 }]}
-              onPress={submitCreate}
-              disabled={!newName.trim() || creating}
-              accessibilityRole="button"
-            >
-              <Ionicons name="checkmark" size={16} color="#fff" />
-              <Text style={styles.modalSaveText}>{creating ? 'Creating…' : 'Create'}</Text>
-            </Pressable>
+        {/* Rehab toggle — mirrors the in-detail chip from #51. Declared
+            at creation so the first session honors the flag without a
+            round-trip flip. */}
+        <Pressable
+          onPress={() => setNewTracksSymptoms((v) => !v)}
+          style={[styles.rehabModalToggle, newTracksSymptoms && styles.rehabModalToggleOn]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: newTracksSymptoms }}
+          accessibilityLabel="Track pain and symptoms in this routine"
+          accessibilityHint="When on, sessions render a per-set pain chip and use Silbernagel-style advance/hold/back-off suggestions"
+        >
+          <Ionicons
+            name={newTracksSymptoms ? 'checkmark-circle' : 'ellipse-outline'}
+            size={18}
+            color={newTracksSymptoms ? colors.onColor : colors.textMuted}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.rehabModalText, newTracksSymptoms && styles.rehabModalTextOn]}>
+              {newTracksSymptoms ? 'Tracking pain and symptoms' : 'Track pain and symptoms'}
+            </Text>
+            <Text style={[styles.rehabModalHint, newTracksSymptoms && styles.rehabModalHintOn]}>
+              Pain chip per set · pain-monitored progression
+            </Text>
           </View>
-        </View>
-      </Modal>
+        </Pressable>
+
+        {createError && <Text style={styles.modalError}>{createError}</Text>}
+
+        <Pressable
+          style={[styles.modalSave, (!newName.trim() || creating) && { opacity: 0.5 }]}
+          onPress={submitCreate}
+          disabled={!newName.trim() || creating}
+          accessibilityRole="button"
+        >
+          <Ionicons name="checkmark" size={16} color={colors.onColor} />
+          <Text style={styles.modalSaveText}>{creating ? 'Creating…' : 'Create'}</Text>
+        </Pressable>
+      </Sheet>
 
       {reminderTarget && (
         <ReminderSheet
@@ -707,174 +658,145 @@ function computeStreak(sessions: WorkoutSession[]): number {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
-    alignItems: 'center', rowGap: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#eee',
+    alignItems: 'center', rowGap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerCount: { fontSize: 12, color: colors.textMuted },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2 },
+  headerCount: { fontSize: ftype.caption, color: colors.textMuted },
   streakBox: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#fff5e6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    backgroundColor: '#fff5e6', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radii.md,
   },
-  streakText: { fontWeight: '700', color: colors.warningText, fontSize: 12 },
+  streakText: { fontWeight: '700', color: colors.warningText, fontSize: ftype.caption },
   newBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    paddingHorizontal: spacing.md - 2, paddingVertical: spacing.sm - 2, borderRadius: radii.lg,
     backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
-  newBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  newBtnText: { color: colors.onColor, fontSize: ftype.body - 1, fontWeight: '700' },
   iconBtn: {
-    padding: 6, borderRadius: 8,
-    backgroundColor: '#e8f0fe', cursor: 'pointer' as any,
+    padding: spacing.sm - 2, borderRadius: radii.sm,
+    backgroundColor: colors.primaryOnLight, cursor: 'pointer' as any,
   },
 
   // Search + filter + group row. Mirrors the Tasks tab for muscle-memory
   // parity — same chip radii, same input styling, same chevron behavior.
   searchRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee',
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2, backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSoft,
   },
   searchIcon: { marginLeft: 2 },
   searchInput: {
     flex: 1,
     // 16px to avoid iPhone Safari's input-zoom-on-focus. Anything
-    // smaller and the page zooms in when the user taps.
-    fontSize: 16,
-    paddingVertical: 2, color: '#222',
+    // smaller and the page zooms in when the user taps. Token enforces.
+    fontSize: ftype.input,
+    paddingVertical: 2, color: colors.textStrong,
     // Cast via `any` — RN-web's TextInput accepts outlineStyle to
     // suppress the browser focus ring, but it's not in RN's TextStyle
     // type. Keeps web focus unobtrusive.
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
   },
   filterBar: {
-    flexDirection: 'row', flexWrap: 'wrap', padding: 8, gap: 8,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#eee',
+    flexDirection: 'row', flexWrap: 'wrap', padding: spacing.sm, gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.borderSoft,
     alignItems: 'center',
     // Dropdowns on web need the bar to leak its children outside its
     // bounds; `overflow: visible` + high zIndex lets the Group-by
     // dropdown render above the card list.
     zIndex: 100, overflow: 'visible' as any,
   },
-  filterChip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e3e7ee',
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    cursor: 'pointer' as any,
-  },
-  filterText: { fontSize: 12, color: '#555', fontWeight: '600' },
-  filterTextActive: { fontSize: 12, color: '#fff', fontWeight: '700' },
 
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
   dropdown: {
     position: 'absolute' as any, top: 34, left: 0, zIndex: 9999,
-    backgroundColor: '#fff', borderRadius: 8, padding: 4,
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    backgroundColor: colors.surface, borderRadius: radii.sm, padding: spacing.xs,
+    shadowColor: colors.shadow, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
     elevation: 10, minWidth: 150, borderWidth: 1, borderColor: '#d0d0d0',
   },
   dropdownItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.sm - 2,
     cursor: 'pointer' as any,
   },
   dropdownItemActive: { backgroundColor: '#f0f4ff' },
-  dropdownText: { fontSize: 13, color: '#333' },
-  dropdownTextActive: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  dropdownText: { fontSize: ftype.body - 1, color: colors.text },
+  dropdownTextActive: { fontSize: ftype.body - 1, color: colors.primary, fontWeight: '600' },
 
   groupHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 8, paddingHorizontal: 12, marginBottom: 4, marginTop: 4,
-    backgroundColor: '#e8eef7', borderRadius: 6,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.xs, marginTop: spacing.xs,
+    backgroundColor: '#e8eef7', borderRadius: radii.sm - 2,
   },
-  groupHeaderText: { fontSize: 12, fontWeight: '700', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  groupHeaderText: { fontSize: ftype.caption, fontWeight: '700', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
   groupCount: {
-    backgroundColor: '#d0ddf0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+    backgroundColor: '#d0ddf0', borderRadius: radii.sm, paddingHorizontal: spacing.sm, paddingVertical: 2,
   },
-  groupCountText: { fontSize: 11, color: colors.primary, fontWeight: '700' },
+  groupCountText: { fontSize: ftype.caption - 1, color: colors.primary, fontWeight: '700' },
 
   card: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm,
+    ...shadow.card,
     cursor: 'pointer' as any,
   },
-  goalDot: { width: 8, height: 40, borderRadius: 4 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#222', flexShrink: 1 },
+  goalDot: { width: 8, height: 40, borderRadius: radii.xs },
+  cardTitle: { fontSize: ftype.title, fontWeight: '600', color: colors.textStrong, flexShrink: 1 },
   // Title + duration pill row. Duration pill stays right-adjacent to the
   // title so it reads as a property of the routine, not a separate badge.
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardMeta: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  cardNotes: { fontSize: 12, color: '#666', marginTop: 4, fontStyle: 'italic' },
-  reminderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  reminderText: { fontSize: 12, color: colors.warningText, fontWeight: '600' },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cardMeta: { fontSize: ftype.caption - 1, color: colors.textMuted, marginTop: 2 },
+  cardNotes: { fontSize: ftype.caption, color: colors.textMuted, marginTop: spacing.xs, fontStyle: 'italic' },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
+  reminderText: { fontSize: ftype.caption, color: colors.warningText, fontWeight: '600' },
   alarmBtn: {
     // 44×44 tap target above the WCAG minimum, separate from the
     // card-level press that navigates to detail.
-    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    width: minHitTarget, height: minHitTarget, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
 
-  empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyText: { color: colors.textMuted, marginTop: 8, fontSize: 16 },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#444', marginTop: 12 },
-  emptyHint: { color: '#8a94a6', marginTop: 6, fontSize: 13, textAlign: 'center', maxWidth: 300 },
+  empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: spacing.xxl },
+  emptyTitle: { fontSize: ftype.title, fontWeight: '700', color: colors.text, marginTop: spacing.md },
+  emptyHint: { color: colors.textMuted, marginTop: spacing.xs + 2, fontSize: ftype.body - 1, textAlign: 'center', maxWidth: 300 },
   emptyCta: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.primary, borderRadius: 8,
-    paddingHorizontal: 16, paddingVertical: 10, marginTop: 18,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2,
+    backgroundColor: colors.primary, borderRadius: radii.sm,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 2, marginTop: spacing.lg + 2,
     cursor: 'pointer' as any,
   },
-  emptyCtaText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  emptyCtaText: { color: colors.onColor, fontWeight: '600', fontSize: ftype.body },
 
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center', padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    maxWidth: 480, alignSelf: 'center', width: '100%',
-  },
-  modalHead: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 4,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#222' },
-  modalLabel: { fontSize: 12, color: '#666', fontWeight: '700', marginTop: 14, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  modalLabel: { fontSize: ftype.caption, color: colors.textMuted, fontWeight: '700', marginTop: spacing.md + 2, marginBottom: spacing.xs + 2, textTransform: 'uppercase', letterSpacing: 0.5 },
   modalInput: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10,
-    fontSize: 15, backgroundColor: '#fafafa',
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radii.sm, padding: spacing.sm + 2,
+    fontSize: ftype.input, backgroundColor: colors.surfaceAlt,
   },
-  goalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  goalChip: {
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e3e7ee',
-    cursor: 'pointer' as any,
-  },
-  goalChipText: { fontSize: 13, color: '#555', fontWeight: '600' },
   rehabModalToggle: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    padding: 12, borderRadius: 10, marginTop: 14,
-    borderWidth: 1, borderColor: '#ddd',
-    backgroundColor: '#fafafa',
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2,
+    padding: spacing.md, borderRadius: radii.md, marginTop: spacing.md + 2,
+    borderWidth: 1, borderColor: colors.borderInput,
+    backgroundColor: colors.surfaceAlt,
     cursor: 'pointer' as any,
   },
   rehabModalToggleOn: { backgroundColor: colors.warning, borderColor: colors.warning },
-  rehabModalText: { fontSize: 14, fontWeight: '700', color: '#333' },
-  rehabModalTextOn: { color: '#fff' },
-  rehabModalHint: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  rehabModalText: { fontSize: ftype.body, fontWeight: '700', color: colors.text },
+  rehabModalTextOn: { color: colors.onColor },
+  rehabModalHint: { fontSize: ftype.caption - 1, color: colors.textMuted, marginTop: 2 },
   rehabModalHintOn: { color: 'rgba(255,255,255,0.85)' },
-  modalError: { color: colors.danger, fontSize: 13, marginTop: 10 },
+  modalError: { color: colors.danger, fontSize: ftype.body - 1, marginTop: spacing.sm + 2 },
   modalSave: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: colors.primary, borderRadius: 8,
-    paddingVertical: 12, marginTop: 18,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs + 2,
+    backgroundColor: colors.primary, borderRadius: radii.sm,
+    paddingVertical: spacing.md, marginTop: spacing.lg + 2,
     cursor: 'pointer' as any,
   },
-  modalSaveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  modalSaveText: { color: colors.onColor, fontWeight: '700', fontSize: ftype.bodyLg },
 });
