@@ -47,8 +47,12 @@ permissions:
   # Read-only on contents — we download a release artifact, never
   # create or modify one. `issues: write` so the failure-alert
   # step can open / update the shared `[backup]` alert issue.
+  # `actions: read` lets the alert step query the run's jobs API
+  # to name the failed step in the comment (so operators can
+  # triage from the issue thread without clicking through).
   contents: read
   issues: write
+  actions: read
 
 jobs:
   drill:
@@ -196,12 +200,23 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           TITLE="[backup] Nightly Neon backup is failing"
           NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          COMMENT="Restore-drill failed (tag \`${BACKUP_TAG:-unknown}\`): $RUN_URL  (UTC $NOW)"
+          # Name the first failed step (e.g. "Resolve backup tag",
+          # "Download + decrypt", "Assert critical tables non-empty")
+          # so the alert thread tells the operator the failure mode
+          # without a click-through. Maps directly to the diagnostic
+          # ladder in the issue body below.
+          FAILED_STEP=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '[.jobs[].steps[]? | select(.conclusion == "failure")][0].name // "unknown"' \
+              2>/dev/null || echo "unknown")
+          COMMENT="Restore-drill failed (tag \`${BACKUP_TAG:-unknown}\`): $RUN_URL  (UTC $NOW)
+          Failed step: \`$FAILED_STEP\`"
           EXISTING=$(gh issue list \
               --state open \
               --search "in:title \"$TITLE\"" \
