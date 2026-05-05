@@ -197,3 +197,42 @@ def test_health_detailed_reports_public_url_configured(client):
     # Test env is SQLite by default; the warn-loudly logic is PG-only,
     # so SQLite always reports True regardless of env value.
     assert body["public_url_configured"] is True
+
+
+# ---------- IMAGE_STORAGE_DIR env override (PR-A2a) ----------
+# The path defaults to seed_data/exercise_images/ but is env-driven so
+# tests + future Fly Volume / R2-mirror deploys can swap the backing
+# location. The default is still the committed dir, so nothing changes
+# for the operator without an explicit env var.
+
+def test_image_storage_dir_default_is_seed_data():
+    """No env override → default is `backend/seed_data/exercise_images/`
+    relative to the project. Confirms the default-resolution math (which
+    walks up two parents from app/config.py) didn't drift."""
+    from app import config
+    assert config.IMAGE_STORAGE_DIR.name == "exercise_images"
+    assert config.IMAGE_STORAGE_DIR.parent.name == "seed_data"
+
+
+def test_image_storage_dir_respects_env(monkeypatch, tmp_path):
+    """`IMAGE_STORAGE_DIR=/some/path` → that's what gets used. We
+    re-import config in a way that picks up the env var, then confirm
+    it took. Importing config inside the test block (rather than top of
+    file) keeps the live module's value untouched for other tests."""
+    import importlib
+    monkeypatch.setenv("IMAGE_STORAGE_DIR", str(tmp_path))
+    # SECURITY: the reload changes module state for the rest of this
+    # test only; pytest's monkeypatch reverses the env on teardown,
+    # but the module value persists. We restore on the way out.
+    from app import config
+    original = config.IMAGE_STORAGE_DIR
+    try:
+        importlib.reload(config)
+        assert config.IMAGE_STORAGE_DIR == tmp_path
+    finally:
+        # Reload once more without the env var so the next test sees
+        # the canonical default. monkeypatch unsets the env var on its
+        # own teardown, so the second reload here picks up the unset.
+        monkeypatch.delenv("IMAGE_STORAGE_DIR", raising=False)
+        importlib.reload(config)
+        assert config.IMAGE_STORAGE_DIR == original
