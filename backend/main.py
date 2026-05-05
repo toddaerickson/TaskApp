@@ -1,7 +1,6 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from fastapi import FastAPI, Header, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -253,11 +252,15 @@ app.add_middleware(
 # Self-hosted exercise images. Rows whose `url` column is the sentinel
 # `local:<filename>` (see app/image_urls.py) get expanded by the hydrator
 # to `${BACKEND_PUBLIC_URL}/static/exercise-images/<filename>`. The bytes
-# are committed in `backend/seed_data/exercise_images/`. StaticFiles
-# serves them with sane caching headers; the hash-keyed filenames are
-# safe to cache aggressively because changing an image creates a new
-# filename rather than mutating an old one.
-_IMAGE_DIR = Path(__file__).resolve().parent / "seed_data" / "exercise_images"
+# default to `backend/seed_data/exercise_images/` (committed in git);
+# `IMAGE_STORAGE_DIR` env var overrides for tests + future deploys that
+# point at a mounted volume. StaticFiles serves them with sane caching
+# headers; the hash-keyed filenames are safe to cache aggressively
+# because changing an image creates a new filename rather than mutating
+# an old one.
+from app.config import IMAGE_STORAGE_DIR  # noqa: E402
+
+_IMAGE_DIR = IMAGE_STORAGE_DIR
 _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 

@@ -34,6 +34,14 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
+      # setup-python@v5 ships with pip 24.0, which has 3 known CVEs
+      # (CVE-2025-8869, CVE-2026-1703, CVE-2026-3219). pip-audit catches
+      # them and fails the workflow before it gets to actually auditing
+      # OUR packages. Upgrade first so the audit runs against current
+      # pip + our real deps.
+      - name: Upgrade pip (avoid auditing pip's own CVEs)
+        run: python -m pip install --upgrade pip
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
