@@ -48,6 +48,34 @@ def test_resolve_passes_unknown_scheme_through(monkeypatch):
     assert resolve_image_url("data:image/png;base64,iVBOR...") == "data:image/png;base64,iVBOR..."
 
 
+# ---------- Path-traversal hardening (PR-A1) ----------
+# A malformed `local:` sentinel that escapes the StaticFiles mount's
+# subclass guard could still produce a surprising URL. Validation at
+# the resolver returns "" so the client renders a broken-image
+# placeholder rather than navigating to a forged path.
+
+def test_resolve_rejects_local_with_slash(monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PUBLIC_URL", "https://api.example.com")
+    assert resolve_image_url("local:foo/bar.jpg") == ""
+
+
+def test_resolve_rejects_local_with_backslash(monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PUBLIC_URL", "https://api.example.com")
+    assert resolve_image_url("local:foo\\bar.jpg") == ""
+
+
+def test_resolve_rejects_local_with_dotdot(monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PUBLIC_URL", "https://api.example.com")
+    assert resolve_image_url("local:..secret.jpg") == ""
+    assert resolve_image_url("local:foo..bar.jpg") == ""
+
+
+def test_resolve_rejects_empty_local(monkeypatch):
+    """`local:` with no filename — corrupt sentinel — also returns empty."""
+    monkeypatch.setattr(config, "BACKEND_PUBLIC_URL", "https://api.example.com")
+    assert resolve_image_url("local:") == ""
+
+
 # ---------- End-to-end through the API ----------
 
 def _h(token):

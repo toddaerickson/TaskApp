@@ -456,6 +456,16 @@ export async function restoreExercise(id: number) {
   return data;
 }
 
+export async function permanentlyDeleteExercise(id: number) {
+  // Hard-delete. 409 if the exercise is still referenced in any
+  // routine or session; the error detail carries a human-readable
+  // count ("Used in 3 routines and 12 logged sets. Remove those
+  // references first.") which the UI surfaces inline. Soft-delete
+  // (deleteExercise) is the default cleanup path; this is the
+  // typed-confirmation "really gone" path.
+  await api.delete(`/exercises/${id}/permanent`);
+}
+
 export async function updateRoutine(id: number, updates: RoutineUpdatePayload) {
   const { data } = await api.put(`/routines/${id}`, updates);
   return data;

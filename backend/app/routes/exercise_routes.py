@@ -190,6 +190,60 @@ def restore_exercise(exercise_id: int, user_id: int = Depends(get_current_user_i
         return _hydrate_one(cur, cur.fetchone())
 
 
+@router.delete("/{exercise_id}/permanent")
+def permanently_delete_exercise(
+    exercise_id: int, user_id: int = Depends(get_current_user_id)
+):
+    """Hard-delete an exercise. Pre-checks for references in
+    `routine_exercises` and `session_sets` (both `ON DELETE RESTRICT`)
+    and returns 409 with a human-readable count instead of a raw FK
+    violation. `exercise_images` rows cascade out automatically.
+
+    Complements the soft-delete (`DELETE /exercises/{id}`) — that path
+    is for retiring a move you no longer want to see; this one is for
+    cleaning up a row you never want resolved again, e.g. an admin typo
+    or an outdated duplicate. Per the multi-agent plan review, the
+    permanent path is gated by an operator confirmation in the UI; the
+    409 here is a backstop for sloppy clients.
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM exercises WHERE id = ?", (exercise_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Exercise not found")
+        if row["user_id"] is not None and row["user_id"] != user_id:
+            raise HTTPException(403, "Cannot delete another user's exercise")
+        # Pre-flight reference check. Same dialect (SQLite + PG both
+        # support COUNT) so no branching needed. We surface specific
+        # counts in the detail so the client can render "Used in 3
+        # routines and 12 sessions — remove there first" rather than a
+        # generic 409.
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM routine_exercises WHERE exercise_id = ?",
+            (exercise_id,),
+        )
+        routine_count = cur.fetchone()["c"]
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM session_sets WHERE exercise_id = ?",
+            (exercise_id,),
+        )
+        set_count = cur.fetchone()["c"]
+        if routine_count or set_count:
+            bits: list[str] = []
+            if routine_count:
+                bits.append(f"{routine_count} routine{'s' if routine_count != 1 else ''}")
+            if set_count:
+                bits.append(f"{set_count} logged set{'s' if set_count != 1 else ''}")
+            raise HTTPException(
+                409,
+                f"Used in {' and '.join(bits)}. Remove those references first.",
+            )
+        # Images cascade out via FK ON DELETE CASCADE.
+        cur.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
+    return {"ok": True}
+
+
 @router.post("/{exercise_id}/images", response_model=ExerciseImageResponse)
 def add_image(
     exercise_id: int,
