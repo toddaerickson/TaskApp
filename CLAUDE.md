@@ -209,10 +209,10 @@ cd mobile && npx expo start
 
 ## Tests
 
-660 tests across backend (pytest) and mobile (jest). Run:
+~705 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 416 cases (3 PG-only skipped on the SQLite leg)
-cd mobile && npm test            # 244 cases (23 suites: pure-function libs + RN snapshots)
+cd backend && venv/bin/pytest    # 459 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 246 cases (23 suites: pure-function libs + RN component tests)
 ```
 
 Counts drift fast — when you bump these, also bump the matching line
@@ -231,9 +231,11 @@ move down when seed gaps close.
 
 ## Known gaps worth flagging when relevant
 
-- Mobile tests cover pure-function libs only (pin, format, progress).
-  No component / RN-rendering tests yet — the heavy Expo+RN test setup
-  isn't installed. PinGate and screen flows are still TS+runtime only.
+- Mobile jest is split into two projects: `node-libs` (pure-function
+  libs — pin, format, progress, etc.) and `rn-components` (renders
+  PinGate, Login, Register via @testing-library/react-native +
+  jest-expo). Adding more component tests is straightforward — match
+  the existing rn-components patterns.
 - `expo-local-authentication` doesn't work in Expo Go. Needs a dev build
   (`npx expo prebuild && npx expo run:ios`) or EAS build to test Face ID.
 - Route `GET /routines` and `GET /sessions` are no longer N+1 and have

@@ -47,5 +47,9 @@
     "react-test-renderer": "^18.3.1",
     "ts-jest": "^29.4.9",
     "typescript": "~5.3.0"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.8.13",
+    "tar": "7.5.13"
   }
 }

@@ -430,26 +430,46 @@ That triplet — **Sentry for app errors, GitHub email for failed CI runs, Fly e
 
 ---
 
-## Future maintenance: align Expo SDK versions
+## npm `overrides` for transitive CVEs (PR-Node-1)
 
-`mobile/package.json` currently has a few packages pinned to SDK-55
-versions on an SDK-52 project (expo-crypto, expo-local-authentication,
-expo-notifications). The web bundle works because `lib/` lazy-requires
-these behind `Platform.OS !== 'web'` guards — but the mismatch is a
-latent trap.
+`mobile/package.json` carries an `overrides` block that pins two
+transitive deps to non-vulnerable versions:
 
-When you have a dedicated session to do it (not during a deploy fire):
-
-```bash
-cd mobile
-npx expo install --check    # see what's skewed
-npx expo install --fix      # align everything to SDK 52
-npm test                    # confirm jest still passes
-npx tsc --noEmit            # confirm types still OK
-npx expo export --platform web   # confirm the web bundle still builds
+```json
+"overrides": {
+  "@xmldom/xmldom": "0.8.13",
+  "tar": "7.5.13"
+}
 ```
 
-After the alignment lands, you can optionally revert the lazy-require
-workarounds in `lib/biometric.ts`, `lib/routineReminders.ts`, `lib/pin.ts`,
-`lib/stores.ts` back to top-level imports — or keep them as
-defense-in-depth. The bundle size difference is negligible.
+These collapse all 17 high-severity CVEs that `npm audit
+--audit-level=high` flagged on Expo SDK 52's transitive tree:
+
+- **@xmldom/xmldom** — Expo CLI's older `@expo/plist` resolved
+  0.7.13 (CVE: uncontrolled recursion → DoS during XML serialization).
+  0.8.13 is the cutoff version — used by the newer `plist` already
+  hoisted elsewhere in the tree, so the override only forces the one
+  laggard up.
+- **tar** — `cacache` (npm cache, dev-only) pulled tar 6.2.1, which
+  has multiple high-severity hardlink path-traversal advisories
+  (GHSA-34x7-hfp2-rc4v, GHSA-83g3-92jg-28cx, etc.). 7.x is the only
+  major with security backports.
+
+**Don't remove these without re-running** `npm audit --audit-level=high`
+locally — they're load-bearing for the dependency-audit CI gate.
+Revisit when bumping Expo to a major that already pins safe versions
+upstream (likely SDK 56+).
+
+## Future maintenance: Expo SDK upgrade (deferred)
+
+We're on SDK 52 + RN 0.76. The mobile package versions are correctly
+aligned to SDK 52 today (`expo-crypto ~14.0.2`, `expo-local-authentication
+~15.0.2`, `expo-notifications ~0.29.14`). Earlier drift to SDK-55
+versions of these has been resolved.
+
+A real SDK upgrade (52 → 56) is its own multi-day project, not a
+maintenance PR — expo-router has API changes, RN 0.76 → 0.77+ has
+deprecations, and the `lib/biometric.ts` / `lib/routineReminders.ts`
+/ `lib/pin.ts` / `lib/stores.ts` lazy-requires for native-only
+modules need re-verification under the new SDK. Run the multi-agent
+plan-review convention from CLAUDE.md before starting.
