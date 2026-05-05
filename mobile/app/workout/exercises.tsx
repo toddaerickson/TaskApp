@@ -13,11 +13,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, ActivityIndicator,
-  Modal,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/lib/colors';
+import { spacing, type as ftype, radii, shadow, minHitTarget } from '@/lib/theme';
+import { Chip, ChipStrip } from '@/components/Chip';
+import { Sheet } from '@/components/Sheet';
 import type { Exercise } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { filterExercises } from '@/lib/exercisePicker';
@@ -182,57 +184,30 @@ export default function ExerciseLibraryScreen() {
           value={query}
           onChangeText={setQuery}
           placeholder="Search by name or slug"
-          placeholderTextColor="#bbb"
+          placeholderTextColor={colors.placeholder}
           autoCorrect={false}
           autoCapitalize="none"
           style={styles.search}
           accessibilityLabel="Search exercises"
         />
 
-        <View
-          style={styles.catRow}
-          accessibilityRole="tablist"
-          accessibilityLabel="Filter by category"
-        >
-          {CATEGORIES.map((c) => {
-            const on = category === c.value;
-            return (
-              <Pressable
-                key={c.value}
-                onPress={() => setCategory(c.value)}
-                style={[styles.catChip, on && styles.catChipActive]}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={c.label}
-              >
-                <Text
-                  style={[styles.catChipText, on && styles.catChipTextActive]}
-                  numberOfLines={1}
-                >
-                  {c.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.catRow}>
+          <ChipStrip
+            ariaLabel="Filter by category"
+            value={category}
+            onChange={setCategory}
+            options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+          />
         </View>
 
         <View style={styles.archivedRow}>
-          <Pressable
+          <Chip
+            icon={showArchived ? 'eye' : 'eye-off-outline'}
+            label={showArchived ? 'Showing archived' : 'Show archived'}
+            selected={showArchived}
             onPress={() => setShowArchived((v) => !v)}
-            style={[styles.archivedToggle, showArchived && styles.archivedToggleOn]}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: showArchived }}
             accessibilityLabel="Show archived exercises"
-          >
-            <Ionicons
-              name={showArchived ? 'eye' : 'eye-off-outline'}
-              size={14}
-              color={showArchived ? '#fff' : colors.textMuted}
-            />
-            <Text style={[styles.archivedToggleText, showArchived && styles.archivedToggleTextOn]}>
-              {showArchived ? 'Showing archived' : 'Show archived'}
-            </Text>
-          </Pressable>
+          />
         </View>
       </View>
         <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -319,122 +294,91 @@ export default function ExerciseLibraryScreen() {
         )}
         </ScrollView>
 
-      {/* Edit sheet */}
-      <Modal
+      <Sheet
         visible={editing !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditing(null)}
+        onClose={() => setEditing(null)}
+        title="Edit exercise"
       >
-        <View style={styles.editOverlay}>
-          <View style={styles.editCard}>
-            <View style={styles.editHead}>
-              <Text style={styles.editTitle}>Edit exercise</Text>
-              <Pressable
-                onPress={() => setEditing(null)}
-                accessibilityRole="button"
-                accessibilityLabel="Close edit sheet"
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={22} color="#888" />
-              </Pressable>
-            </View>
+        <Text style={styles.fieldLabel}>Name</Text>
+        <TextInput
+          value={eName}
+          onChangeText={setEName}
+          style={styles.fieldInput}
+          autoCapitalize="words"
+          accessibilityLabel="Exercise name"
+        />
 
-            <Text style={styles.fieldLabel}>Name</Text>
-            <TextInput
-              value={eName}
-              onChangeText={setEName}
-              style={styles.fieldInput}
-              autoCapitalize="words"
-              accessibilityLabel="Exercise name"
-            />
+        <Text style={styles.fieldLabel}>Measurement</Text>
+        <ChipStrip
+          ariaLabel="Measurement"
+          value={eMeasurement}
+          onChange={setEMeasurement}
+          options={MEASUREMENT_OPTIONS.map((m) => ({ value: m.value, label: m.label }))}
+        />
 
-            <Text style={styles.fieldLabel}>Measurement</Text>
-            <View style={styles.measurementRow}>
-              {MEASUREMENT_OPTIONS.map((m) => {
-                const on = eMeasurement === m.value;
-                return (
-                  <Pressable
-                    key={m.value}
-                    onPress={() => setEMeasurement(m.value)}
-                    style={[styles.measurementChip, on && styles.measurementChipOn]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    accessibilityLabel={m.label}
-                  >
-                    <Text style={[styles.measurementChipText, on && styles.measurementChipTextOn]}>
-                      {m.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+        <Text style={styles.fieldLabel}>Primary muscle (optional)</Text>
+        <TextInput
+          value={eMuscle}
+          onChangeText={setEMuscle}
+          style={styles.fieldInput}
+          autoCapitalize="none"
+          accessibilityLabel="Primary muscle"
+        />
 
-            <Text style={styles.fieldLabel}>Primary muscle (optional)</Text>
-            <TextInput
-              value={eMuscle}
-              onChangeText={setEMuscle}
-              style={styles.fieldInput}
-              autoCapitalize="none"
-              accessibilityLabel="Primary muscle"
-            />
+        {/* Image management */}
+        <Text style={styles.fieldLabel}>Images</Text>
+        {editing && editing.images.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
+            {editing.images.map((img) => (
+              <View key={img.id} style={styles.imageThumbWrap}>
+                <ExerciseImage
+                  uri={img.url}
+                  alt={img.alt_text || `${editing.name} demonstration`}
+                  style={styles.imageThumb}
+                />
+                <Pressable
+                  style={styles.imageDeleteBtn}
+                  onPress={async () => {
+                    await api.deleteExerciseImage(img.id);
+                    reload();
+                    setEditing((prev) =>
+                      prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
+                    );
+                  }}
+                  hitSlop={spacing.sm}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove image"
+                >
+                  <Ionicons name="close-circle" size={20} color={colors.danger} />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <Text style={styles.noImageText}>No images yet.</Text>
+        )}
+        <Pressable
+          style={styles.findImageBtn}
+          onPress={() => setImageSearchOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={editing?.images.length ? 'Find another image' : 'Add image'}
+        >
+          <Ionicons name="sparkles" size={14} color={colors.primary} />
+          <Text style={styles.findImageText}>
+            {editing?.images.length ? 'Find another image' : 'Add image'}
+          </Text>
+        </Pressable>
 
-            {/* Image management */}
-            <Text style={styles.fieldLabel}>Images</Text>
-            {editing && editing.images.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
-                {editing.images.map((img) => (
-                  <View key={img.id} style={styles.imageThumbWrap}>
-                    <ExerciseImage
-                      uri={img.url}
-                      alt={img.alt_text || `${editing.name} demonstration`}
-                      style={styles.imageThumb}
-                    />
-                    <Pressable
-                      style={styles.imageDeleteBtn}
-                      onPress={async () => {
-                        await api.deleteExerciseImage(img.id);
-                        reload();
-                        setEditing((prev) =>
-                          prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
-                        );
-                      }}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove image"
-                    >
-                      <Ionicons name="close-circle" size={20} color={colors.danger} />
-                    </Pressable>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : (
-              <Text style={styles.noImageText}>No images yet.</Text>
-            )}
-            <Pressable
-              style={styles.findImageBtn}
-              onPress={() => setImageSearchOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={editing?.images.length ? 'Find another image' : 'Add image'}
-            >
-              <Ionicons name="sparkles" size={14} color={colors.primary} />
-              <Text style={styles.findImageText}>
-                {editing?.images.length ? 'Find another image' : 'Add image'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={[styles.saveBtn, (!eName.trim() || eBusy) && { opacity: 0.5 }]}
-              onPress={submitEdit}
-              disabled={!eName.trim() || eBusy}
-              accessibilityRole="button"
-            >
-              <Ionicons name="checkmark" size={16} color="#fff" />
-              <Text style={styles.saveBtnText}>{eBusy ? 'Saving…' : 'Save changes'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+        <Pressable
+          style={[styles.saveBtn, (!eName.trim() || eBusy) && { opacity: 0.5 }]}
+          onPress={submitEdit}
+          disabled={!eName.trim() || eBusy}
+          accessibilityRole="button"
+        >
+          <Ionicons name="checkmark" size={16} color={colors.onColor} />
+          <Text style={styles.saveBtnText}>{eBusy ? 'Saving…' : 'Save changes'}</Text>
+        </Pressable>
+      </Sheet>
 
       {editing && (
         <ImageSearchModal
@@ -460,110 +404,78 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { flexShrink: 0, flexGrow: 0 },
   search: {
-    margin: 12,
-    paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 15, backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+    margin: spacing.md,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
+    fontSize: ftype.input, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radii.sm,
   },
   catRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 6,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
   },
-  catChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    cursor: 'pointer' as any,
-  },
-  catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  catChipText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
-  catChipTextActive: { color: '#fff' },
-  list: { flex: 1, paddingHorizontal: 12 },
+  list: { flex: 1, paddingHorizontal: spacing.md },
   empty: {
-    textAlign: 'center', marginTop: 32, color: colors.textMuted, fontStyle: 'italic',
+    textAlign: 'center', marginTop: spacing.xxl, color: colors.textMuted, fontStyle: 'italic',
   },
-  error: { color: colors.danger, textAlign: 'center', margin: 12 },
+  error: { color: colors.danger, textAlign: 'center', margin: spacing.md },
 
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.surface, borderRadius: 8, padding: 10,
-    marginBottom: 6,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radii.sm, padding: spacing.sm + 2,
+    marginBottom: spacing.xs + 2,
+    ...shadow.card,
   },
-  thumb: { width: 44, height: 44, borderRadius: 6, backgroundColor: colors.borderSoft },
+  thumb: { width: 44, height: 44, borderRadius: radii.xs + 2, backgroundColor: colors.borderSoft },
   thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   rowText: { flex: 1 },
-  rowName: { fontSize: 15, fontWeight: '600', color: colors.text },
-  rowMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  rowName: { fontSize: ftype.bodyLg, fontWeight: '600', color: colors.text },
+  rowMeta: { fontSize: ftype.caption, color: colors.textMuted, marginTop: 2 },
   iconBtn: {
-    width: 36, height: 36, alignItems: 'center', justifyContent: 'center',
+    // 44pt minimum hit target — UI agent flagged the prior 36pt as
+    // sub-WCAG. Visual size unchanged via flexbox centering.
+    width: minHitTarget, height: minHitTarget,
+    alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
   rowErrorText: {
-    color: colors.danger, fontSize: 12,
-    paddingHorizontal: 12, paddingBottom: 8, marginTop: -2,
+    color: colors.danger, fontSize: ftype.caption,
+    paddingHorizontal: spacing.md, paddingBottom: spacing.sm, marginTop: -2,
   },
   rowArchived: { opacity: 0.55 },
   thumbArchived: { opacity: 0.6 },
   rowNameArchived: { textDecorationLine: 'line-through' },
   archivedRow: {
     flexDirection: 'row', justifyContent: 'flex-end',
-    paddingHorizontal: 12, paddingBottom: 4,
+    paddingHorizontal: spacing.md, paddingBottom: spacing.xs,
     flexShrink: 0, flexGrow: 0,
   },
-  archivedToggle: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border,
-    cursor: 'pointer' as any,
-  },
-  archivedToggleOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  archivedToggleText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
-  archivedToggleTextOn: { color: '#fff' },
 
-  editOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center', padding: 20,
+  fieldLabel: {
+    fontSize: ftype.caption, color: colors.textMuted, fontWeight: '700',
+    marginTop: spacing.md, marginBottom: spacing.xs + 2,
+    textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  editCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    maxWidth: 480, alignSelf: 'center', width: '100%',
-  },
-  editHead: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 8,
-  },
-  editTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
-  fieldLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginTop: 12, marginBottom: 4 },
   fieldInput: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
-    fontSize: 14, backgroundColor: '#fafafa', color: '#333',
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radii.sm, padding: spacing.sm + 2,
+    fontSize: ftype.input, backgroundColor: colors.surfaceAlt, color: colors.text,
   },
-  measurementRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  measurementChip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
-    backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
-  },
-  measurementChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  measurementChipText: { fontSize: 12, color: '#555' },
-  measurementChipTextOn: { color: '#fff', fontWeight: '700' },
   saveBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    marginTop: 16, paddingVertical: 12, borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs + 2,
+    marginTop: spacing.lg, paddingVertical: spacing.md, borderRadius: radii.sm,
     backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
-  saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  saveBtnText: { color: colors.onColor, fontSize: ftype.body, fontWeight: '700' },
 
-  imageStrip: { flexGrow: 0, marginBottom: 4 },
-  imageThumbWrap: { position: 'relative', marginRight: 8 },
-  imageThumb: { width: 72, height: 72, borderRadius: 6, backgroundColor: colors.borderSoft },
+  imageStrip: { flexGrow: 0, marginBottom: spacing.xs },
+  imageThumbWrap: { position: 'relative', marginRight: spacing.sm },
+  imageThumb: { width: 72, height: 72, borderRadius: radii.xs + 2, backgroundColor: colors.borderSoft },
   imageDeleteBtn: {
     position: 'absolute', top: -6, right: -6,
-    backgroundColor: '#fff', borderRadius: 10,
+    backgroundColor: colors.surface, borderRadius: radii.md - 2,
   },
-  noImageText: { fontSize: 13, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
+  noImageText: { fontSize: ftype.body - 1, color: colors.textMuted, fontStyle: 'italic', marginBottom: spacing.xs },
   findImageBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 8, cursor: 'pointer' as any,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    paddingVertical: spacing.sm, cursor: 'pointer' as any,
   },
-  findImageText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  findImageText: { fontSize: ftype.body - 1, color: colors.primary, fontWeight: '600' },
 });
