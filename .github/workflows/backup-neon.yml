@@ -58,11 +58,15 @@ on:
 
 # Permissions: `contents: write` is needed to publish Releases.
 # `issues: write` is needed by the failure-alerting step to open /
-# update an issue when a run fails. Explicitly narrow — a compromised
-# workflow can't do arbitrary pushes or read repo metadata.
+# update an issue when a run fails. `actions: read` lets the alert
+# step query the run's jobs API to name the failed step in the
+# alert comment (so the operator can triage from the issue thread
+# without clicking through to each run). Explicitly narrow — a
+# compromised workflow can't do arbitrary pushes.
 permissions:
   contents: write
   issues: write
+  actions: read
 
 jobs:
   backup:
@@ -348,12 +352,23 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           TITLE="[backup] Nightly Neon backup is failing"
           NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          COMMENT="Failed run: $RUN_URL  (UTC $NOW)"
+          # Name the first failed step so operators can triage from
+          # the alert thread without clicking into the run. The 9-night
+          # silent failure happened in part because every alert looked
+          # the same; a step name differentiates "auth broke last night"
+          # from "Neon upgraded majors" at a glance.
+          FAILED_STEP=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '[.jobs[].steps[]? | select(.conclusion == "failure")][0].name // "unknown"' \
+              2>/dev/null || echo "unknown")
+          COMMENT="Failed run: $RUN_URL  (UTC $NOW)
+          Failed step: \`$FAILED_STEP\`"
           # `--search "in:title"` constrains to title-only matches
           # so a stray issue that mentions the phrase in its body
           # doesn't suppress legitimate alerts.

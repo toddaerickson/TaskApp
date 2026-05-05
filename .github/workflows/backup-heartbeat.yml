@@ -97,12 +97,21 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           TITLE="[backup] Nightly Neon backup is failing"
           NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          COMMENT="Heartbeat tripped — most recent backup-neon.yml run is too old. $RUN_URL  (UTC $NOW)"
+          # Heartbeat only has one substantive step today, but name
+          # it anyway so the three backup workflows produce alert
+          # comments in the same shape — easier to scan the thread.
+          FAILED_STEP=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '[.jobs[].steps[]? | select(.conclusion == "failure")][0].name // "unknown"' \
+              2>/dev/null || echo "unknown")
+          COMMENT="Heartbeat tripped — most recent backup-neon.yml run is too old. $RUN_URL  (UTC $NOW)
+          Failed step: \`$FAILED_STEP\`"
           EXISTING=$(gh issue list \
               --state open \
               --search "in:title \"$TITLE\"" \
