@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput, ActivityIndicator,
+  Platform, Alert,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -62,12 +63,20 @@ export default function ExerciseLibraryScreen() {
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [pendingDelete, setPendingDelete] = useState<Set<number>>(new Set());
 
-  // Edit sheet
+  // Edit sheet. `creating` means the same Sheet is open in
+  // create-a-new-exercise mode — same fields, different submit behavior.
+  // The two modes share form state (eName / eMuscle / eMeasurement) so
+  // the Sheet body has one set of controls; `eCategory` is only used
+  // in create mode (the edit form omits the category control to avoid
+  // an obscure GET-list refilter side-effect).
   const [editing, setEditing] = useState<Exercise | null>(null);
+  const [creating, setCreating] = useState(false);
   const [eName, setEName] = useState('');
   const [eMuscle, setEMuscle] = useState('');
   const [eMeasurement, setEMeasurement] = useState<Measurement>('reps');
+  const [eCategory, setECategory] = useState<string>('general');
   const [eBusy, setEBusy] = useState(false);
+  const [eError, setEError] = useState<string | null>(null);
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
 
   const reload = () => {
@@ -91,27 +100,65 @@ export default function ExerciseLibraryScreen() {
 
   const openEdit = (ex: Exercise) => {
     setEditing(ex);
+    setCreating(false);
     setEName(ex.name);
     setEMuscle(ex.primary_muscle ?? '');
     setEMeasurement((ex.measurement as Measurement) ?? 'reps');
+    setECategory(ex.category ?? 'general');
+    setEError(null);
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setCreating(true);
+    setEName('');
+    setEMuscle('');
+    setEMeasurement('reps');
+    setECategory('general');
+    setEError(null);
+  };
+
+  const closeSheet = () => {
+    setEditing(null);
+    setCreating(false);
+    setEError(null);
   };
 
   const submitEdit = async () => {
-    if (!editing) return;
     const name = eName.trim();
     if (!name) return;
     setEBusy(true);
+    setEError(null);
     try {
-      await api.updateExercise(editing.id, {
-        name,
-        primary_muscle: eMuscle.trim() || null,
-        measurement: eMeasurement,
-      });
-      setEditing(null);
-      reload();
+      if (creating) {
+        // Create then transition INTO edit mode pre-populated with
+        // the new row. Per the multi-agent UI review (PR-A1 finding):
+        // close-then-reopen is jarring; staying in the same Sheet so
+        // "Add image" is one tap away matches the routine-create →
+        // detail-screen pattern in workouts.tsx.
+        const created = await api.createExercise({
+          name,
+          category: eCategory,
+          primary_muscle: eMuscle.trim() || null,
+          measurement: eMeasurement,
+        });
+        setCreating(false);
+        setEditing(created as Exercise);
+        reload();
+      } else if (editing) {
+        await api.updateExercise(editing.id, {
+          name,
+          primary_muscle: eMuscle.trim() || null,
+          measurement: eMeasurement,
+        });
+        setEditing(null);
+        reload();
+      }
     } catch (e: any) {
       const msg = e?.response?.data?.detail || 'Save failed';
-      showError('Save failed', msg);
+      // Inline within the Sheet (don't blow it away) so the user sees
+      // why their tap didn't take.
+      setEError(msg);
     } finally {
       setEBusy(false);
     }
@@ -173,13 +220,73 @@ export default function ExerciseLibraryScreen() {
     }
   };
 
+  /** Hard-delete confirmation. Web → `window.confirm`; native → `Alert.alert`
+   *  with destructive button. Resolves to true when the user confirms.
+   *  Mirrors the helper in `workout/[routineId].tsx`; kept inline because
+   *  it's also a one-screen need. */
+  const confirmPermanentRemoval = (ex: Exercise): Promise<boolean> => {
+    const title = `Permanently remove "${ex.name}"?`;
+    const body = 'This cannot be undone. Images are deleted; soft-archived rows that were referenced by routines or sessions will fail to remove.';
+    return new Promise((resolve) => {
+      if (Platform.OS === 'web') {
+        // eslint-disable-next-line no-alert
+        resolve(window.confirm(`${title}\n\n${body}`));
+        return;
+      }
+      Alert.alert(title, body, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Remove permanently', style: 'destructive', onPress: () => resolve(true) },
+      ]);
+    });
+  };
+
+  const handlePermanentRemoval = async (ex: Exercise) => {
+    if (!(await confirmPermanentRemoval(ex))) return;
+    // Clear any prior inline error so a stale "still referenced" message
+    // doesn't linger after the user has fixed the references.
+    setRowError((prev) => {
+      if (!(ex.id in prev)) return prev;
+      const next = { ...prev }; delete next[ex.id]; return next;
+    });
+    try {
+      await api.permanentlyDeleteExercise(ex.id);
+      reload();
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      if (status === 409 && detail) {
+        // Backend message is already user-friendly: "Used in 3 routines
+        // and 12 logged sets. Remove those references first."
+        setRowError((prev) => ({ ...prev, [ex.id]: detail }));
+      } else {
+        setRowError((prev) => ({
+          ...prev,
+          [ex.id]: detail || 'Could not remove permanently. Try again.',
+        }));
+      }
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Exercise library' }} />
 
-      {/* Non-scrollable header: search + category chips + archived toggle.
-          Pinned to content height so the list below gets all remaining space. */}
+      {/* Non-scrollable header: action row + search + category chips +
+          archived toggle. Pinned to content height so the list below
+          gets all remaining space. */}
       <View style={styles.header}>
+        <View style={styles.actionRow}>
+          <Pressable
+            style={styles.newBtn}
+            onPress={openCreate}
+            accessibilityRole="button"
+            accessibilityLabel="New exercise"
+          >
+            <Ionicons name="add" size={16} color={colors.onColor} />
+            <Text style={styles.newBtnText}>New exercise</Text>
+          </Pressable>
+        </View>
+
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -251,15 +358,27 @@ export default function ExerciseLibraryScreen() {
                         </Text>
                       </View>
                       {isArchived ? (
-                        <Pressable
-                          onPress={() => handleRestore(ex)}
-                          hitSlop={8}
-                          style={styles.iconBtn}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Restore ${ex.name}`}
-                        >
-                          <Ionicons name="refresh" size={16} color={colors.primary} />
-                        </Pressable>
+                        <>
+                          <Pressable
+                            onPress={() => handleRestore(ex)}
+                            hitSlop={8}
+                            style={styles.iconBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Restore ${ex.name}`}
+                          >
+                            <Ionicons name="refresh" size={16} color={colors.primary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => handlePermanentRemoval(ex)}
+                            hitSlop={8}
+                            style={styles.iconBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Permanently remove ${ex.name}`}
+                            accessibilityHint="Confirms before deleting. Cannot be undone."
+                          >
+                            <Ionicons name="trash" size={16} color={colors.danger} />
+                          </Pressable>
+                        </>
                       ) : (
                         <>
                           <Pressable
@@ -295,9 +414,9 @@ export default function ExerciseLibraryScreen() {
         </ScrollView>
 
       <Sheet
-        visible={editing !== null}
-        onClose={() => setEditing(null)}
-        title="Edit exercise"
+        visible={editing !== null || creating}
+        onClose={closeSheet}
+        title={creating ? 'New exercise' : 'Edit exercise'}
       >
         <Text style={styles.fieldLabel}>Name</Text>
         <TextInput
@@ -305,8 +424,23 @@ export default function ExerciseLibraryScreen() {
           onChangeText={setEName}
           style={styles.fieldInput}
           autoCapitalize="words"
+          autoFocus={creating}
           accessibilityLabel="Exercise name"
         />
+
+        {creating && (
+          <>
+            <Text style={styles.fieldLabel}>Category</Text>
+            <ChipStrip
+              ariaLabel="Category"
+              value={eCategory}
+              onChange={setECategory}
+              options={CATEGORIES.filter((c) => c.value !== 'all').map((c) => ({
+                value: c.value, label: c.label,
+              }))}
+            />
+          </>
+        )}
 
         <Text style={styles.fieldLabel}>Measurement</Text>
         <ChipStrip
@@ -325,49 +459,58 @@ export default function ExerciseLibraryScreen() {
           accessibilityLabel="Primary muscle"
         />
 
-        {/* Image management */}
-        <Text style={styles.fieldLabel}>Images</Text>
-        {editing && editing.images.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
-            {editing.images.map((img) => (
-              <View key={img.id} style={styles.imageThumbWrap}>
-                <ExerciseImage
-                  uri={img.url}
-                  alt={img.alt_text || `${editing.name} demonstration`}
-                  style={styles.imageThumb}
-                />
-                <Pressable
-                  style={styles.imageDeleteBtn}
-                  onPress={async () => {
-                    await api.deleteExerciseImage(img.id);
-                    reload();
-                    setEditing((prev) =>
-                      prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
-                    );
-                  }}
-                  hitSlop={spacing.sm}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove image"
-                >
-                  <Ionicons name="close-circle" size={20} color={colors.danger} />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <Text style={styles.noImageText}>No images yet.</Text>
+        {/* Image management — only meaningful in edit mode (a fresh
+            create has no exercise id yet to attach images to). After
+            create, the Sheet flips to edit mode and this block
+            renders so "Add image" is one tap away. */}
+        {!creating && (
+          <>
+            <Text style={styles.fieldLabel}>Images</Text>
+            {editing && editing.images.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageStrip}>
+                {editing.images.map((img) => (
+                  <View key={img.id} style={styles.imageThumbWrap}>
+                    <ExerciseImage
+                      uri={img.url}
+                      alt={img.alt_text || `${editing.name} demonstration`}
+                      style={styles.imageThumb}
+                    />
+                    <Pressable
+                      style={styles.imageDeleteBtn}
+                      onPress={async () => {
+                        await api.deleteExerciseImage(img.id);
+                        reload();
+                        setEditing((prev) =>
+                          prev ? { ...prev, images: prev.images.filter((i) => i.id !== img.id) } : null,
+                        );
+                      }}
+                      hitSlop={spacing.sm}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove image"
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.noImageText}>No images yet.</Text>
+            )}
+            <Pressable
+              style={styles.findImageBtn}
+              onPress={() => setImageSearchOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={editing?.images.length ? 'Find another image' : 'Add image'}
+            >
+              <Ionicons name="sparkles" size={14} color={colors.primary} />
+              <Text style={styles.findImageText}>
+                {editing?.images.length ? 'Find another image' : 'Add image'}
+              </Text>
+            </Pressable>
+          </>
         )}
-        <Pressable
-          style={styles.findImageBtn}
-          onPress={() => setImageSearchOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={editing?.images.length ? 'Find another image' : 'Add image'}
-        >
-          <Ionicons name="sparkles" size={14} color={colors.primary} />
-          <Text style={styles.findImageText}>
-            {editing?.images.length ? 'Find another image' : 'Add image'}
-          </Text>
-        </Pressable>
+
+        {eError && <Text style={styles.sheetError}>{eError}</Text>}
 
         <Pressable
           style={[styles.saveBtn, (!eName.trim() || eBusy) && { opacity: 0.5 }]}
@@ -375,8 +518,10 @@ export default function ExerciseLibraryScreen() {
           disabled={!eName.trim() || eBusy}
           accessibilityRole="button"
         >
-          <Ionicons name="checkmark" size={16} color={colors.onColor} />
-          <Text style={styles.saveBtnText}>{eBusy ? 'Saving…' : 'Save changes'}</Text>
+          <Ionicons name={creating ? 'add' : 'checkmark'} size={16} color={colors.onColor} />
+          <Text style={styles.saveBtnText}>
+            {eBusy ? 'Saving…' : creating ? 'Create' : 'Save changes'}
+          </Text>
         </Pressable>
       </Sheet>
 
@@ -403,6 +548,20 @@ export default function ExerciseLibraryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { flexShrink: 0, flexGrow: 0 },
+  actionRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.md, paddingTop: spacing.md,
+  },
+  newBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm - 2,
+    borderRadius: radii.lg,
+    backgroundColor: colors.primary, cursor: 'pointer' as any,
+  },
+  newBtnText: { color: colors.onColor, fontSize: ftype.body - 1, fontWeight: '700' },
+  sheetError: {
+    color: colors.danger, fontSize: ftype.body - 1, marginTop: spacing.sm + 2,
+  },
   search: {
     margin: spacing.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,

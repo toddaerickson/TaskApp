@@ -35,8 +35,19 @@ def resolve_image_url(url: str) -> str:
     `config.BACKEND_PUBLIC_URL` is read on each call (not closed over at
     import time) so a test can `monkeypatch.setattr(config,
     'BACKEND_PUBLIC_URL', '...')` without re-importing this module.
+
+    Path-traversal hardening: filenames containing `/`, `\\`, or `..`
+    return empty string. The StaticFiles mount has its own subclass
+    guard (`_NoDotfilesStaticFiles`) but a malformed sentinel that
+    survives that gate could still produce surprising URLs (e.g. a
+    `local:../etc/passwd` rendering as a path the browser would
+    request). Single-user self-hosted = the only way bad sentinels
+    enter the DB is operator typo or a corrupted backfill, but the
+    cost of validation is one substring check.
     """
     if not url or not url.startswith(LOCAL_PREFIX):
         return url
     filename = url[len(LOCAL_PREFIX):]
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        return ""
     return f"{config.BACKEND_PUBLIC_URL}{STATIC_PATH}/{filename}"
