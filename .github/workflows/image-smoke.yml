@@ -37,9 +37,17 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    if: ${{ vars.SMOKE_BACKEND_URL != '' || secrets.SMOKE_BACKEND_URL != '' }}
+    # NOTE: gating MUST live inside the bash step below, NOT in a
+    # job-level `if: ${{ secrets.X != '' }}`. GitHub Actions rejects
+    # `secrets.X` in `if:` with "Unrecognized named-value: 'secrets'"
+    # which fails the WHOLE workflow at registration → 0s phantom
+    # failures on every event → cron stops firing silently. See
+    # PR-X2 + CLAUDE.md backup section.
     env:
-      SMOKE_BACKEND_URL: ${{ secrets.SMOKE_BACKEND_URL }}
+      # `vars.X` is the modern pattern (repo Variables); `secrets.X`
+      # is the legacy fallback. Materialize the union here so the
+      # bash gate doesn't need to know which the operator chose.
+      SMOKE_BACKEND_URL: ${{ vars.SMOKE_BACKEND_URL || secrets.SMOKE_BACKEND_URL }}
       SNAPSHOT_AUTH_TOKEN: ${{ secrets.SNAPSHOT_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +69,10 @@ jobs:
         # NEXT run lands green.
         run: |
           set -euo pipefail
+          if [ -z "${SMOKE_BACKEND_URL:-}" ]; then
+            echo "SMOKE_BACKEND_URL not configured — skipping smoke check (silent no-op opt-in path)"
+            exit 0
+          fi
           python backend/scripts/image_smoke.py \
             --backend "$SMOKE_BACKEND_URL" \
             --token "$SNAPSHOT_AUTH_TOKEN" \
