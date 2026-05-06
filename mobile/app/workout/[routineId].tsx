@@ -337,7 +337,7 @@ export default function RoutineDetailScreen() {
             {routine.reminder_time ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                 <Ionicons name="alarm-outline" size={13} color={colors.warning} />
-                <Text style={{ fontSize: 12, color: colors.warning }}>
+                <Text style={{ fontSize: 12, color: colors.warningText }}>
                   {routine.reminder_time} · {routine.reminder_days || 'daily'}
                 </Text>
               </View>

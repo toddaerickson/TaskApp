@@ -199,6 +199,6 @@ const styles = StyleSheet.create({
   nativeNote: {
     marginTop: 24, padding: 12,
     backgroundColor: '#fff9e6', borderRadius: 6,
-    fontSize: 12, color: colors.warning, textAlign: 'center',
+    fontSize: 12, color: colors.warningText, textAlign: 'center',
   },
 });
