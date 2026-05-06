@@ -88,6 +88,22 @@ export default function CreateTaskScreen() {
   const parsedBatch = useMemo(() => parseBatch(batchText), [batchText]);
   const captureFolderId = useMemo(() => pickCaptureFolderId(folders), [folders]);
 
+  // GTD-canonical "Capture" inbox is the default folder for new tasks
+  // (PR-B1, per the operator's Q1: "the default folder should be
+  // Capture, currently no folder is assigned by default"). Set the
+  // initial folderId once the folders list loads, but only when the
+  // user hasn't already picked something. autoSave is a no-op
+  // pre-create so this won't generate a spurious PATCH.
+  useEffect(() => {
+    if (captureFolderId !== null && folderId === null) {
+      setFolderId(captureFolderId);
+    }
+    // Intentional: re-run only when captureFolderId changes (folders
+    // loaded). User-picked null after that point should NOT silently
+    // re-default to Capture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureFolderId]);
+
   // Note debounce: save 500ms after the user stops typing.
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -234,16 +250,10 @@ export default function CreateTaskScreen() {
     }
   };
 
-  // Summary of hidden advanced values.
-  const advancedSummary = (() => {
-    const bits: string[] = [];
-    if (status !== 'none') bits.push(status.replace('_', ' '));
-    if (startDate) bits.push(`start ${startDate}`);
-    if (dueDate) bits.push(`due ${dueDate}`);
-    if (repeatType !== 'none') bits.push(repeatType);
-    if (note) bits.push('note');
-    return bits.join(' · ');
-  })();
+  // Slim Advanced summary — PR-B1 moved Due/Repeat/Status/Note out
+  // of Advanced into the always-visible flow, so the only field
+  // left to summarize is start_date.
+  const advancedSummary = startDate ? `start ${startDate}` : '';
 
   return (
     <KeyboardAvoidingView
@@ -420,7 +430,62 @@ export default function CreateTaskScreen() {
         </Pressable>
       </View>
 
-      {/* Advanced collapse */}
+      {/* PR-B1: Due / Repeat / Status / Reminder / Note are
+          always visible (operator's items 3 + 5: "show by default,
+          remove the hide/show toggle"). Reminders still gate on
+          taskId — TaskReminderEditor renders an inline "save first"
+          hint pre-create that we don't want above-the-fold for new
+          tasks. start_date moved to the slim Advanced collapse at
+          the bottom (operator's note: "keep start input, move down
+          to bottom of page in advanced"). */}
+      <View style={styles.twoCol}>
+        <View style={styles.col}>
+          <Text style={styles.label}>Due</Text>
+          <DateField value={dueDate} onChange={changeDueDate} placeholder="Due date" compact />
+        </View>
+        <View style={styles.col}>
+          <Text style={styles.label}>Repeat</Text>
+          <Dropdown
+            value={repeatType}
+            options={REPEAT_OPTIONS}
+            onChange={changeRepeat}
+            placeholder="Repeat"
+            compact
+          />
+        </View>
+      </View>
+
+      <Text style={styles.label}>Status</Text>
+      <Dropdown
+        value={status}
+        options={STATUS_OPTIONS}
+        onChange={changeStatus}
+        placeholder="Status"
+        compact
+      />
+
+      {taskId && (
+        <TaskReminderEditor
+          taskId={taskId}
+          reminders={[]}
+          onChanged={() => {}}
+        />
+      )}
+
+      <Text style={styles.label}>Note</Text>
+      <TextInput
+        style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+        placeholder="Additional details…"
+        accessibilityLabel="Task note"
+        value={note}
+        onChangeText={changeNote}
+        multiline
+        placeholderTextColor="#bbb"
+      />
+
+      {/* Slim Advanced — start_date only. Collapsed by default
+          because GTD's tickler-date is a power-user feature; most
+          tasks never need it. */}
       <Pressable
         style={styles.advancedToggle}
         onPress={() => setAdvancedOpen(!advancedOpen)}
@@ -432,7 +497,7 @@ export default function CreateTaskScreen() {
           size={14} color={colors.primary}
         />
         <Text style={styles.advancedToggleText}>
-          {advancedOpen ? 'Hide' : 'More'} options
+          {advancedOpen ? 'Hide' : 'Advanced'}
         </Text>
         {!advancedOpen && advancedSummary ? (
           <Text style={styles.advancedSummary} numberOfLines={1}>
@@ -443,61 +508,12 @@ export default function CreateTaskScreen() {
 
       {advancedOpen && (
         <View>
-          {/* Due date + Repeat side by side */}
-          <View style={styles.twoCol}>
-            <View style={styles.col}>
-              <Text style={styles.label}>Due</Text>
-              <DateField value={dueDate} onChange={changeDueDate} placeholder="Due date" compact />
-            </View>
-            <View style={styles.col}>
-              <Text style={styles.label}>Repeat</Text>
-              <Dropdown
-                value={repeatType}
-                options={REPEAT_OPTIONS}
-                onChange={changeRepeat}
-                placeholder="Repeat"
-                compact
-              />
-            </View>
-          </View>
-
-          {/* Status + Start date side by side */}
-          <View style={styles.twoCol}>
-            <View style={styles.col}>
-              <Text style={styles.label}>Status</Text>
-              <Dropdown
-                value={status}
-                options={STATUS_OPTIONS}
-                onChange={changeStatus}
-                placeholder="Status"
-                compact
-              />
-            </View>
-            <View style={styles.col}>
-              <Text style={styles.label}>Start</Text>
-              <DateField value={startDate} onChange={changeStartDate} placeholder="Start date" compact />
-            </View>
-          </View>
-
-          <Text style={styles.label}>Note</Text>
-          <TextInput
-            style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-            placeholder="Additional details…"
-            accessibilityLabel="Task note"
-            value={note}
-            onChangeText={changeNote}
-            multiline
-            placeholderTextColor="#bbb"
-          />
-
-          {/* Reminders — only show "Add reminder" link once task is saved */}
-          {taskId && (
-            <TaskReminderEditor
-              taskId={taskId}
-              reminders={[]}
-              onChanged={() => {}}
-            />
-          )}
+          <Text style={styles.label}>Start date</Text>
+          <Text style={styles.advancedHint}>
+            Hides the task from your active list until this date —
+            GTD-style "tickler" / scheduled defer.
+          </Text>
+          <DateField value={startDate} onChange={changeStartDate} placeholder="Start date" compact />
         </View>
       )}
       </>
@@ -626,6 +642,10 @@ const styles = StyleSheet.create({
   },
   advancedToggleText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
   advancedSummary: { color: colors.textMuted, fontSize: 11, flex: 1 },
+  // Inline help under the start_date field — explains the GTD
+  // "tickler" semantic so an operator who's never used the field
+  // doesn't have to guess what it does.
+  advancedHint: { color: colors.textMuted, fontSize: 11, marginBottom: 6, fontStyle: 'italic' },
 
   modeSegment: {
     flexDirection: 'row', gap: 0,
