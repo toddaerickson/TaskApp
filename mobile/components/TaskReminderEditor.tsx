@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/lib/colors';
 import * as api from '@/lib/api';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
+import TimeField from '@/components/TimeField';
 import type { Reminder } from '@/lib/stores';
 import {
   formatReminderRow, validateReminderInput,
@@ -153,18 +154,26 @@ export default function TaskReminderEditor({ taskId, reminders, onChanged }: Pro
               placeholderTextColor="#bbb"
               accessibilityLabel="Reminder date"
               autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
               keyboardType="numbers-and-punctuation"
             />
-            <TextInput
-              style={styles.timeInput}
-              value={timeStr}
-              onChangeText={setTimeStr}
-              placeholder="HH:MM"
-              placeholderTextColor="#bbb"
-              accessibilityLabel="Reminder time (24-hour)"
-              autoCapitalize="none"
-              keyboardType="numbers-and-punctuation"
-            />
+            {/* TimeField (PR-B3): tap-to-open sheet with 30-min slots
+                + free-form military-time input. Replaces the bare
+                HH:MM TextInput so the operator gets a one-tap path
+                to common reminder times instead of typing every
+                digit. Free-form parser still accepts any 00:00-23:59
+                so a 5 AM workout reminder or 10 PM med reminder
+                stays one-tap-then-type. */}
+            <View style={styles.timeFieldWrap}>
+              <TimeField
+                value={timeStr}
+                onChange={setTimeStr}
+                placeholder="HH:MM"
+                accessibilityLabel="Reminder time"
+                compact
+              />
+            </View>
           </View>
           {error && <Text style={styles.errText}>{error}</Text>}
           {warning && <Text style={styles.warnText}>{warning}</Text>}
@@ -240,10 +249,9 @@ const styles = StyleSheet.create({
     flex: 2, borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
     padding: 10, fontSize: 14, backgroundColor: '#fafafa', color: '#333',
   },
-  timeInput: {
-    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
-    padding: 10, fontSize: 14, backgroundColor: '#fafafa', color: '#333',
-  },
+  // Wraps TimeField so it shares the row with dateInput. flex: 1
+  // keeps the same proportions the old timeInput had.
+  timeFieldWrap: { flex: 1 },
   errText: { color: colors.danger, fontSize: 13 },
   warnText: { color: colors.warning, fontSize: 13 },
   addFormActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
