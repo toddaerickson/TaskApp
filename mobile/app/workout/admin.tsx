@@ -348,7 +348,7 @@ function StatusPill({ status, added, replaced }: {
     return (
       <View style={[styles.statusPill, styles.statusPillWarn]}>
         <Ionicons name="help-circle-outline" size={12} color={colors.warning} />
-        <Text style={[styles.statusPillText, { color: colors.warning }]}>not found</Text>
+        <Text style={[styles.statusPillText, { color: colors.warningText }]}>not found</Text>
       </View>
     );
   }

@@ -4,7 +4,7 @@ import { SessionSetEditSheet } from '@/components/SessionSetEditSheet';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
-  TextInput, Platform, Alert, Modal, KeyboardAvoidingView,
+  TextInput, Platform, Alert, Modal, KeyboardAvoidingView, Animated,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,6 +56,30 @@ export default function ActiveSessionScreen() {
   const rest = useRestTimer(() => {
     beep(2);
     haptics.success();
+  });
+
+  // Scroll-hide for the "Finish workout" bottom bar (item 6 in the
+  // operator's UX list). Footer is visible at the top of the page;
+  // it slides down + fades as the user scrolls into the body, and
+  // returns when they scroll back to the top. Trade-off: an active
+  // workout has a tall set list, and the always-visible footer was
+  // covering the bottom-most logged set on small screens. The "show
+  // at top" rule is preserved from the operator's spec ("show if top
+  // page line shows") — they need a discoverable way back to Finish
+  // that isn't a guess about which gesture works.
+  const scrollY = useRef(new Animated.Value(0)).current;
+  // Translate: 0px at top → 100px down (off-screen) once scrolled 50px.
+  // 50px is empirically about one set-row of scroll, so tapping a Log
+  // button doesn't auto-hide the footer — only deliberate scrolling does.
+  const footerTranslateY = scrollY.interpolate({
+    inputRange: [0, 50],
+    outputRange: [0, 100],
+    extrapolate: 'clamp',
+  });
+  const footerOpacity = scrollY.interpolate({
+    inputRange: [0, 30, 50],
+    outputRange: [1, 1, 0],
+    extrapolate: 'clamp',
   });
 
   useEffect(() => {
@@ -382,7 +406,17 @@ export default function ActiveSessionScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 200 }}>
+      <Animated.ScrollView
+        contentContainerStyle={{ paddingBottom: 200 }}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          // Native driver requires opacity/transform-only animations,
+          // which is what we use — no layout props animated. 16ms
+          // throttle = 60fps target.
+          { useNativeDriver: true },
+        )}
+        scrollEventThrottle={16}
+      >
         {visibleExercises.map((re, idx) => (
           <ExerciseBlock
             key={re.id}
@@ -425,9 +459,23 @@ export default function ActiveSessionScreen() {
             ))}
           </View>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
-      <View style={styles.footer}>
+      <Animated.View
+        style={[
+          styles.footer,
+          {
+            transform: [{ translateY: footerTranslateY }],
+            opacity: footerOpacity,
+          },
+        ]}
+        // pointerEvents='box-none' lets the user tap through the
+        // footer when it's mid-animation but visually faded out, so
+        // a stray tap on a fading-out Finish button doesn't fire
+        // when the user is actually scrolling. The `Pressable`
+        // child still receives taps when fully visible.
+        pointerEvents="box-none"
+      >
         <Pressable
           style={[styles.finishBtn, finishing && { opacity: 0.6 }]}
           onPress={confirmFinish}
@@ -436,7 +484,7 @@ export default function ActiveSessionScreen() {
           <Ionicons name="checkmark-circle" size={20} color="#fff" />
           <Text style={styles.finishBtnText}>{finishing ? 'Saving…' : 'Finish workout'}</Text>
         </Pressable>
-      </View>
+      </Animated.View>
 
       <Modal visible={symptomOpen} transparent animationType="slide" onRequestClose={() => setSymptomOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -937,7 +985,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     backgroundColor: '#fff5e6', cursor: 'pointer' as any,
   },
-  symptomBtnText: { color: colors.warning, fontSize: 11, fontWeight: '600' },
+  symptomBtnText: { color: colors.warningText, fontSize: 11, fontWeight: '600' },
   pendingChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
@@ -1077,7 +1125,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff5e6', borderColor: colors.warning, borderWidth: 1,
     padding: 12, borderRadius: 8, marginTop: 12,
   },
-  timerLabel: { fontSize: 11, color: colors.warning, fontWeight: '700', textTransform: 'uppercase' },
+  timerLabel: { fontSize: 11, color: colors.warningText, fontWeight: '700', textTransform: 'uppercase' },
   timerValue: { flex: 1, fontSize: 28, fontWeight: '800', color: colors.warning,
     fontVariant: ['tabular-nums'] as any },
   timerStopBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#fff',
