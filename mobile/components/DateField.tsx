@@ -1,4 +1,5 @@
 import { colors } from "@/lib/colors";
+import { prettyIsoDate, toLocalIsoDate } from "@/lib/dateUtils";
 import { useState } from 'react';
 import {
   View, Text, Pressable, Platform, StyleSheet, Modal, TextInput,
@@ -20,11 +21,8 @@ interface Props {
   compact?: boolean;
 }
 
-function pretty(iso: string): string {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-');
-  return `${m}/${d}/${y.slice(2)}`;
-}
+// Date helpers live in @/lib/dateUtils so they can be unit-tested in
+// the node-libs jest project without booting the RN runtime.
 
 export default function DateField({ value, onChange, placeholder = 'Pick a date', compact }: Props) {
   const [open, setOpen] = useState(false);
@@ -71,10 +69,10 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
         style={[styles.trigger, compact && styles.triggerCompact]}
         onPress={() => setOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel={value ? `Edit date: ${pretty(value)}` : (placeholder || 'Pick a date')}
+        accessibilityLabel={value ? `Edit date: ${prettyIsoDate(value)}` : (placeholder || 'Pick a date')}
       >
         <Text style={[styles.text, compact && styles.textCompact, !value && { color: colors.textMuted }]}>
-          {value ? pretty(value) : placeholder}
+          {value ? prettyIsoDate(value) : placeholder}
         </Text>
         {value ? (
           <Pressable
@@ -101,7 +99,7 @@ export default function DateField({ value, onChange, placeholder = 'Pick a date'
                   // Android fires once and auto-dismisses. iOS stays open.
                   if (Platform.OS === 'android') setOpen(false);
                   if (d && event?.type !== 'dismissed') {
-                    onChange(d.toISOString().slice(0, 10));
+                    onChange(toLocalIsoDate(d));
                   }
                 }}
               />
