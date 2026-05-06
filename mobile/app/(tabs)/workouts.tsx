@@ -431,6 +431,8 @@ export default function WorkoutsScreen() {
               <Pressable
                 style={styles.dropdownBackdrop}
                 onPress={() => setGroupDropdownOpen(false)}
+                accessibilityLabel="Close group-by menu"
+                accessibilityRole="button"
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
               />
