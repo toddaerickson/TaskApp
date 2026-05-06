@@ -86,6 +86,23 @@ jobs:
         # Install from PostgreSQL's official apt repo and pin to
         # PG 17 explicitly so the version is visible in the diff
         # when Neon eventually moves to 18.
+        #
+        # GITHUB_PATH prefix: the pinned client installs binaries
+        # at `/usr/lib/postgresql/N/bin/` but the system
+        # `/usr/bin/pg_dump` is the pg_wrapper, which on Ubuntu
+        # 24.04 picks the OLDER major because the default-cluster
+        # client is also installed transitively. Prepending the
+        # pinned-major bin path makes all subsequent steps invoke
+        # the pinned client directly. Without this, the verify
+        # step below catches the mismatch — but the dump step
+        # would otherwise produce a wrong-major dump that
+        # pg_restore rejects. PR-X3 fix.
+        #
+        # NOTE: `postgresql-client-N` lives on a single line in
+        # this file (see install command below) — workflow-lint.yml
+        # parses that pin via `grep | head -1` to enforce parity
+        # with backup-restore-drill.yml. Don't mention specific
+        # majors elsewhere in this file or the parity check breaks.
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -97,6 +114,7 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Verify pg_dump version
         # Dumps created with newer pg_dump can't be restored by older
