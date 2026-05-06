@@ -76,6 +76,42 @@ def test_resolve_rejects_empty_local(monkeypatch):
     assert resolve_image_url("local:") == ""
 
 
+# ---------- r2: prefix (PR-A2b) ----------
+# New sentinel for rows whose bytes live in the R2 bucket. Resolver
+# expands to `${R2_PUBLIC_URL}/<filename>` when R2 is configured;
+# returns "" when not so the client renders a broken image rather
+# than an invalid relative URL.
+
+def test_resolve_expands_r2_prefix(monkeypatch):
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.example.com")
+    assert (
+        resolve_image_url("r2:abc123.jpg")
+        == "https://cdn.example.com/abc123.jpg"
+    )
+
+
+def test_resolve_r2_returns_empty_when_unconfigured(monkeypatch):
+    """A row referencing R2 but the deploy has no R2 — broken image
+    is more honest than a relative-path 404."""
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "")
+    assert resolve_image_url("r2:abc123.jpg") == ""
+
+
+def test_resolve_rejects_r2_with_slash(monkeypatch):
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.example.com")
+    assert resolve_image_url("r2:foo/bar.jpg") == ""
+
+
+def test_resolve_rejects_r2_with_dotdot(monkeypatch):
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.example.com")
+    assert resolve_image_url("r2:..secret.jpg") == ""
+
+
+def test_resolve_rejects_empty_r2(monkeypatch):
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.example.com")
+    assert resolve_image_url("r2:") == ""
+
+
 # ---------- End-to-end through the API ----------
 
 def _h(token):

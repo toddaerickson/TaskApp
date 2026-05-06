@@ -1,53 +1,77 @@
 """URL resolver for exercise images.
 
-Two storage paths coexist:
+Three storage paths coexist:
 
   1. Remote — `https://...` URLs the admin pasted via Find / bulk-paste.
      Pass through unchanged. The byte rot risk is exactly why we're
-     migrating off these (PRs 3-5 in this sequence).
+     migrating off these (PR-A2c backfills them to R2).
 
-  2. Self-hosted — rows whose `url` column is the sentinel
-     `local:<filename>` (e.g. `local:abc123def456.jpg`). The bytes live
-     at `backend/seed_data/exercise_images/<filename>` and are served by
-     the StaticFiles mount in `main.py`.
+  2. Self-hosted local — rows whose `url` column is the sentinel
+     `local:<filename>` (e.g. `local:abc123def456.jpg`). The bytes
+     live at `IMAGE_STORAGE_DIR/<filename>` (default
+     `backend/seed_data/exercise_images/`) and are served by the
+     StaticFiles mount in `main.py`.
+
+  3. R2 — rows whose `url` column is the sentinel `r2:<filename>`.
+     The bytes live in the configured R2 bucket and serve via the
+     bucket's public URL (`R2_PUBLIC_URL`). New admin uploads land
+     here when `config.r2_configured()` is True (PR-A2b).
 
 The resolver runs at API-response time (in `hydrate_exercises_with_images`
 and the `add_image` route) so the DB row stays compact and the public
-URL stays computable even if the deploy target hostname changes — flip
-`BACKEND_PUBLIC_URL` and every existing row's URL recomputes on the
-next GET.
+URL stays computable even if the deploy target hostname changes.
 """
 from app import config
 
 LOCAL_PREFIX = "local:"
+R2_PREFIX = "r2:"
 STATIC_PATH = "/static/exercise-images"
 
 
+def _is_safe_filename(filename: str) -> bool:
+    """Reject filenames that could escape the serving directory or
+    point at a different bucket prefix. Single check shared between
+    `local:` and `r2:` resolvers."""
+    return bool(filename) and "/" not in filename and "\\" not in filename and ".." not in filename
+
+
 def resolve_image_url(url: str) -> str:
-    """Expand `local:<filename>` → public URL. Pass through everything else.
+    """Expand a sentinel URL → public URL. Pass through everything else.
 
-    When `BACKEND_PUBLIC_URL` is empty the returned URL is the *relative*
-    path `/static/exercise-images/<filename>`. That's only useful in the
-    test client (which serves the same origin) — production must set
-    `BACKEND_PUBLIC_URL` because RN's native `<Image>` requires a
-    fully-qualified URI.
+    `r2:<filename>` → `${R2_PUBLIC_URL}/<filename>` when R2 is
+    configured. When R2 is NOT configured (dev / unconfigured prod)
+    the row is unresolvable and we return the empty string — the
+    client renders the broken-image fallback rather than an
+    accidentally-relative path.
 
-    `config.BACKEND_PUBLIC_URL` is read on each call (not closed over at
-    import time) so a test can `monkeypatch.setattr(config,
-    'BACKEND_PUBLIC_URL', '...')` without re-importing this module.
+    `local:<filename>` → `${BACKEND_PUBLIC_URL}/static/exercise-images/<filename>`.
+    Falsy `BACKEND_PUBLIC_URL` returns a relative path (test client
+    only — RN native rejects relative URIs in production).
 
     Path-traversal hardening: filenames containing `/`, `\\`, or `..`
     return empty string. The StaticFiles mount has its own subclass
-    guard (`_NoDotfilesStaticFiles`) but a malformed sentinel that
-    survives that gate could still produce surprising URLs (e.g. a
-    `local:../etc/passwd` rendering as a path the browser would
-    request). Single-user self-hosted = the only way bad sentinels
-    enter the DB is operator typo or a corrupted backfill, but the
-    cost of validation is one substring check.
+    guard but a malformed sentinel that survives that gate could still
+    produce surprising URLs.
+
+    `config.*` values are read on each call (not closed over at import
+    time) so tests can `monkeypatch.setattr(config, ...)` without
+    re-importing this module.
     """
-    if not url or not url.startswith(LOCAL_PREFIX):
+    if not url:
         return url
-    filename = url[len(LOCAL_PREFIX):]
-    if not filename or "/" in filename or "\\" in filename or ".." in filename:
-        return ""
-    return f"{config.BACKEND_PUBLIC_URL}{STATIC_PATH}/{filename}"
+    if url.startswith(R2_PREFIX):
+        filename = url[len(R2_PREFIX):]
+        if not _is_safe_filename(filename):
+            return ""
+        if not config.R2_PUBLIC_URL:
+            # Row references R2 but the deploy isn't configured for it.
+            # Returning empty surfaces as a broken image (visible) rather
+            # than silently routing to a relative path that 404s.
+            return ""
+        return f"{config.R2_PUBLIC_URL}/{filename}"
+    if url.startswith(LOCAL_PREFIX):
+        filename = url[len(LOCAL_PREFIX):]
+        if not _is_safe_filename(filename):
+            return ""
+        return f"{config.BACKEND_PUBLIC_URL}{STATIC_PATH}/{filename}"
+    return url
