@@ -15,11 +15,26 @@ name: Backup heartbeat
 # proved that "no signal" is the worst signal — the operator only
 # learns about it during an unrelated audit.
 #
-# This workflow polls daily for the age of the most recent
-# backup-neon.yml run. If the latest run is >36h old, it opens (or
+# This workflow polls daily for two independent freshness signals
+# on backup-neon.yml. If either is older than 36h, it opens (or
 # comments on) the same `[backup]` alert issue used by the publish +
-# drill workflows. 36h = 1.5x the 24h nightly cadence; gives one full
-# missed run before flagging, absorbs cron drift.
+# drill workflows.
+#
+#   1. Most recent SUCCESS run, any event. Catches "publish is
+#      firing but every run fails" — including the case where push
+#      events keep generating phantom failed runs that fooled the
+#      original single-dimension heartbeat into reporting healthy.
+#   2. Most recent SCHEDULE-event run. Catches "cron stopped firing
+#      altogether" without any masking from push or
+#      workflow_dispatch events.
+#
+# Either dimension going stale fires the alert. 36h = 1.5x the 24h
+# nightly cadence; gives one full missed run before flagging,
+# absorbs cron drift.
+#
+# History note: this two-dimensional design replaced the original
+# single-dimension (any-event age) check after the May 2026 outage,
+# when phantom push runs masked a 5-day cron silence. PR-X1.
 #
 # Limitation: this workflow is *itself* a scheduled cron, so a global
 # "disable scheduled workflows" event silences the heartbeat too. The
@@ -60,36 +75,77 @@ jobs:
           MAX_HOURS: 36
         run: |
           set -euo pipefail
-          # gh API: most recent run for backup-neon.yml. Includes both
-          # scheduled + workflow_dispatch triggers, so a manual run
-          # the operator did to recover from a failure counts toward
-          # freshness — exactly what we want.
-          LATEST=$(gh api "repos/$REPO/actions/workflows/backup-neon.yml/runs?per_page=1" \
-                   --jq '.workflow_runs[0] // empty')
-          if [ -z "$LATEST" ]; then
-            echo "::error::No runs found for backup-neon.yml. Workflow has never executed, was renamed, or was deleted." >&2
-            exit 1
-          fi
-          CREATED_AT=$(echo "$LATEST" | jq -r '.created_at')
-          STATUS=$(echo "$LATEST" | jq -r '.status')
-          CONCLUSION=$(echo "$LATEST" | jq -r '.conclusion // ""')
-          RUN_URL=$(echo "$LATEST" | jq -r '.html_url')
+          # Two-dimensional freshness check. The original heartbeat
+          # only compared "most recent run age" against MAX_HOURS,
+          # which silently misses two failure modes that combined
+          # to keep the operator blind during the May 2026 outage:
+          #
+          #   1. Phantom failed runs that GitHub creates on push for
+          #      workflows whose `on:` filter doesn't match. They
+          #      keep "most recent run" young and the original
+          #      heartbeat reports OK even though no green backup
+          #      ever lands. The fix: also check "most recent
+          #      SUCCESS" age.
+          #
+          #   2. Scheduled cron quietly stops firing (GitHub
+          #      scheduling drift / repo-inactivity disable / silent
+          #      workflow re-registration after edits). Push events
+          #      keep generating phantom runs that mask this. The
+          #      fix: also check "most recent SCHEDULE-event run"
+          #      age separately from any-event age.
+          #
+          # Either dimension going stale fires the alert. Together
+          # they're the "is the publish pipeline actually shipping
+          # off-site backups" question stated correctly.
           NOW_EPOCH=$(date -u +%s)
-          CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s)
-          AGE_HOURS=$(( (NOW_EPOCH - CREATED_EPOCH) / 3600 ))
-          echo "Latest backup-neon.yml run:"
-          echo "  created_at: $CREATED_AT"
-          echo "  status:     $STATUS"
-          echo "  conclusion: $CONCLUSION"
-          echo "  url:        $RUN_URL"
-          echo "  age:        ${AGE_HOURS}h"
-          echo "  threshold:  ${MAX_HOURS}h"
-          if [ "$AGE_HOURS" -gt "$MAX_HOURS" ]; then
-            echo "::error::Most recent backup-neon.yml run is ${AGE_HOURS}h old (>${MAX_HOURS}h)." >&2
-            echo "::error::Either cron stopped firing or the publish workflow is stuck/queued." >&2
+
+          # --- Dimension 1: most recent successful run, any event.
+          LATEST_GREEN=$(gh api "repos/$REPO/actions/workflows/backup-neon.yml/runs?per_page=30" \
+                         --jq '[.workflow_runs[] | select(.conclusion == "success")][0] // empty')
+
+          # --- Dimension 2: most recent SCHEDULE-event run.
+          # `event=schedule` filter excludes push / workflow_dispatch
+          # so a manual dispatch can't mask a stopped cron.
+          LATEST_SCHED=$(gh api "repos/$REPO/actions/workflows/backup-neon.yml/runs?per_page=5&event=schedule" \
+                         --jq '.workflow_runs[0] // empty')
+
+          fail=0
+
+          if [ -z "$LATEST_GREEN" ]; then
+            echo "::error::No SUCCESSFUL backup-neon.yml run found in the last 30 runs. Publish has been failing." >&2
+            fail=1
+          else
+            GREEN_AT=$(echo "$LATEST_GREEN" | jq -r '.created_at')
+            GREEN_EPOCH=$(date -u -d "$GREEN_AT" +%s)
+            GREEN_AGE=$(( (NOW_EPOCH - GREEN_EPOCH) / 3600 ))
+            GREEN_URL=$(echo "$LATEST_GREEN" | jq -r '.html_url')
+            echo "Latest green run: $GREEN_AT (${GREEN_AGE}h ago)  $GREEN_URL"
+            if [ "$GREEN_AGE" -gt "$MAX_HOURS" ]; then
+              echo "::error::Latest successful backup is ${GREEN_AGE}h old (>${MAX_HOURS}h)." >&2
+              fail=1
+            fi
+          fi
+
+          if [ -z "$LATEST_SCHED" ]; then
+            echo "::error::No SCHEDULE-triggered backup-neon.yml run found. Cron has never fired or was disabled." >&2
+            fail=1
+          else
+            SCHED_AT=$(echo "$LATEST_SCHED" | jq -r '.created_at')
+            SCHED_EPOCH=$(date -u -d "$SCHED_AT" +%s)
+            SCHED_AGE=$(( (NOW_EPOCH - SCHED_EPOCH) / 3600 ))
+            SCHED_CONCL=$(echo "$LATEST_SCHED" | jq -r '.conclusion // ""')
+            SCHED_URL=$(echo "$LATEST_SCHED" | jq -r '.html_url')
+            echo "Latest schedule run: $SCHED_AT (${SCHED_AGE}h ago, conclusion=$SCHED_CONCL)  $SCHED_URL"
+            if [ "$SCHED_AGE" -gt "$MAX_HOURS" ]; then
+              echo "::error::Latest schedule-triggered run is ${SCHED_AGE}h old (>${MAX_HOURS}h). Cron stopped firing." >&2
+              fail=1
+            fi
+          fi
+
+          if [ "$fail" -ne 0 ]; then
             exit 1
           fi
-          echo "Heartbeat OK."
+          echo "Heartbeat OK — last green run within ${MAX_HOURS}h AND last scheduled run within ${MAX_HOURS}h."
 
       - name: Open or update failure issue
         # Same dedup pattern + same issue title as the publish + drill
@@ -110,7 +166,7 @@ jobs:
           FAILED_STEP=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
               --jq '[.jobs[].steps[]? | select(.conclusion == "failure")][0].name // "unknown"' \
               2>/dev/null || echo "unknown")
-          COMMENT="Heartbeat tripped — most recent backup-neon.yml run is too old. $RUN_URL  (UTC $NOW)
+          COMMENT="Heartbeat tripped — backup-neon.yml is failing one of: most-recent-green age OR most-recent-schedule age. $RUN_URL  (UTC $NOW)
           Failed step: \`$FAILED_STEP\`"
           EXISTING=$(gh issue list \
               --state open \
@@ -123,11 +179,18 @@ jobs:
           else
             echo "Opening new alert issue"
             BODY=$(cat <<EOF
-          The nightly backup heartbeat tripped — the most recent
-          \`backup-neon.yml\` run is more than 36 hours old. None of
-          the other backup safety nets catch this case (they only
-          fire when the publish or drill workflow runs and then
-          fails; "didn't run at all" is silent).
+          The nightly backup heartbeat tripped — \`backup-neon.yml\`
+          is failing one of two independent freshness checks:
+
+          1. **No successful run in 36h** — publish has been red for
+             a full cycle. Backups aren't landing in Releases or R2
+             even if the workflow itself is firing.
+          2. **No schedule-triggered run in 36h** — cron has stopped
+             firing. The publish workflow might still appear "active"
+             via push or workflow_dispatch events, but the daily
+             schedule isn't running. This is the failure mode that
+             the original heartbeat (single-dimension age check)
+             silently missed.
 
           $COMMENT
 
@@ -140,9 +203,18 @@ jobs:
           - The workflow file was edited in a way that prevents
             scheduling (rare; usually surfaces on push). \`git log
             -p .github/workflows/backup-neon.yml\` to inspect.
+          - Publish step itself failing — open the latest red run
+            and read the first \`::error::\` line. Most common: PG
+            client/server major mismatch (bump \`postgresql-client-N\`
+            in BOTH publish + drill workflows; see PR #136 + the
+            workflow-lint guard).
+          - Readonly Neon role lost \`SELECT\` grants on a critical
+            table. Re-grant: \`GRANT SELECT ON ALL TABLES IN SCHEMA
+            public TO backup\`.
 
-          **Close this issue** once a fresh \`backup-neon.yml\` run
-          lands (manual dispatch is fine). The next heartbeat run
+          **Close this issue** once a fresh GREEN \`backup-neon.yml\`
+          schedule-triggered run lands (manual dispatch alone is no
+          longer sufficient — schedule must fire). The next heartbeat
           will silently pass.
           EOF
           )

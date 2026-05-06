@@ -156,6 +156,30 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   for 4 days. The build-stamp diagnostic is what finally broke the
   misdiagnosis pattern; treat it as the first question for any
   user-reported "doesn't work" report.
+- **NEVER reference `secrets.X` directly in a GitHub Actions `if:`**
+  clause (job-level OR step-level). GitHub rejects this with
+  "Unrecognized named-value: 'secrets'" and fails the ENTIRE
+  workflow file at registration. The blast radius isn't just the
+  one step — every event (push, pull_request, schedule,
+  workflow_dispatch) produces a 0s phantom failure run, and the
+  cron silently stops firing. PR-X2 is the canonical fix:
+  materialize the secret in `env:`, then gate via bash inside
+  `run:`:
+  ```yaml
+  env:
+    R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+  run: |
+    if [ -z "${R2_ENDPOINT:-}" ]; then
+      echo "R2 not configured — skipping"; exit 0
+    fi
+    # ...
+  ```
+  Rejected: `if: ${{ secrets.R2_ENDPOINT != '' }}`. Same trap
+  applies to `vars.X` in `if:` (use `env.X` instead, after
+  materializing). The May 2026 backup-pipeline outage was this
+  exact mode — registration broke May 4 when the R2 mirror step
+  shipped, and the heartbeat single-dimension check (since
+  hardened in PR-X1) hid it for two days.
 - **`fly.toml release_command` MUST be wrapped in `sh -c '...'`**
   for any multi-command chain. Fly tokenizes via shlex and execs
   directly without an implicit shell — `&&`, `|`, `;` etc. become
@@ -172,7 +196,7 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   |---|---|---|
   | `backup-neon.yml` | Daily 07:00 UTC | Publish dump → GH Release (+ optional R2 mirror) + `schema_state.txt` sidecar |
   | `backup-restore-drill.yml` | Weekly Mon 09:00 UTC | Decrypt + restore into PG 17 container, assert critical tables non-empty (catches "dump exists but is a brick") |
-  | `backup-heartbeat.yml` | Daily 12:00 UTC | Polls publish workflow age — alerts if last run >36h old (catches "cron stopped firing") |
+  | `backup-heartbeat.yml` | Daily 12:00 UTC | Two-dimensional check (PR-X1): alerts if (a) most recent SUCCESS run >36h old OR (b) most recent SCHEDULE-event run >36h old. Catches both "publish keeps failing" and "cron stopped firing." Single-dimension age check was insufficient — phantom push-event failed runs masked a 5-day cron silence in May 2026. |
 
   All three open / comment on a single `[backup] Nightly Neon
   backup is failing` issue. **That issue thread is the operator's

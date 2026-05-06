@@ -277,19 +277,25 @@ jobs:
         # S3-compatible endpoint works) decouples those failure
         # modes for ~$0/mo at this DB size.
         #
-        # Gating: the `if:` condition checks the secret directly
-        # so the step doesn't even start when R2 isn't
-        # configured. This keeps the GitHub Actions UI clean —
-        # operators see "skipped" instead of "succeeded with
-        # nothing happened" when the operator hasn't opted in.
-        # When the operator IS partially configured (endpoint
-        # set but other secrets missing) the run script fails
-        # loudly: partial config is a worse failure mode than
-        # none, since it looks like mirroring is happening when
-        # it isn't.
-        if: ${{ secrets.R2_ENDPOINT != '' }}
+        # Gating MUST live in the bash script, NOT in `if: ${{
+        # secrets.R2_ENDPOINT != '' }}`. GitHub Actions rejects
+        # `secrets.X` in step-level `if:` with the registration
+        # error "Unrecognized named-value: 'secrets'", which
+        # causes the ENTIRE workflow file to fail to register
+        # and produces 0s phantom failures on every event. The
+        # blast radius isn't just this step — it's "the whole
+        # nightly backup pipeline silently stops." See PR-X2 +
+        # CLAUDE.md backup section. When the operator IS
+        # partially configured (endpoint set but other secrets
+        # missing) the script fails loudly below: partial config
+        # is a worse failure mode than none, since it looks like
+        # mirroring is happening when it isn't.
         run: |
           set -euo pipefail
+          if [ -z "${R2_ENDPOINT:-}" ]; then
+            echo "R2_ENDPOINT not configured — skipping R2 mirror (this is the silent no-op opt-in path, see workflow comments)."
+            exit 0
+          fi
           for var in R2_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
             if [ -z "${!var:-}" ]; then
               echo "::error::R2_ENDPOINT is set but $var is missing — partial config." >&2

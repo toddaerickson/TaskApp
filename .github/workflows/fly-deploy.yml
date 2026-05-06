@@ -51,13 +51,20 @@ jobs:
         #   SNAPSHOT_AUTH_TOKEN  — same value already on Fly + used by
         #                          backup-neon.yml + image-smoke.yml
         # Silent no-op when either is unset, so this ships safely
-        # without operator pre-config.
-        if: ${{ secrets.FLY_PUBLIC_URL != '' && secrets.SNAPSHOT_AUTH_TOKEN != '' }}
+        # without operator pre-config. Gating lives in the bash
+        # script — `if: ${{ secrets.X != '' }}` at the step level
+        # is rejected by GitHub Actions ("Unrecognized named-value:
+        # 'secrets'") and would brick the entire deploy workflow.
+        # See PR-X2 + CLAUDE.md backup section.
         env:
           FLY_PUBLIC_URL: ${{ secrets.FLY_PUBLIC_URL }}
           SNAPSHOT_AUTH_TOKEN: ${{ secrets.SNAPSHOT_AUTH_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${FLY_PUBLIC_URL:-}" ] || [ -z "${SNAPSHOT_AUTH_TOKEN:-}" ]; then
+            echo "FLY_PUBLIC_URL or SNAPSHOT_AUTH_TOKEN not configured — skipping post-deploy smoke."
+            exit 0
+          fi
           URL="${FLY_PUBLIC_URL%/}/health/detailed"
           for attempt in 1 2 3; do
             echo "Attempt $attempt: GET $URL"
