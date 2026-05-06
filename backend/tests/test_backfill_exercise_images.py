@@ -417,3 +417,175 @@ def test_is_inside_git_work_tree_finds_dot_git(tmp_path):
 
 def test_is_inside_git_work_tree_missing(tmp_path):
     assert bf.is_inside_git_work_tree(tmp_path) is False
+
+
+# ---------- R2 storage mode (PR-A2c) ----------
+# When --storage=r2, backfill_one uploads via R2Storage.put_object
+# instead of writing to disk, and rewrites the row to r2:<sha>.<ext>.
+# Reuses the same download/dedup/SSRF logic.
+
+def test_backfill_one_r2_mode_uploads_and_rewrites_row(
+    client, seeded_globals, tmp_path, monkeypatch,
+):
+    """Happy path: r2 mode downloads bytes via download_image, calls
+    R2Storage.put_object(filename, body, mime), and UPDATEs the row to
+    r2:<sha>.<ext>."""
+    from unittest.mock import MagicMock
+    from app.database import get_db
+
+    monkeypatch.setattr(
+        bf, "download_image",
+        lambda url, max_bytes, timeout: (b"bytes", "image/png"),
+    )
+
+    fake_r2 = MagicMock()
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "https://example.com/foo.png", 0, "h"),
+        )
+        img_id = cur.lastrowid
+        cur.execute("SELECT id, url FROM exercise_images WHERE id = ?", (img_id,))
+        outcome = bf.backfill_one(
+            cur, cur.fetchone(), tmp_path,
+            dry_run=False, max_bytes=1024, timeout=1,
+            allow_private_hosts=True,
+            storage="r2", r2_client=fake_r2,
+        )
+    assert outcome.status == "ok"
+    assert outcome.new_url.startswith("r2:")
+    assert outcome.new_url.endswith(".png")
+    fake_r2.put_object.assert_called_once()
+    args = fake_r2.put_object.call_args
+    # Filename, body, mime
+    assert args.args[1] == b"bytes"
+    assert args.args[2] == "image/png"
+    # The DB row got the new url
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT url FROM exercise_images WHERE id = ?", (img_id,))
+        assert cur.fetchone()["url"] == outcome.new_url
+
+
+def test_backfill_one_r2_mode_skips_already_r2_prefixed(
+    client, seeded_globals, tmp_path,
+):
+    """A row already at r2:<sha>.<ext> is skipped — the script is
+    idempotent across reruns."""
+    from app.database import get_db
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "r2:abc.png", 0, "h"),
+        )
+        img_id = cur.lastrowid
+        cur.execute("SELECT id, url FROM exercise_images WHERE id = ?", (img_id,))
+        outcome = bf.backfill_one(
+            cur, cur.fetchone(), tmp_path,
+            dry_run=False, max_bytes=1024, timeout=1,
+            storage="r2", r2_client=None,  # never reached on skip
+        )
+    assert outcome.status == "skip"
+    assert "already self-hosted" in outcome.detail
+
+
+def test_backfill_one_r2_mode_dry_run_does_not_call_r2(
+    client, seeded_globals, tmp_path, monkeypatch,
+):
+    from unittest.mock import MagicMock
+    from app.database import get_db
+
+    monkeypatch.setattr(
+        bf, "download_image",
+        lambda url, max_bytes, timeout: (b"bytes", "image/jpeg"),
+    )
+    fake_r2 = MagicMock()
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "https://example.com/x.jpg", 0, "h"),
+        )
+        img_id = cur.lastrowid
+        cur.execute("SELECT id, url FROM exercise_images WHERE id = ?", (img_id,))
+        outcome = bf.backfill_one(
+            cur, cur.fetchone(), tmp_path,
+            dry_run=True, max_bytes=1024, timeout=1,
+            allow_private_hosts=True,
+            storage="r2", r2_client=fake_r2,
+        )
+    assert outcome.status == "ok"
+    assert outcome.detail == "dry-run"
+    fake_r2.put_object.assert_not_called()
+
+
+def test_backfill_one_r2_mode_fails_when_r2_client_missing(
+    client, seeded_globals, tmp_path, monkeypatch,
+):
+    """Defensive check — never crash with AttributeError if the
+    caller forgets to construct the client."""
+    from app.database import get_db
+    monkeypatch.setattr(
+        bf, "download_image",
+        lambda url, max_bytes, timeout: (b"bytes", "image/jpeg"),
+    )
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "https://example.com/x.jpg", 0, "h"),
+        )
+        img_id = cur.lastrowid
+        cur.execute("SELECT id, url FROM exercise_images WHERE id = ?", (img_id,))
+        outcome = bf.backfill_one(
+            cur, cur.fetchone(), tmp_path,
+            dry_run=False, max_bytes=1024, timeout=1,
+            allow_private_hosts=True,
+            storage="r2", r2_client=None,
+        )
+    assert outcome.status == "fail"
+    assert "r2_client" in outcome.detail
+
+
+def test_backfill_one_r2_mode_propagates_upload_failure(
+    client, seeded_globals, tmp_path, monkeypatch,
+):
+    """R2 put_object failure → row marked failed, original https: URL
+    preserved (no half-migration)."""
+    from unittest.mock import MagicMock
+    from app.database import get_db
+
+    monkeypatch.setattr(
+        bf, "download_image",
+        lambda url, max_bytes, timeout: (b"bytes", "image/jpeg"),
+    )
+    fake_r2 = MagicMock()
+    fake_r2.put_object.side_effect = RuntimeError("bucket unreachable")
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "https://example.com/x.jpg", 0, "h"),
+        )
+        img_id = cur.lastrowid
+        cur.execute("SELECT id, url FROM exercise_images WHERE id = ?", (img_id,))
+        outcome = bf.backfill_one(
+            cur, cur.fetchone(), tmp_path,
+            dry_run=False, max_bytes=1024, timeout=1,
+            allow_private_hosts=True,
+            storage="r2", r2_client=fake_r2,
+        )
+    assert outcome.status == "fail"
+    assert "R2 upload failed" in outcome.detail
+    # Row preserved at original URL
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT url FROM exercise_images WHERE id = ?", (img_id,))
+        assert cur.fetchone()["url"] == "https://example.com/x.jpg"
