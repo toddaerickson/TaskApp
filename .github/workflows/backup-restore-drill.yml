@@ -83,6 +83,9 @@ jobs:
         # PG 16 can sometimes restore PG 17 dumps but the version
         # check in pg_dump is strict; mirror the pin so dump and
         # restore use the same binary major.
+        #
+        # GITHUB_PATH prefix: see backup-neon.yml for why. Same
+        # Ubuntu 24.04 + pgdg packaging quirk; same fix. PR-X3.
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -94,6 +97,7 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Verify pg_restore version
         run: |
