@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { spacing, type as ftype, radii, shadow, minHitTarget } from '@/lib/theme';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, TextInput, Platform,
+  View, Text, FlatList, Pressable, StyleSheet, TextInput, Platform, Alert,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,8 @@ import { MissedRemindersBanner } from '@/components/MissedRemindersBanner';
 import SortPopover, { SortLevel } from '@/components/SortPopover';
 import { Chip, ChipStrip } from '@/components/Chip';
 import { Sheet } from '@/components/Sheet';
+import { MoveToSheet } from '@/components/MoveToSheet';
+import { goalOptions } from '@/lib/moveToOptions';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { formatRel } from '@/lib/format';
@@ -158,6 +160,12 @@ export default function WorkoutsScreen() {
   // Reminder sheet: null when closed, the target routine when open. Kept
   // here (not per-card) so exactly one sheet can be open at a time.
   const [reminderTarget, setReminderTarget] = useState<Routine | null>(null);
+
+  // "Move to..." sheet target. Same single-instance pattern as the
+  // reminder sheet. Drives the WCAG 2.5.7 non-drag alternative for
+  // changing a routine's goal — drag-and-drop ships in PR-D6 as a
+  // convenience layer on top of this baseline (PR-D1 plan review).
+  const [moveTarget, setMoveTarget] = useState<Routine | null>(null);
 
   // Refetch every time the tab regains focus. `useEffect([])` only fires
   // on mount, which meant mutations to a routine from the detail screen
@@ -527,6 +535,18 @@ export default function WorkoutsScreen() {
                     color={scheduled ? colors.warning : '#999'}
                   />
                 </Pressable>
+                <Pressable
+                  // Same e.stopPropagation pattern as the alarm
+                  // button — opens the "Move to..." sheet instead
+                  // of navigating to the routine detail.
+                  onPress={(e) => { e.stopPropagation(); setMoveTarget(r); }}
+                  style={styles.alarmBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Move ${r.name} to a different goal`}
+                  hitSlop={8}
+                >
+                  <Ionicons name="swap-horizontal-outline" size={20} color="#999" />
+                </Pressable>
                 <Ionicons name="chevron-forward" size={20} color="#bbb" />
               </Pressable>
             );
@@ -658,6 +678,42 @@ export default function WorkoutsScreen() {
           routine={reminderTarget}
           onClose={() => setReminderTarget(null)}
           onSaved={loadRoutines}
+        />
+      )}
+
+      {moveTarget && (
+        <MoveToSheet<string>
+          visible
+          onClose={() => setMoveTarget(null)}
+          title={`Move "${moveTarget.name}" to`}
+          options={goalOptions()}
+          currentValue={moveTarget.goal}
+          onSelect={async (newGoal) => {
+            // Send the snapshot timestamp so the server can 409 us if
+            // someone else has updated this routine since we loaded
+            // (PR-D0). On 409, refetch + surface the conflict so the
+            // operator can re-decide. Other errors propagate to
+            // MoveToSheet's catch which clears the busy state.
+            try {
+              await api.updateRoutine(moveTarget.id, {
+                goal: newGoal,
+                expected_updated_at: moveTarget.updated_at ?? undefined,
+              });
+              await loadRoutines();
+            } catch (e: any) {
+              const status = e?.response?.status;
+              if (status === 409) {
+                await loadRoutines();
+                Alert.alert(
+                  'Routine changed',
+                  `${moveTarget.name} was updated elsewhere. The list has been refreshed; try again.`,
+                );
+                return;
+              }
+              Alert.alert('Move failed', describeApiError(e));
+              throw e;  // re-throw so MoveToSheet doesn't auto-close on error
+            }
+          }}
         />
       )}
     </View>
