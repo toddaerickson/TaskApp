@@ -180,6 +180,26 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   exact mode — registration broke May 4 when the R2 mirror step
   shipped, and the heartbeat single-dimension check (since
   hardened in PR-X1) hid it for two days.
+- **Pinning `postgresql-client-N` is not enough — also prepend
+  `/usr/lib/postgresql/N/bin` to `GITHUB_PATH`.** Ubuntu 24.04
+  runners install `postgresql-client-N` from pgdg alongside the
+  default `postgresql-client-16`, but `/usr/bin/pg_dump` is the
+  pg_wrapper, which on a multi-major install picks the OLDER
+  major (the "default cluster"). The pinned client is on disk
+  but not the binary that actually runs. Without the PATH
+  prefix, pg_dump silently runs as v16 against a v17 Neon
+  server and aborts with `server version mismatch`. PR-X3 is
+  the canonical fix shape — single-line addition at the end of
+  the install step:
+  ```bash
+  sudo apt-get install -y --no-install-recommends postgresql-client-17
+  echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+  ```
+  Both `backup-neon.yml` and `backup-restore-drill.yml` carry
+  this; when Neon majors-upgrade, BOTH the apt pin AND this
+  PATH literal must move together (in addition to the parity
+  guard from `workflow-lint.yml`). The `Verify pg_dump version`
+  step is the canary that catches a regression here.
 - **`fly.toml release_command` MUST be wrapped in `sh -c '...'`**
   for any multi-command chain. Fly tokenizes via shlex and execs
   directly without an implicit shell — `&&`, `|`, `;` etc. become
