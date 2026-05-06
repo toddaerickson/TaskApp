@@ -270,6 +270,71 @@ Caveats:
 
 ---
 
+## 4.5 Optional: Cloudflare R2 image storage (PR-A2 sequence)
+
+When you outgrow `seed_data/exercise_images/`-in-git (around 50+ images
+or when image churn starts bloating the repo), move bytes to R2.
+Backend already supports this — flip the secrets and it switches at
+the next request, no redeploy needed.
+
+### One-time setup
+
+1. **Create R2 bucket** at <https://dash.cloudflare.com> → R2 → Create bucket
+   - Name: `taskapp-exercise-images` (or whatever — the bucket name
+     here is **separate** from the optional `R2_BUCKET` used by
+     `backup-neon.yml` for DB dumps; use different buckets so a
+     misconfigured policy on one can't compromise the other).
+   - Settings → Public access → enable, generate the
+     `pub-<hash>.r2.dev` URL OR attach a custom domain.
+
+2. **Generate R2 API token** at R2 → Manage R2 API Tokens → Create
+   token. Permissions: `Object Read & Write`. Specify bucket. Save
+   the Access Key ID + Secret.
+
+3. **Set Fly secrets** so the running backend can find the bucket:
+   ```bash
+   fly secrets set \
+     R2_ACCOUNT_ID='<account-id>' \
+     R2_ACCESS_KEY_ID='<access-key-id>' \
+     R2_SECRET_ACCESS_KEY='<secret>' \
+     R2_BUCKET='taskapp-exercise-images' \
+     R2_PUBLIC_URL='https://pub-<hash>.r2.dev'
+   ```
+   `app/config.py` checks all five via `r2_configured()`. Missing any
+   one → backend silently keeps the legacy URL-passthrough behavior
+   (safe — uploads still work, just store `https:` URLs).
+
+4. **Backfill existing https: rows** to R2:
+   ```bash
+   cd backend
+   # Dry-run first to see which rows would migrate.
+   venv/bin/python scripts/backfill_exercise_images.py --storage=r2
+   # Apply — uploads bytes + UPDATEs DB rows to r2:<sha>.<ext>
+   venv/bin/python scripts/backfill_exercise_images.py --storage=r2 --apply
+   ```
+   Idempotent — reruns skip already-migrated rows. Run with the same
+   `R2_*` env vars exported (e.g. `eval $(fly secrets list ...)` or
+   set them locally for the run).
+
+### Optional: image-smoke CI workflow
+
+`.github/workflows/image-smoke.yml` runs daily at 12:00 UTC and
+HEAD-checks a sample of the resolved image URLs. Catches silent rot
+(R2 lifecycle deleted objects, public URL rotated, etc.). Opens a
+GitHub issue thread on failure (same dedup pattern as
+`backup-neon.yml`).
+
+To enable, set two repo secrets at
+<https://github.com/toddaerickson/TaskApp/settings/secrets/actions>:
+- `SMOKE_BACKEND_URL`   = `https://taskapp-workout.fly.dev`
+- `SNAPSHOT_AUTH_TOKEN` = same value already on Fly (the token gates
+  `/admin/snapshot` and now `/admin/sample-image-urls`)
+
+When `SMOKE_BACKEND_URL` is unset, the workflow is a silent no-op.
+Safe to merge before R2 is provisioned.
+
+---
+
 ## 5. Optional: TestFlight for native iOS
 
 When the web version feels good enough to upgrade:

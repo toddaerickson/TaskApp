@@ -18,6 +18,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
+from app.image_urls import resolve_image_url
 from app.snapshot import build_snapshot
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -68,3 +69,55 @@ def snapshot(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/sample-image-urls")
+def sample_image_urls(
+    authorization: Optional[str] = Header(default=None),
+    n: int = Query(default=20, ge=1, le=200),
+):
+    """Return up to `n` resolved image URLs for the smoke-test
+    workflow (CI #1).
+
+    Authenticated by the same `SNAPSHOT_AUTH_TOKEN` shared secret as
+    `/admin/snapshot` — gating prevents the endpoint from being a
+    free row-listing for the public.
+
+    Sampling: prefers self-hosted (`local:` / `r2:`) rows because
+    those are the ones the smoke test is designed to catch rotting.
+    Random across the full table when not enough self-hosted rows
+    exist (e.g. before backfill runs). Returns the resolved public
+    URL for each row, not the raw sentinel — the workflow can HEAD
+    each one directly without needing to know the resolver rules.
+    """
+    _require_snapshot_token(authorization)
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        # Prefer self-hosted rows. Random sampling is dialect-portable
+        # via ORDER BY RANDOM() (SQLite) / RANDOM() (PG — same name).
+        cur.execute(
+            "SELECT url FROM exercise_images "
+            "WHERE url LIKE 'local:%' OR url LIKE 'r2:%' "
+            "ORDER BY RANDOM() LIMIT ?",
+            (n,),
+        )
+        rows = [r["url"] for r in cur.fetchall()]
+        # If we don't have enough self-hosted rows yet, top up with
+        # https: rows so the smoke test still has a meaningful
+        # sample during the migration window.
+        if len(rows) < n:
+            cur.execute(
+                "SELECT url FROM exercise_images "
+                "WHERE url NOT LIKE 'local:%' AND url NOT LIKE 'r2:%' "
+                "ORDER BY RANDOM() LIMIT ?",
+                (n - len(rows),),
+            )
+            rows.extend(r["url"] for r in cur.fetchall())
+
+    # Resolve to public URLs so the caller doesn't need to know the
+    # sentinel scheme. Drop empties (resolver returns "" for malformed
+    # sentinels — those are bugs the smoke test SHOULD see, but as
+    # 404s on a fetch attempt rather than as JSON nulls).
+    resolved = [u for u in (resolve_image_url(r) for r in rows) if u]
+    return {"urls": resolved}

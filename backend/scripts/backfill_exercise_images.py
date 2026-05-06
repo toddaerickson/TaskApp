@@ -1,34 +1,41 @@
 """
-CLI: backfill exercise images by downloading remote URLs into the
-`backend/seed_data/exercise_images/` directory and rewriting the rows'
-`url` column to the `local:<bytes_hash>.<ext>` sentinel.
+CLI: backfill exercise images by downloading remote URLs and rewriting
+the rows' `url` column to a self-hosted sentinel — either
+`local:<bytes_hash>.<ext>` (legacy, bytes in `seed_data/exercise_images/`)
+or `r2:<bytes_hash>.<ext>` (PR-A2c, bytes in the Cloudflare R2 bucket).
 
-After this runs successfully, every backfilled row's image renders out
-of FastAPI's `/static/exercise-images` mount instead of whatever CDN
-happened to host it last week. Operator runs the script LOCALLY (in a
-git work tree), then `git add seed_data/exercise_images && git commit
-&& deploy` so the bytes ship with the next image.
+After this runs successfully against the live DB, every backfilled
+row resolves through the configured storage backend instead of
+whatever CDN happened to host it last week.
 
 Usage:
+    # Legacy local-bytes mode (default — operator runs locally, then
+    # `git add seed_data/exercise_images && git commit && deploy`):
     venv/bin/python scripts/backfill_exercise_images.py             # dry-run
-    venv/bin/python scripts/backfill_exercise_images.py --apply     # actually mutate
-    venv/bin/python scripts/backfill_exercise_images.py --apply --max 5
+    venv/bin/python scripts/backfill_exercise_images.py --apply
 
-Refuses `--apply` unless the resolved `--image-dir` lives inside a git
-work tree (heuristic: a `.git` directory exists at or above it). This
-keeps an `fly ssh console && python scripts/backfill_exercise_images.py
---apply` from silently bricking every image — Fly's container FS is
-ephemeral, the bytes vanish on next deploy, and the DB rewrite (Neon,
-persistent) leaves every URL pointing at nothing. Use `--no-git-check`
-for unusual setups.
+    # R2 mode (operator runs anywhere with R2_* env set):
+    venv/bin/python scripts/backfill_exercise_images.py --storage=r2 --apply
 
-The script is idempotent: rerunning re-downloads only the URLs not yet
-self-hosted, and a duplicate (exercise, content_hash) wouldn't be created
-by the loop because it only ever updates the `url` column on existing
-rows — never INSERTs.
+Storage modes:
 
-Pipe through `tee` to capture the per-row log if you want a record of
-which URLs went where.
+  - **local** (default) — writes bytes to `--image-dir` (default
+    `backend/seed_data/exercise_images/`); rewrites `url` column to
+    `local:<sha>.<ext>`. Refuses `--apply` unless the dir lives in a
+    git work tree (Fly's container FS is ephemeral; bytes vanish on
+    deploy while the DB write persists). Override with `--no-git-check`.
+
+  - **r2** — uploads bytes to the R2 bucket via the `R2Storage`
+    wrapper from PR-A2a; rewrites `url` column to `r2:<sha>.<ext>`.
+    Requires `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+    `R2_BUCKET`, `R2_PUBLIC_URL` env vars. No git-work-tree check —
+    R2 is durable. Uses the same SSRF-safe `app.image_download`
+    module as the runtime upload path (PR-A2b).
+
+The script is idempotent: rerunning skips rows that are already
+self-hosted (`local:` or `r2:` prefix). A duplicate (exercise,
+content_hash) wouldn't be created by the loop because it only ever
+UPDATEs `url` — never INSERTs.
 """
 import argparse
 import hashlib
@@ -47,7 +54,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.database import get_db  # noqa: E402
-from app.image_urls import LOCAL_PREFIX  # noqa: E402
+from app.image_urls import LOCAL_PREFIX, R2_PREFIX  # noqa: E402
 
 
 # Conservative cap. The biggest exercise demo we've seen is ~600 KB; 5 MB
@@ -198,13 +205,21 @@ def backfill_one(
     max_bytes: int,
     timeout: float,
     allow_private_hosts: bool = False,
+    storage: str = "local",
+    r2_client=None,
 ) -> RowOutcome:
     """Process one image row. Skips already-self-hosted rows + unsupported
-    content types + private/loopback hosts. Writes bytes to disk + UPDATEs
-    the `url` column when not dry-run."""
+    content types + private/loopback hosts. Writes bytes to the selected
+    storage backend + UPDATEs the `url` column when not dry-run.
+
+    `storage`: "local" (writes to image_dir) or "r2" (uploads via
+    `r2_client.put_object`). The latter requires `r2_client` to be the
+    constructed `R2Storage` instance — caller's responsibility, not
+    constructed per-row to reuse the underlying connection pool.
+    """
     url = row["url"] or ""
     image_id = row["id"]
-    if url.startswith(LOCAL_PREFIX):
+    if url.startswith(LOCAL_PREFIX) or url.startswith(R2_PREFIX):
         return RowOutcome(image_id, url, "skip", "already self-hosted")
     if not (url.startswith("http://") or url.startswith("https://")):
         return RowOutcome(image_id, url, "skip", "not an http(s) URL")
@@ -233,19 +248,35 @@ def backfill_one(
         return RowOutcome(image_id, url, "fail", f"unsupported content-type: {content_type!r}")
 
     filename = compute_filename(body, ext)
-    new_url = f"{LOCAL_PREFIX}{filename}"
-    target = image_dir / filename
+    if storage == "r2":
+        new_url = f"{R2_PREFIX}{filename}"
+    else:
+        new_url = f"{LOCAL_PREFIX}{filename}"
 
     if dry_run:
         return RowOutcome(image_id, url, "ok", "dry-run", new_url=new_url, bytes_written=len(body))
 
-    # Don't rewrite an existing file with the same name (same bytes →
-    # same hash → identical content). Saves a write + makes reruns cheap.
-    if not target.exists():
-        target.write_bytes(body)
+    if storage == "r2":
+        if r2_client is None:
+            return RowOutcome(image_id, url, "fail", "r2_client not provided")
+        try:
+            # Idempotent at the bucket level — same content_hash key
+            # means same bytes (sha256). put_object overwrites silently
+            # so reruns are safe.
+            mime = (content_type or "").split(";", 1)[0].strip().lower() or "application/octet-stream"
+            r2_client.put_object(filename, body, mime)
+        except Exception as e:  # noqa: BLE001
+            return RowOutcome(image_id, url, "fail", f"R2 upload failed: {e}")
+    else:
+        target = image_dir / filename
+        # Don't rewrite an existing file with the same name (same bytes →
+        # same hash → identical content). Saves a write + makes reruns cheap.
+        if not target.exists():
+            target.write_bytes(body)
 
     cur.execute("UPDATE exercise_images SET url = ? WHERE id = ?", (new_url, image_id))
-    return RowOutcome(image_id, url, "ok", "downloaded", new_url=new_url, bytes_written=len(body))
+    detail = "uploaded to R2" if storage == "r2" else "downloaded"
+    return RowOutcome(image_id, url, "ok", detail, new_url=new_url, bytes_written=len(body))
 
 
 def backfill_all(
@@ -258,6 +289,8 @@ def backfill_all(
     timeout: float,
     allow_private_hosts: bool = False,
     conn=None,
+    storage: str = "local",
+    r2_client=None,
 ) -> list[RowOutcome]:
     """Iterate every exercise_images row and call backfill_one. Bounded
     by `max_rows` for safety so a misconfigured run stops early instead
@@ -265,8 +298,9 @@ def backfill_all(
 
     Commits per row when `conn` is supplied + not dry-run, so a failure
     on row N preserves rewrites of rows 1..N-1 instead of rolling them
-    all back. The on-disk file is content-addressed and idempotent on
-    rerun; the DB UPDATE is the side-effect we don't want to lose."""
+    all back. The bytes are content-addressed and idempotent on rerun;
+    the DB UPDATE is the side-effect we don't want to lose.
+    """
     cur.execute("SELECT id, url FROM exercise_images ORDER BY id ASC")
     rows = cur.fetchall()
     out: list[RowOutcome] = []
@@ -277,6 +311,7 @@ def backfill_all(
             cur, row, image_dir,
             dry_run=dry_run, max_bytes=max_bytes, timeout=timeout,
             allow_private_hosts=allow_private_hosts,
+            storage=storage, r2_client=r2_client,
         )
         out.append(outcome)
         if conn is not None and not dry_run and outcome.status == "ok":
@@ -290,6 +325,11 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--apply", action="store_true",
                    help="Actually download bytes + UPDATE rows. Default is dry-run.")
+    p.add_argument("--storage", choices=("local", "r2"), default="local",
+                   help="Where to store the bytes. 'local' (default) writes to "
+                        "--image-dir and rewrites rows to local: sentinel. 'r2' "
+                        "uploads via R2Storage and rewrites to r2: sentinel; "
+                        "requires R2_* env vars to be set.")
     p.add_argument("--max", type=int, default=None, dest="max_rows",
                    help="Cap how many rows to process (per run). Useful for testing.")
     p.add_argument("--max-bytes", type=int, default=MAX_BYTES_DEFAULT,
@@ -297,19 +337,28 @@ def main() -> int:
     p.add_argument("--timeout", type=float, default=TIMEOUT_DEFAULT,
                    help=f"Per-request timeout in seconds. Default: {TIMEOUT_DEFAULT}.")
     p.add_argument("--image-dir", default=str(ROOT / "seed_data" / "exercise_images"),
-                   help="Directory to write image bytes into.")
+                   help="Directory to write image bytes into (storage=local only).")
     p.add_argument("--no-git-check", action="store_true",
                    help="Skip the 'image-dir must live in a git work tree' guard. "
-                        "Only set this if you have your own plan for persisting bytes.")
+                        "Only set this if you have your own plan for persisting bytes. "
+                        "Auto-skipped when --storage=r2 (R2 is durable).")
     p.add_argument("--allow-private-hosts", action="store_true",
                    help="Disable the SSRF guard. Only set when intentionally "
                         "downloading from a trusted internal mirror.")
     args = p.parse_args()
 
     image_dir = Path(args.image_dir).resolve()
-    image_dir.mkdir(parents=True, exist_ok=True)
+    if args.storage == "local":
+        image_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.apply and not args.no_git_check and not is_inside_git_work_tree(image_dir):
+    # Git-work-tree guard only applies in local mode — R2 is durable
+    # so the "bytes vanish on Fly redeploy" failure mode doesn't exist.
+    if (
+        args.storage == "local"
+        and args.apply
+        and not args.no_git_check
+        and not is_inside_git_work_tree(image_dir)
+    ):
         print(
             f"\nERROR: --apply refused — {image_dir} is not inside a git work\n"
             f"tree. Running this against an ephemeral filesystem (e.g. inside\n"
@@ -317,19 +366,40 @@ def main() -> int:
             f"the DB UPDATE persists, leaving every image broken.\n\n"
             f"Run this on your laptop where the bytes can be `git add`ed\n"
             f"+ committed, OR pass --no-git-check if you know what you're\n"
-            f"doing.",
+            f"doing. (Or use --storage=r2 to skip local-disk entirely.)",
             file=sys.stderr,
         )
         return 2
 
+    r2_client = None
+    if args.storage == "r2":
+        from app import config
+        if not config.r2_configured():
+            print(
+                "\nERROR: --storage=r2 requires R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,\n"
+                "R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_PUBLIC_URL env vars.",
+                file=sys.stderr,
+            )
+            return 2
+        if args.apply:
+            from app.r2_storage import R2Storage
+            r2_client = R2Storage()
+
     if args.apply:
-        print(
-            f"\nReady to mutate. After this run completes you MUST:\n"
-            f"  1. cd {ROOT.parent}\n"
-            f"  2. git add backend/seed_data/exercise_images\n"
-            f"  3. git commit -m 'chore: backfill self-hosted exercise images'\n"
-            f"  4. deploy backend so /static/exercise-images can serve them\n"
-        )
+        if args.storage == "r2":
+            print(
+                "\nReady to mutate. R2 mode — bytes upload to the configured\n"
+                "bucket (via R2_BUCKET env). DB rows rewrite to r2:<sha>.<ext>.\n"
+                "Re-runs are idempotent (skips already self-hosted rows).\n",
+            )
+        else:
+            print(
+                f"\nReady to mutate. After this run completes you MUST:\n"
+                f"  1. cd {ROOT.parent}\n"
+                f"  2. git add backend/seed_data/exercise_images\n"
+                f"  3. git commit -m 'chore: backfill self-hosted exercise images'\n"
+                f"  4. deploy backend so /static/exercise-images can serve them\n",
+            )
 
     with get_db() as conn:
         cur = conn.cursor()
@@ -341,6 +411,8 @@ def main() -> int:
             timeout=args.timeout,
             allow_private_hosts=args.allow_private_hosts,
             conn=conn,
+            storage=args.storage,
+            r2_client=r2_client,
         )
 
     ok = sum(1 for o in outcomes if o.status == "ok")

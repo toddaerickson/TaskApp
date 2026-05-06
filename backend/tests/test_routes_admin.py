@@ -102,3 +102,79 @@ def test_image_save_dispatch_is_noop_without_token(auth_client, seeded_globals, 
         )
         assert r.status_code == 200
         assert not mock_client.called, "no token ⇒ no HTTP client opened"
+
+
+# ---------- /admin/sample-image-urls (PR-A2c) ----------
+
+def test_sample_image_urls_requires_token(client, monkeypatch):
+    monkeypatch.delenv("SNAPSHOT_AUTH_TOKEN", raising=False)
+    r = client.get("/admin/sample-image-urls")
+    assert r.status_code == 503
+
+
+def test_sample_image_urls_rejects_wrong_bearer(client, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "t1")
+    r = client.get("/admin/sample-image-urls", headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
+
+
+def test_sample_image_urls_returns_resolved_urls(auth_client, monkeypatch, seeded_globals):
+    """Resolves r2: + local: sentinels to public URLs. Operator-pasted
+    https: rows pass through. The smoke script never sees raw sentinels."""
+    from app import config
+    from app.database import get_db
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "t1")
+    monkeypatch.setattr(config, "BACKEND_PUBLIC_URL", "https://api.test")
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.test")
+    c, _, _ = auth_client
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "local:abc.jpg", 0, "h1"),
+        )
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "r2:def.jpg", 1, "h2"),
+        )
+    r = c.get("/admin/sample-image-urls?n=10",
+              headers={"Authorization": "Bearer t1"})
+    assert r.status_code == 200
+    urls = set(r.json()["urls"])
+    assert "https://api.test/static/exercise-images/abc.jpg" in urls
+    assert "https://cdn.test/def.jpg" in urls
+
+
+def test_sample_image_urls_falls_back_to_https_when_self_hosted_empty(
+    auth_client, monkeypatch, seeded_globals,
+):
+    """Pre-backfill state: only https: rows exist. Smoke test still
+    needs a sample to check, so the endpoint includes them."""
+    from app.database import get_db
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "t1")
+    c, _, _ = auth_client
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (seeded_globals["wall"], "https://example.com/x.jpg", 0, "h"),
+        )
+    r = c.get("/admin/sample-image-urls?n=5",
+              headers={"Authorization": "Bearer t1"})
+    assert r.status_code == 200
+    urls = r.json()["urls"]
+    assert "https://example.com/x.jpg" in urls
+
+
+def test_sample_image_urls_n_clamped_to_max(auth_client, monkeypatch):
+    """Pydantic Query bound — n must be ≤200 to prevent a hostile
+    bearer-token holder from listing the entire library."""
+    monkeypatch.setenv("SNAPSHOT_AUTH_TOKEN", "t1")
+    c, _, _ = auth_client
+    r = c.get("/admin/sample-image-urls?n=99999",
+              headers={"Authorization": "Bearer t1"})
+    assert r.status_code == 422

@@ -1,0 +1,117 @@
+name: Image URL smoke test
+
+# Daily HEAD-check on a sample of self-hosted exercise images. Catches
+# silent rot in the R2 bucket: wrong CORS, lifecycle accidentally
+# deleting old objects, key rotation that broke the public-URL path.
+#
+# Why this exists separately from CI: the backend pytest suite runs on
+# every push/PR but it only exercises `local:` and `r2:` resolution
+# logic — never reaches into the live bucket. Without this workflow,
+# the FIRST sign that R2 has rotted is a user opening an exercise and
+# seeing a broken image. Issue-thread pattern matches backup-neon.yml:
+# silent until something breaks, loud once.
+#
+# Required repo secrets to actually exercise the smoke:
+#   SMOKE_BACKEND_URL   — e.g. https://taskapp-workout.fly.dev (the
+#                         backend from which we pull the row sample)
+#   SNAPSHOT_AUTH_TOKEN — same shared token used by /admin/snapshot
+#                         and /health/detailed (gated bearer auth so
+#                         this workflow can hit a list-rows endpoint
+#                         without exposing it publicly)
+#
+# When SMOKE_BACKEND_URL is unset, the workflow is a silent no-op —
+# safe to merge before the operator has provisioned R2.
+
+on:
+  schedule:
+    # 12:00 UTC daily — after the 07:00 backup workflow has had time
+    # to finish, before evening operator-active hours so an alert
+    # has a full afternoon to be acted on.
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    if: ${{ vars.SMOKE_BACKEND_URL != '' || secrets.SMOKE_BACKEND_URL != '' }}
+    env:
+      SMOKE_BACKEND_URL: ${{ secrets.SMOKE_BACKEND_URL }}
+      SNAPSHOT_AUTH_TOKEN: ${{ secrets.SNAPSHOT_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run smoke check
+        # The actual logic lives in `backend/scripts/image_smoke.py`
+        # so the operator can run the same script locally to debug
+        # an alert. Workflow file is a thin invoker.
+        #
+        # Retry policy (also enforced inside the script): each URL
+        # is HEAD-checked up to 3 times with 30s backoff between
+        # attempts before being marked failed. The workflow as a
+        # whole only re-runs nightly, but issue-thread dedup means
+        # transient-failure noise stays out of the alert if the
+        # NEXT run lands green.
+        run: |
+          set -euo pipefail
+          python backend/scripts/image_smoke.py \
+            --backend "$SMOKE_BACKEND_URL" \
+            --token "$SNAPSHOT_AUTH_TOKEN" \
+            --sample-size 20
+
+      - name: Open or update failure issue
+        # De-dup on a single ongoing alert thread, exactly like the
+        # backup-neon workflow. Catches both "first night this
+        # broke" and "this has been broken for 5 days" without
+        # spawning 5 separate issues.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE="[smoke] Image URL smoke test is failing"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          COMMENT="Failed run: $RUN_URL  (UTC $NOW)"
+          EXISTING=$(gh issue list \
+              --state open \
+              --search "in:title \"$TITLE\"" \
+              --json number \
+              --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Appending to existing alert issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$COMMENT"
+          else
+            echo "Opening new alert issue"
+            BODY=$(cat <<EOF
+          The daily image URL smoke test has failed. A sample of self-
+          hosted exercise images is unreachable, which means users will
+          see broken thumbnails for those rows.
+
+          $COMMENT
+
+          **First diagnostic:** open the failed run above and scan the
+          smoke-script output. The most common failure modes are:
+          - Cloudflare R2 bucket lifecycle rule too aggressive (deleted
+            old objects).
+          - \`R2_PUBLIC_URL\` env var rotated on Fly without bucket
+            being publicly readable on the new domain.
+          - Backend's \`/admin/sample-image-urls\` endpoint changed
+            shape — script needs updating, not the bucket.
+
+          **Re-run** the workflow manually once you think it's fixed
+          (Actions tab → this workflow → Run workflow). A green run
+          counts as "issue resolved" — close this issue then.
+          EOF
+          )
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
