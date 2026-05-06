@@ -10,6 +10,7 @@
  */
 import { Platform } from 'react-native';
 import type { Routine } from './stores';
+import { buildWeeklyTrigger } from './notificationTriggers';
 
 // Lazy-load expo-notifications only on native. Top-level import triggers
 // registerWebModule on web with an incompatible shim under SDK version
@@ -98,8 +99,12 @@ export async function syncRoutineReminders(routines: Routine[]): Promise<{ sched
             body: `${r.goal === 'rehab' ? 'Rehab' : 'Workout'} time — ~${estimateMinutes(r)} min`,
             data: { routineId: r.id, kind: 'routine-reminder' },
           },
-          // Weekly repeating trigger.
-          trigger: { weekday, hour: t.h, minute: t.m, repeats: true } as any,
+          // SDK 53+ requires the explicit `type` discriminator on
+          // SchedulableTriggerInput. Already accepted under SDK 52
+          // (expo-notifications 0.29) so this is forward-compatible.
+          // `as any` matches the prior call-site cast — the lazy-load
+          // pattern means TS sees the loose require'd shape.
+          trigger: buildWeeklyTrigger(weekday, t.h, t.m) as any,
         });
         scheduled++;
       } catch {

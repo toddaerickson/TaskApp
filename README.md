@@ -159,7 +159,7 @@ backend/
   seed_data/
     exercise_snapshot.json        # committed library snapshot
     exercise_images/<sha256>.<ext>  # self-hosted bytes (PR #103+)
-  tests/                      # pytest suite (~405 cases)
+  tests/                      # pytest suite (~490 cases)
 mobile/
   app/                # expo-router file-based routes
     (auth)/           # login / register
@@ -174,7 +174,7 @@ mobile/
                       #   missedReminders, exercisePicker, …
   scripts/build-web.sh  # Vercel buildCommand: expo export + sw.js stamp
   public/sw.js        # service worker (CACHE_VERSION rewritten at deploy)
-  __tests__/          # jest tests (~244)
+  __tests__/          # jest tests (~305)
 tools/
   a11y_rn_filter.py   # wraps the a11y-audit skill, drops HTML-only rules
 docs/
