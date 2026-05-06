@@ -1,0 +1,59 @@
+name: Workflow lint
+
+# Catches drift between workflow files that have to move together.
+# Currently: the `postgresql-client-N` pin in `backup-neon.yml` and
+# `backup-restore-drill.yml` MUST match — both work against the same
+# Neon DB and a mismatched pair would let one half of the backup
+# pipeline pass while the other silently breaks at the next Neon
+# major upgrade.
+#
+# Catches it BEFORE the next 9-night silent failure (PR #136 backstory)
+# rather than after.
+#
+# Cheap: runs in seconds on any push that touches .github/workflows/.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  pg-client-pin-parity:
+    name: Postgres client pin matches across backup workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pins
+        # Extract the pinned major version from each workflow's apt-get
+        # install line and assert equality. `grep -oE` returns just the
+        # `postgresql-client-N` token; `head -1` is defense-in-depth in
+        # case a future edit duplicates the line.
+        run: |
+          set -euo pipefail
+          NEON=$(grep -oE 'postgresql-client-[0-9]+' .github/workflows/backup-neon.yml | head -1)
+          DRILL=$(grep -oE 'postgresql-client-[0-9]+' .github/workflows/backup-restore-drill.yml | head -1)
+          echo "backup-neon.yml pin:           $NEON"
+          echo "backup-restore-drill.yml pin:  $DRILL"
+          if [ -z "$NEON" ] || [ -z "$DRILL" ]; then
+            echo "::error::Could not extract postgresql-client-N pin from one or both backup workflows." >&2
+            echo "Both workflows must include an apt-get install line pinning postgresql-client-N." >&2
+            exit 1
+          fi
+          if [ "$NEON" != "$DRILL" ]; then
+            cat >&2 <<EOF
+          ::error::PG client pin mismatch — backup-neon.yml has $NEON but backup-restore-drill.yml has $DRILL.
+
+          Both workflows dump / restore the same Neon DB and must use the
+          same pg_dump / pg_restore major. When Neon does its next major
+          upgrade, BOTH pins must move together (PR #136 is the canonical
+          fix shape for the upgrade itself).
+          EOF
+            exit 1
+          fi
+          echo "✓ Pins match: $NEON"
