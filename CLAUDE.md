@@ -209,10 +209,10 @@ cd mobile && npx expo start
 
 ## Tests
 
-~705 tests across backend (pytest) and mobile (jest). Run:
+~795 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 459 cases (3 PG-only skipped on the SQLite leg)
-cd mobile && npm test            # 246 cases (23 suites: pure-function libs + RN component tests)
+cd backend && venv/bin/pytest    # ~490 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 305 cases (26 suites: pure-function libs + RN component tests)
 ```
 
 Counts drift fast — when you bump these, also bump the matching line
