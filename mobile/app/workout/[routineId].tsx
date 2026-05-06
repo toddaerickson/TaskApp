@@ -1,4 +1,5 @@
 import { colors } from "@/lib/colors";
+import TimeField from '@/components/TimeField';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator, Platform, TextInput, Alert,
@@ -579,14 +580,17 @@ function RoutineHeaderEdit({ routine, onSaved }: { routine: Routine; onSaved: ()
         style={[styles.fieldInput, { minHeight: 60, textAlignVertical: 'top' }]}
         accessibilityLabel="Routine notes"
       />
-      <Text style={styles.fieldLabel}>Reminder time (HH:MM, blank = off)</Text>
-      <TextInput
+      <Text style={styles.fieldLabel}>Reminder time (blank = off)</Text>
+      {/* TimeField from PR-B3 — same picker the task reminder uses,
+          so muscle memory carries between modules. 30-min slots
+          06:00–21:30 default scroll position; free-form military-
+          time input ("0530", "2200") accepts any 00:00–23:59 for
+          early-morning workouts or late reminders. */}
+      <TimeField
         value={time}
-        onChangeText={setTime}
+        onChange={setTime}
         placeholder="07:00"
-        accessibilityLabel="Reminder time, HH colon MM format"
-        autoCapitalize="none"
-        style={styles.fieldInput}
+        accessibilityLabel="Reminder time"
       />
       <Text style={styles.fieldLabel}>Days</Text>
       <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
