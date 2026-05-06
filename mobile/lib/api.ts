@@ -272,8 +272,13 @@ export interface TaskCreatePayload {
   tag_ids?: number[];
 }
 
-/** PUT /tasks/{id} body. Same shape as TaskCreatePayload but everything optional. */
-export type TaskUpdatePayload = Partial<TaskCreatePayload>;
+/** PUT /tasks/{id} body. Same shape as TaskCreatePayload but everything optional.
+ *  Optional `expected_updated_at` triggers server-side optimistic-concurrency
+ *  check (PR-D0): pass the snapshot from the row you loaded; if the row has
+ *  moved, the server returns 409 with `current` embedded. */
+export type TaskUpdatePayload = Partial<TaskCreatePayload> & {
+  expected_updated_at?: string;
+};
 
 /** POST /tasks/batch extras (task_ids is supplied separately). */
 export interface TaskBatchUpdatePayload {

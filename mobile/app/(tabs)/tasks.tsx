@@ -1,16 +1,20 @@
 import { colors } from "@/lib/colors";
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput,
-  Platform, useWindowDimensions,
+  Platform, useWindowDimensions, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTaskStore, Task, Reminder } from '@/lib/stores';
+import { useTaskStore, useFolderStore, Task, Reminder } from '@/lib/stores';
 import { SkeletonList } from '@/components/Skeleton';
 import { formatReminderChip } from '@/lib/taskReminder';
 import FiltersSheet from '@/components/FiltersSheet';
 import SortPopover from '@/components/SortPopover';
+import { MoveToSheet } from '@/components/MoveToSheet';
+import { folderOptions } from '@/lib/moveToOptions';
+import * as api from '@/lib/api';
+import { describeApiError } from '@/lib/apiErrors';
 
 // Status values that GTD treats as "not acting on right now" — when
 // "Hide deferred" is on, rows with these statuses are dropped locally.
@@ -161,7 +165,34 @@ function getGroupSortKey(task: Task, groupBy: GroupKey): string | number {
 
 export default function TasksScreen() {
   const { tasks, isLoading, load, complete, toggleStar, filters, setFilters, create } = useTaskStore();
+  const folders = useFolderStore((s) => s.folders);
   const router = useRouter();
+  // "Move to..." sheet target. WCAG 2.5.7 non-drag alternative for
+  // changing a task's folder. Drag ships in PR-D3+ as a convenience
+  // layer on top of this baseline.
+  const [moveTarget, setMoveTarget] = useState<Task | null>(null);
+  const handleMove = useCallback(async (newFolderId: number | null) => {
+    if (!moveTarget) return;
+    try {
+      await api.updateTask(moveTarget.id, {
+        folder_id: newFolderId,
+        expected_updated_at: moveTarget.updated_at,
+      });
+      await load();
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 409) {
+        await load();
+        Alert.alert(
+          'Task changed',
+          `${moveTarget.title} was updated elsewhere. The list has been refreshed; try again.`,
+        );
+        return;
+      }
+      Alert.alert('Move failed', describeApiError(e));
+      throw e;
+    }
+  }, [moveTarget, load]);
   // Below 700px the 8-column desktop table becomes unreadable; render
   // a stacked card list instead.
   const { width } = useWindowDimensions();
@@ -743,6 +774,21 @@ export default function TasksScreen() {
                       {task.repeat_type === 'none' ? '—' : task.repeat_type}
                     </Text>
                   </View>
+
+                  {/* "Move to folder" affordance — WCAG 2.5.7 non-drag
+                      alternative. Visible at every viewport size; the
+                      narrow-card layout above doesn't have this column
+                      yet (deferred to drag UX in PR-D3). */}
+                  <View style={[styles.cell, { flex: 0.3, alignItems: 'center' }]}>
+                    <Pressable
+                      onPress={() => setMoveTarget(task)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move ${task.title} to a different folder`}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="swap-horizontal-outline" size={18} color="#999" />
+                    </Pressable>
+                  </View>
                 </View>
               );
               })}
@@ -771,6 +817,17 @@ export default function TasksScreen() {
           savePref(STORAGE_KEY_SORTS, next);
         }}
       />
+
+      {moveTarget && (
+        <MoveToSheet<number | null>
+          visible
+          onClose={() => setMoveTarget(null)}
+          title={`Move "${moveTarget.title}" to`}
+          options={folderOptions(folders)}
+          currentValue={moveTarget.folder_id ?? null}
+          onSelect={handleMove}
+        />
+      )}
     </View>
   );
 }
