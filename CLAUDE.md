@@ -172,7 +172,7 @@ Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-man
   |---|---|---|
   | `backup-neon.yml` | Daily 07:00 UTC | Publish dump → GH Release (+ optional R2 mirror) + `schema_state.txt` sidecar |
   | `backup-restore-drill.yml` | Weekly Mon 09:00 UTC | Decrypt + restore into PG 17 container, assert critical tables non-empty (catches "dump exists but is a brick") |
-  | `backup-heartbeat.yml` | Daily 12:00 UTC | Polls publish workflow age — alerts if last run >36h old (catches "cron stopped firing") |
+  | `backup-heartbeat.yml` | Daily 12:00 UTC | Two-dimensional check (PR-X1): alerts if (a) most recent SUCCESS run >36h old OR (b) most recent SCHEDULE-event run >36h old. Catches both "publish keeps failing" and "cron stopped firing." Single-dimension age check was insufficient — phantom push-event failed runs masked a 5-day cron silence in May 2026. |
 
   All three open / comment on a single `[backup] Nightly Neon
   backup is failing` issue. **That issue thread is the operator's
