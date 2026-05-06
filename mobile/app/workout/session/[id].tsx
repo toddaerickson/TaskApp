@@ -1,10 +1,13 @@
 import { colors } from "@/lib/colors";
+import { spacing, type as ftype, radii, shadow, minHitTarget } from '@/lib/theme';
+import { ChipStrip } from '@/components/Chip';
+import { Sheet } from '@/components/Sheet';
 import { useEffect, useRef, useState } from 'react';
 import { SessionSetEditSheet } from '@/components/SessionSetEditSheet';
 import { useUndoSnackbar } from '@/components/UndoSnackbar';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator,
-  TextInput, Platform, Alert, Modal, KeyboardAvoidingView, Animated,
+  TextInput, Platform, Alert, KeyboardAvoidingView, Animated,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -392,7 +395,7 @@ export default function ActiveSessionScreen() {
               accessibilityRole="button"
               accessibilityLabel="Stop rest timer"
             >
-              <Text style={[styles.restBtnText, { color: '#fff' }]}>Stop</Text>
+              <Text style={[styles.restBtnText, { color: colors.onColor }]}>Stop</Text>
             </Pressable>
             <Pressable
               style={styles.restBtn}
@@ -481,82 +484,73 @@ export default function ActiveSessionScreen() {
           onPress={confirmFinish}
           disabled={finishing}
         >
-          <Ionicons name="checkmark-circle" size={20} color="#fff" />
+          <Ionicons name="checkmark-circle" size={20} color={colors.onColor} />
           <Text style={styles.finishBtnText}>{finishing ? 'Saving…' : 'Finish workout'}</Text>
         </Pressable>
       </Animated.View>
 
-      <Modal visible={symptomOpen} transparent animationType="slide" onRequestClose={() => setSymptomOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>Log symptom</Text>
-              <Pressable
-                onPress={() => setSymptomOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close symptom log"
-              >
-                <Ionicons name="close" size={22} color="#888" />
-              </Pressable>
-            </View>
+      <Sheet
+        visible={symptomOpen}
+        onClose={() => setSymptomOpen(false)}
+        title="Log symptom"
+      >
+        <Text style={styles.modalLabel}>Body part</Text>
+        <ChipStrip
+          ariaLabel="Body part"
+          // Empty value when the user is typing custom — no chip
+          // highlights; matches the prior `=== p && !symptomCustom`
+          // selection guard.
+          value={symptomCustom ? '' : symptomPart}
+          onChange={(p) => { setSymptomPart(p); setSymptomCustom(''); }}
+          options={SYMPTOM_PARTS.map((p) => ({ value: p, label: p.replace(/_/g, ' ') }))}
+        />
+        <TextInput
+          placeholder="custom (e.g. left_achilles)"
+          placeholderTextColor={colors.placeholder}
+          accessibilityLabel="Custom body part"
+          value={symptomCustom}
+          onChangeText={setSymptomCustom}
+          style={styles.modalInput}
+        />
 
-            <Text style={styles.modalLabel}>Body part</Text>
-            <View style={styles.partRow}>
-              {SYMPTOM_PARTS.map((p) => (
-                <Pressable
-                  key={p}
-                  style={[styles.partChip, symptomPart === p && !symptomCustom && styles.partChipActive]}
-                  onPress={() => { setSymptomPart(p); setSymptomCustom(''); }}
-                >
-                  <Text style={[styles.partChipText, symptomPart === p && !symptomCustom && styles.partChipTextActive]}>
-                    {p.replace(/_/g, ' ')}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <TextInput
-              placeholder="custom (e.g. left_achilles)"
-              accessibilityLabel="Custom body part"
-              value={symptomCustom}
-              onChangeText={setSymptomCustom}
-              style={styles.modalInput}
-            />
-
-            <Text style={styles.modalLabel}>Severity: {symptomSeverity}/10</Text>
-            <View style={styles.sevRow}>
-              {Array.from({ length: 11 }).map((_, n) => (
-                <Pressable
-                  key={n}
-                  onPress={() => setSymptomSeverity(n)}
-                  style={[styles.sevDot, { backgroundColor: symptomSeverity === n ? sevColor(n) : '#eee' }]}
-                >
-                  <Text style={[styles.sevNum, symptomSeverity === n && { color: '#fff', fontWeight: '700' }]}>
-                    {n}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <Text style={styles.modalLabel}>Notes</Text>
-            <TextInput
-              placeholder="e.g. sharp at toe-off during set 2"
-              accessibilityLabel="Symptom notes"
-              value={symptomNotes}
-              onChangeText={setSymptomNotes}
-              multiline
-              style={[styles.modalInput, { minHeight: 60, textAlignVertical: 'top' }]}
-            />
-
+        <Text style={styles.modalLabel}>Severity: {symptomSeverity}/10</Text>
+        <View style={styles.sevRow}>
+          {Array.from({ length: 11 }).map((_, n) => (
             <Pressable
-              style={[styles.modalSaveBtn, symptomSaving && { opacity: 0.6 }]}
-              onPress={handleLogSymptom}
-              disabled={symptomSaving}
+              key={n}
+              onPress={() => setSymptomSeverity(n)}
+              style={[styles.sevDot, { backgroundColor: symptomSeverity === n ? sevColor(n) : colors.borderSoft }]}
+              accessibilityLabel={`Severity ${n}`}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: symptomSeverity === n }}
             >
-              <Text style={styles.modalSaveText}>{symptomSaving ? 'Saving…' : 'Save'}</Text>
+              <Text style={[styles.sevNum, symptomSeverity === n && styles.sevNumActive]}>
+                {n}
+              </Text>
             </Pressable>
-          </View>
+          ))}
         </View>
-      </Modal>
+
+        <Text style={styles.modalLabel}>Notes</Text>
+        <TextInput
+          placeholder="e.g. sharp at toe-off during set 2"
+          placeholderTextColor={colors.placeholder}
+          accessibilityLabel="Symptom notes"
+          value={symptomNotes}
+          onChangeText={setSymptomNotes}
+          multiline
+          style={[styles.modalInput, { minHeight: 60, textAlignVertical: 'top' }]}
+        />
+
+        <Pressable
+          style={[styles.modalSaveBtn, symptomSaving && { opacity: 0.6 }]}
+          onPress={handleLogSymptom}
+          disabled={symptomSaving}
+          accessibilityRole="button"
+        >
+          <Text style={styles.modalSaveText}>{symptomSaving ? 'Saving…' : 'Save'}</Text>
+        </Pressable>
+      </Sheet>
 
       {editingSet && (
         <SessionSetEditSheet
@@ -810,7 +804,7 @@ function ExerciseBlock({
                   <View style={styles.setRightCol}>
                     {isPR && (
                       <View style={styles.prBadge} accessibilityLabel="New personal record">
-                        <Ionicons name="trophy" size={11} color="#fff" />
+                        <Ionicons name="trophy" size={11} color={colors.onColor} />
                         <Text style={styles.prBadgeText}>PR</Text>
                       </View>
                     )}
@@ -821,7 +815,7 @@ function ExerciseBlock({
                     )}
                     {s.is_warmup && (
                       <View style={styles.warmupTag} accessibilityLabel="Warmup set">
-                        <Ionicons name="flame" size={10} color="#fff" />
+                        <Ionicons name="flame" size={10} color={colors.onColor} />
                         <Text style={styles.warmupTagText}>WU</Text>
                       </View>
                     )}
@@ -932,7 +926,7 @@ function ExerciseBlock({
 
           {isDuration && !holdActive && (
             <Pressable style={styles.timerBtn} onPress={startDurationTimer}>
-              <Ionicons name="timer-outline" size={18} color="#fff" />
+              <Ionicons name="timer-outline" size={18} color={colors.onColor} />
               <Text style={styles.logBtnText}>
                 Start {duration || re.target_duration_sec || 30}s timer
               </Text>
@@ -943,7 +937,7 @@ function ExerciseBlock({
             style={[styles.logBtn, restActive && { opacity: 0.9 }]}
             onPress={handleQuickLog}
           >
-            <Ionicons name="add-circle" size={18} color="#fff" />
+            <Ionicons name="add-circle" size={18} color={colors.onColor} />
             <Text style={styles.logBtnText}>Log set {sets.length + 1}</Text>
           </Pressable>
         </>
@@ -971,8 +965,8 @@ function LabeledInput({ label, value, onChange }: {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
-  progressBar: { height: 4, backgroundColor: '#e0e0e0' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  progressBar: { height: 4, backgroundColor: colors.border },
   progressFill: { height: 4, backgroundColor: colors.success },
   progressText: { fontSize: 11, color: colors.textMuted },
   progressRow: {
@@ -994,44 +988,29 @@ const styles = StyleSheet.create({
   },
   pendingChipText: { color: colors.danger, fontSize: 11, fontWeight: '700' },
 
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center', padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 16,
-    maxWidth: 500, alignSelf: 'center', width: '100%',
-  },
-  modalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#222' },
-  modalLabel: { fontSize: 12, color: colors.textMuted, fontWeight: '600', marginTop: 14, marginBottom: 6 },
+  // Dead modal styles (modalOverlay, modalCard, modalHead, modalTitle,
+  // partRow, partChip, partChipActive, partChipText, partChipTextActive)
+  // dropped — symptom log moved to <Sheet> + <ChipStrip> in this PR.
+  modalLabel: { fontSize: ftype.caption, color: colors.textMuted, fontWeight: '600', marginTop: spacing.md + 2, marginBottom: spacing.xs + 2 },
   modalInput: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10,
-    fontSize: 14, marginTop: 6, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radii.sm - 2, padding: spacing.sm + 2,
+    fontSize: ftype.input, marginTop: spacing.xs + 2, backgroundColor: colors.surface, color: colors.text,
   },
-  partRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  partChip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
-    backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#eee',
-    cursor: 'pointer' as any,
-  },
-  partChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  partChipText: { fontSize: 12, color: '#444' },
-  partChipTextActive: { color: '#fff', fontWeight: '600' },
-  sevRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
+  sevRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.xs },
   sevDot: {
-    flex: 1, aspectRatio: 1, borderRadius: 6,
+    flex: 1, aspectRatio: 1, borderRadius: radii.sm - 2,
     alignItems: 'center', justifyContent: 'center', cursor: 'pointer' as any,
   },
-  sevNum: { fontSize: 12, color: '#666' },
+  sevNumActive: { color: colors.onColor, fontWeight: '700' },
+  sevNum: { fontSize: 12, color: colors.textMuted },
   modalSaveBtn: {
     backgroundColor: colors.warning, borderRadius: 8, padding: 12,
     alignItems: 'center', marginTop: 16, cursor: 'pointer' as any,
   },
-  modalSaveText: { color: '#fff', fontWeight: '700' },
+  modalSaveText: { color: colors.onColor, fontWeight: '700' },
 
   exBlock: {
-    backgroundColor: '#fff', margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,
+    backgroundColor: colors.surface, margin: 10, marginBottom: 0, borderRadius: 10, padding: 14,
     borderWidth: 2, borderColor: 'transparent',
     cursor: 'pointer' as any,
   },
@@ -1041,12 +1020,12 @@ const styles = StyleSheet.create({
   exHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   exHeadNum: {
     width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary,
-    color: '#fff', textAlign: 'center', lineHeight: 30, fontWeight: '700',
+    color: colors.onColor, textAlign: 'center', lineHeight: 30, fontWeight: '700',
   },
-  exHeadName: { fontSize: 15, fontWeight: '600', color: '#222' },
+  exHeadName: { fontSize: 15, fontWeight: '600', color: colors.textStrong },
   exHeadTarget: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
 
-  activeImage: { width: '100%', height: 160, borderRadius: 6, marginTop: 12, backgroundColor: '#eee' },
+  activeImage: { width: '100%', height: 160, borderRadius: 6, marginTop: 12, backgroundColor: colors.borderSoft },
 
   cueBox: {
     flexDirection: 'row', gap: 6, alignItems: 'flex-start',
@@ -1057,16 +1036,16 @@ const styles = StyleSheet.create({
   setList: { marginTop: 12, gap: 4 },
   setRow: {
     flexDirection: 'row', justifyContent: 'space-between',
-    padding: 8, backgroundColor: '#f5f6fa', borderRadius: 6,
+    padding: 8, backgroundColor: colors.bg, borderRadius: 6,
   },
   setRowDone: { backgroundColor: '#e8f5e9' },
-  setNum: { fontSize: 13, fontWeight: '600', color: '#444' },
+  setNum: { fontSize: 13, fontWeight: '600', color: colors.text },
   setDone: { fontSize: 13, color: colors.success, fontWeight: '600' },
-  setPending: { fontSize: 13, color: '#bbb' },
+  setPending: { fontSize: 13, color: colors.placeholder },
 
   inputRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   inputLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 2 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, fontSize: 14 },
+  input: { borderWidth: 1, borderColor: colors.borderInput, borderRadius: 6, padding: 8, fontSize: 14 },
 
   // Per-set flag row: L/R toggle + warmup pill. Sits between the
   // numeric inputs and the Log button so it's scanned with the set,
@@ -1074,25 +1053,25 @@ const styles = StyleSheet.create({
   flagsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   sideGroup: {
     flexDirection: 'row', borderRadius: 6, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#ddd',
+    borderWidth: 1, borderColor: colors.borderInput,
   },
   sideBtn: {
     minWidth: 36, paddingHorizontal: 10, paddingVertical: 6,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#fafafa', cursor: 'pointer' as any,
+    backgroundColor: colors.surfaceAlt, cursor: 'pointer' as any,
   },
   sideBtnOn: { backgroundColor: colors.primary },
   sideText: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
-  sideTextOn: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  sideTextOn: { fontSize: 13, fontWeight: '700', color: colors.onColor },
   warmupChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14,
-    backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#ddd',
+    backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderInput,
     cursor: 'pointer' as any,
   },
   warmupChipOn: { backgroundColor: colors.warning, borderColor: colors.warning },
   warmupText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
-  warmupTextOn: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  warmupTextOn: { fontSize: 12, fontWeight: '700', color: colors.onColor },
 
   // Tags on logged-set rows so the user can see at a glance which were
   // warmups and which were L/R. Small pills, muted on purpose — the
@@ -1107,14 +1086,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warning, paddingHorizontal: 5, paddingVertical: 1,
     borderRadius: 4, marginRight: 4,
   },
-  warmupTagText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.3 },
+  warmupTagText: { fontSize: 9, fontWeight: '800', color: colors.onColor, letterSpacing: 0.3 },
 
   logBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: colors.primary, borderRadius: 8, padding: 10, marginTop: 10,
     cursor: 'pointer' as any,
   },
-  logBtnText: { color: '#fff', fontWeight: '600' },
+  logBtnText: { color: colors.onColor, fontWeight: '600' },
   timerBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: colors.warning, borderRadius: 8, padding: 10, marginTop: 10,
@@ -1128,56 +1107,56 @@ const styles = StyleSheet.create({
   timerLabel: { fontSize: 11, color: colors.warningText, fontWeight: '700', textTransform: 'uppercase' },
   timerValue: { flex: 1, fontSize: 28, fontWeight: '800', color: colors.warning,
     fontVariant: ['tabular-nums'] as any },
-  timerStopBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: '#ccc', cursor: 'pointer' as any },
-  timerStopText: { fontSize: 12, color: '#666', fontWeight: '600' },
+  timerStopBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.textFaint, cursor: 'pointer' as any },
+  timerStopText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
 
   setRpeSection: { marginTop: 4, marginBottom: 4 },
-  setRpeLabel: { fontSize: 11, color: '#888', fontWeight: '600', marginBottom: 4 },
+  setRpeLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600', marginBottom: 4 },
   setRpeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
   setRpeBtn: {
-    width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: '#ddd', alignItems: 'center', justifyContent: 'center',
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
   setRpeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  setRpeText: { fontSize: 12, color: '#666' },
-  setRpeTextActive: { color: '#fff', fontWeight: '700' },
+  setRpeText: { fontSize: 12, color: colors.textMuted },
+  setRpeTextActive: { color: colors.onColor, fontWeight: '700' },
 
   finishBox: { padding: 16, marginTop: 12 },
-  finishLabel: { fontSize: 13, color: '#666', marginBottom: 8, textAlign: 'center' },
+  finishLabel: { fontSize: 13, color: colors.textMuted, marginBottom: 8, textAlign: 'center' },
   rpeRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 6 },
   rpeBtn: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: '#ddd', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer' as any,
   },
   rpeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  rpeText: { fontSize: 13, color: '#666' },
-  rpeTextActive: { color: '#fff', fontWeight: '700' },
+  rpeText: { fontSize: 13, color: colors.textMuted },
+  rpeTextActive: { color: colors.onColor, fontWeight: '700' },
 
   footer: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee',
+    padding: 16, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: '#eee',
   },
   finishBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: colors.success, borderRadius: 10, padding: 14,
     cursor: 'pointer' as any,
   },
-  finishBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  finishBtnText: { color: colors.onColor, fontWeight: '700', fontSize: 16 },
 
   errorBox: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    padding: 24, gap: 10, backgroundColor: '#f5f6fa',
+    padding: 24, gap: 10, backgroundColor: colors.bg,
   },
-  errorTitle: { fontSize: 17, fontWeight: '700', color: '#333' },
-  errorMsg: { fontSize: 14, color: '#666', textAlign: 'center', maxWidth: 320 },
+  errorTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  errorMsg: { fontSize: 14, color: colors.textMuted, textAlign: 'center', maxWidth: 320 },
   errorRetryBtn: {
     marginTop: 8, backgroundColor: colors.primary, borderRadius: 8,
     paddingHorizontal: 20, paddingVertical: 10, cursor: 'pointer' as any,
   },
-  errorRetryText: { color: '#fff', fontWeight: '700' },
+  errorRetryText: { color: colors.onColor, fontWeight: '700' },
 
   restBanner: {
     margin: 10, marginBottom: 0,
@@ -1205,7 +1184,7 @@ const styles = StyleSheet.create({
   },
   restBtn: {
     flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: 'center',
-    backgroundColor: '#fff', borderWidth: 1, borderColor: colors.primary,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary,
     cursor: 'pointer' as any,
   },
   restBtnStop: { backgroundColor: colors.primary },
@@ -1215,10 +1194,10 @@ const styles = StyleSheet.create({
   setRightCol: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   prBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: '#e67e22',
+    backgroundColor: colors.warning,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
   },
-  prBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  prBadgeText: { color: colors.onColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   prSummary: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     marginHorizontal: 10, marginTop: 14, padding: 12,
