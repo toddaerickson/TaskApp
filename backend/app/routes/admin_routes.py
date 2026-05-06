@@ -96,11 +96,18 @@ def sample_image_urls(
         cur = conn.cursor()
         # Prefer self-hosted rows. Random sampling is dialect-portable
         # via ORDER BY RANDOM() (SQLite) / RANDOM() (PG — same name).
+        #
+        # The `local:%` / `r2:%` LIKE patterns are bound as parameters
+        # (not inlined as SQL literals) because psycopg2 uses `%`-based
+        # parameter substitution and would otherwise count the `%` in
+        # the inlined string as additional placeholders, raising
+        # `IndexError: tuple index out of range`. Binding moves the `%`
+        # into the value where psycopg2 escapes it correctly.
         cur.execute(
             "SELECT url FROM exercise_images "
-            "WHERE url LIKE 'local:%' OR url LIKE 'r2:%' "
+            "WHERE url LIKE ? OR url LIKE ? "
             "ORDER BY RANDOM() LIMIT ?",
-            (n,),
+            ("local:%", "r2:%", n),
         )
         rows = [r["url"] for r in cur.fetchall()]
         # If we don't have enough self-hosted rows yet, top up with
@@ -109,9 +116,9 @@ def sample_image_urls(
         if len(rows) < n:
             cur.execute(
                 "SELECT url FROM exercise_images "
-                "WHERE url NOT LIKE 'local:%' AND url NOT LIKE 'r2:%' "
+                "WHERE url NOT LIKE ? AND url NOT LIKE ? "
                 "ORDER BY RANDOM() LIMIT ?",
-                (n - len(rows),),
+                ("local:%", "r2:%", n - len(rows)),
             )
             rows.extend(r["url"] for r in cur.fetchall())
 
