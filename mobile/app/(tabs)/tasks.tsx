@@ -466,20 +466,32 @@ export default function TasksScreen() {
               </Pressable>
 
               {groupDropdownOpen && (
-                <View style={styles.dropdown}>
-                  {GROUP_OPTIONS.map((opt) => (
-                    <Pressable
-                      key={opt.key}
-                      style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
-                      onPress={() => handleGroupChange(opt.key)}
-                    >
-                      <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
-                        {opt.label}
-                      </Text>
-                      {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
-                    </Pressable>
-                  ))}
-                </View>
+                <>
+                  {/* Tap-outside-to-dismiss backdrop. See workouts.tsx
+                      for the rationale — same dropdown pattern, same
+                      "chip stopped working after a few taps" failure
+                      mode without a backdrop. */}
+                  <Pressable
+                    style={styles.dropdownBackdrop}
+                    onPress={() => setGroupDropdownOpen(false)}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                  />
+                  <View style={styles.dropdown}>
+                    {GROUP_OPTIONS.map((opt) => (
+                      <Pressable
+                        key={opt.key}
+                        style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
+                        onPress={() => handleGroupChange(opt.key)}
+                      >
+                        <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
+                          {opt.label}
+                        </Text>
+                        {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                </>
               )}
             </View>
 
@@ -801,6 +813,14 @@ const styles = StyleSheet.create({
   // Group By
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
   groupByActive: { backgroundColor: colors.group },
+  dropdownBackdrop: {
+    // Tap-outside-to-dismiss backdrop. See workouts.tsx for the
+    // rationale; identical sizing trick (huge negative inset) to
+    // substitute for `position: fixed` cross-platform.
+    position: 'absolute' as any,
+    top: -2000, left: -2000, right: -2000, bottom: -2000,
+    zIndex: 9998,
+  },
   dropdown: {
     position: 'absolute' as any, top: 34, left: 0, zIndex: 9999,
     backgroundColor: '#fff', borderRadius: 8, padding: 4,
