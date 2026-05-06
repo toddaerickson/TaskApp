@@ -10,9 +10,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
+from app import config
 from app.database import get_db
 from app.auth import get_current_user_id
 from app.github_dispatch import dispatch_library_updated
+from app.image_download import DownloadError, download_image
 from app.rate_limit import limiter
 from app.models import (
     ExerciseCreate, ExerciseUpdate, ExerciseResponse,
@@ -20,7 +22,7 @@ from app.models import (
     BulkImageRequest, BulkImageResult,
 )
 from app.hydrate import hydrate_exercises_with_images
-from app.image_urls import resolve_image_url
+from app.image_urls import R2_PREFIX, resolve_image_url
 
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
@@ -205,6 +207,12 @@ def permanently_delete_exercise(
     or an outdated duplicate. Per the multi-agent plan review, the
     permanent path is gated by an operator confirmation in the UI; the
     409 here is a backstop for sloppy clients.
+
+    R2-stored image bytes (rows with `r2:<filename>` URLs) are best-
+    effort unlinked from the bucket after the row is deleted from PG.
+    A failed R2 delete logs a warning but doesn't block the response —
+    the row is already gone in the DB and an orphan object in R2 is
+    a much smaller problem than the API call failing after deletion.
     """
     with get_db() as conn:
         cur = conn.cursor()
@@ -239,8 +247,34 @@ def permanently_delete_exercise(
                 409,
                 f"Used in {' and '.join(bits)}. Remove those references first.",
             )
+        # Capture R2-prefixed image filenames BEFORE the cascade deletes
+        # the rows (we need the keys to unlink from the bucket).
+        cur.execute(
+            "SELECT url FROM exercise_images WHERE exercise_id = ?",
+            (exercise_id,),
+        )
+        r2_filenames = [
+            r["url"][len(R2_PREFIX):]
+            for r in cur.fetchall()
+            if r["url"].startswith(R2_PREFIX)
+        ]
         # Images cascade out via FK ON DELETE CASCADE.
         cur.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
+
+    # Best-effort R2 cleanup — outside the DB transaction so a network
+    # blip doesn't roll back the local commit. Volume grows by one
+    # orphaned object on failure; a future cleanup script can sweep.
+    if r2_filenames and config.r2_configured():
+        try:
+            from app.r2_storage import R2Storage
+            r2 = R2Storage()
+            for filename in r2_filenames:
+                try:
+                    r2.delete_object(filename)
+                except Exception as e:
+                    log.warning("R2 unlink failed for %s: %s", filename, e)
+        except Exception as e:
+            log.warning("R2 client init failed during permanent-delete: %s", e)
     return {"ok": True}
 
 
@@ -251,11 +285,26 @@ def add_image(
     background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Attach an image URL to an exercise. Idempotent: if the same URL is
-    already attached (by content_hash) the existing row is returned, no
-    duplicate stored. Keeps the library clean when an admin pastes the
-    same URL twice or Find → Save lands on an image already seen."""
-    h = _image_hash(req.url)
+    """Attach an image to an exercise.
+
+    Two paths, gated by `config.r2_configured()`:
+
+    - **R2 configured (PR-A2b):** server-side download from `req.url`
+      (SSRF-safe via `image_download.download_image`), upload bytes
+      to the R2 bucket keyed by sha256 content hash, store
+      `r2:<sha256>.<ext>` in the DB. Bytes never depend on the
+      original URL again — the row resolves through the bucket's
+      public URL.
+
+    - **R2 NOT configured (default / dev):** preserve the legacy
+      behavior — store `req.url` as-is in the DB. Resolver passes
+      `https:` URLs through; clients fetch the bytes from the
+      original host. Same byte-rot risk that's been there.
+
+    Idempotent in both modes: a second POST with the same image (same
+    content hash for R2 mode, same URL hash for legacy mode) returns
+    the existing row.
+    """
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT user_id, name FROM exercises WHERE id = ?", (exercise_id,))
@@ -265,25 +314,69 @@ def add_image(
         if row["user_id"] is not None and row["user_id"] != user_id:
             raise HTTPException(403, "Cannot add image to another user's exercise")
         default_alt = f"{row['name']} demonstration"
-        # Dedup: same (exercise, content_hash) means the same image. Return
-        # the existing row instead of inserting. 200 with the stored data
-        # is idempotent — callers can't tell the difference from a fresh
-        # insert, which is the point.
-        cur.execute(
-            "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
-            "WHERE exercise_id = ? AND content_hash = ?",
-            (exercise_id, h),
-        )
-        existing = cur.fetchone()
-        if existing:
-            if not existing.get("alt_text"):
-                existing["alt_text"] = default_alt
-            existing["url"] = resolve_image_url(existing["url"])
-            return existing
+
+        # Decide storage path. R2-configured deploys: server-side
+        # download + bucket upload, store r2: sentinel. Otherwise:
+        # legacy URL-passthrough storage.
+        store_url: str
+        content_hash: str
+        if config.r2_configured():
+            try:
+                downloaded = download_image(req.url)
+            except DownloadError as e:
+                # 422 because the input URL is the problem (private
+                # host, non-image content type, oversized, etc.). The
+                # admin sees a clear inline error in the UI.
+                raise HTTPException(422, f"Could not import image: {e}") from e
+            content_hash = downloaded.sha256
+            r2_filename = f"{downloaded.sha256}{downloaded.extension}"
+            store_url = f"{R2_PREFIX}{r2_filename}"
+            # Dedup BEFORE the R2 upload — same content_hash for this
+            # exercise means the bytes are already in R2 (idempotent
+            # upload would no-op anyway, but skipping the network call
+            # is cheaper).
+            cur.execute(
+                "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
+                "WHERE exercise_id = ? AND content_hash = ?",
+                (exercise_id, content_hash),
+            )
+            existing = cur.fetchone()
+            if existing:
+                if not existing.get("alt_text"):
+                    existing["alt_text"] = default_alt
+                existing["url"] = resolve_image_url(existing["url"])
+                return existing
+            # Upload to R2. Failures here surface as 502 — the bytes
+            # aren't durable yet, so we must NOT insert the DB row
+            # claiming they are. Local fallback would silently degrade
+            # the storage contract; better to fail loudly so the
+            # operator notices the misconfiguration.
+            try:
+                from app.r2_storage import R2Storage
+                R2Storage().put_object(
+                    r2_filename, downloaded.bytes_, downloaded.content_type,
+                )
+            except RuntimeError as e:
+                raise HTTPException(502, f"R2 upload failed: {e}") from e
+        else:
+            content_hash = _image_hash(req.url)
+            store_url = req.url
+            cur.execute(
+                "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
+                "WHERE exercise_id = ? AND content_hash = ?",
+                (exercise_id, content_hash),
+            )
+            existing = cur.fetchone()
+            if existing:
+                if not existing.get("alt_text"):
+                    existing["alt_text"] = default_alt
+                existing["url"] = resolve_image_url(existing["url"])
+                return existing
+
         cur.execute(
             "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash, alt_text) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (exercise_id, req.url, req.caption, req.sort_order or 0, h, req.alt_text),
+            (exercise_id, store_url, req.caption, req.sort_order or 0, content_hash, req.alt_text),
         )
         img_id = cur.lastrowid
         cur.execute("SELECT id, url, caption, sort_order, alt_text FROM exercise_images WHERE id = ?", (img_id,))

@@ -376,3 +376,186 @@ def test_routine_get_hydrates_alt_text_on_nested_exercise_images(auth_client, se
     fetched = c.get(f"/routines/{routine['id']}", headers=_h(tok)).json()
     images = fetched["exercises"][0]["exercise"]["images"]
     assert images[0]["alt_text"] == "Wall Ankle Dorsiflexion demonstration"
+
+
+# ---------- R2 storage backend (PR-A2b) ----------
+# When config.r2_configured() is True, add_image takes the
+# server-side download → R2 upload path and stores `r2:<sha>.<ext>`
+# instead of the raw URL. We mock both download_image and
+# R2Storage.put_object so the test runs without R2 secrets or
+# network access.
+
+def _configure_r2(monkeypatch):
+    """Flip the five R2 env knobs so r2_configured() returns True."""
+    from app import config
+    monkeypatch.setattr(config, "R2_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(config, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(config, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(config, "R2_BUCKET", "taskapp-test")
+    monkeypatch.setattr(config, "R2_PUBLIC_URL", "https://cdn.test")
+
+
+def _mock_downloaded(sha="d" * 64, content_type="image/jpeg", extension=".jpg"):
+    """Return a fake DownloadedImage that download_image() can yield."""
+    from app.image_download import DownloadedImage
+    di = DownloadedImage(bytes_=b"fakebytes", content_type=content_type, sha256=sha)
+    # extension is a property; can't override directly. Use a subclass.
+    return di if di.extension == extension else _FakeDownloaded(sha, content_type, extension)
+
+
+class _FakeDownloaded:
+    """When the canonical extension mapping doesn't match what we want
+    (e.g. webp) we return this stand-in with a forced extension."""
+    def __init__(self, sha, content_type, extension):
+        self.bytes_ = b"fakebytes"
+        self.content_type = content_type
+        self.sha256 = sha
+        self.extension = extension
+
+
+def test_add_image_r2_mode_uploads_and_stores_sentinel(auth_client, seeded_globals, monkeypatch):
+    from unittest.mock import MagicMock, patch
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    fake_dl = _mock_downloaded(sha="a" * 64)
+    fake_r2 = MagicMock()
+    with patch("app.routes.exercise_routes.download_image", return_value=fake_dl), \
+         patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        r = c.post(
+            f"/exercises/{seeded_globals['wall']}/images",
+            headers=_h(tok),
+            json={"url": "https://example.com/x.jpg"},
+        )
+
+    assert r.status_code == 200
+    fake_r2.put_object.assert_called_once()
+    args = fake_r2.put_object.call_args
+    assert args.args[0] == "a" * 64 + ".jpg"  # filename
+    assert args.args[1] == b"fakebytes"
+    assert args.args[2] == "image/jpeg"
+
+    # Resolved URL points at the configured R2 public URL.
+    assert r.json()["url"] == "https://cdn.test/" + "a" * 64 + ".jpg"
+
+    # DB row stores the r2: sentinel — verify by re-fetching.
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert fetched["images"][0]["url"] == "https://cdn.test/" + "a" * 64 + ".jpg"
+
+
+def test_add_image_r2_mode_dedups_by_content_hash(auth_client, seeded_globals, monkeypatch):
+    """Second POST with same sha256 → no second R2 upload, returns
+    the existing row."""
+    from unittest.mock import MagicMock, patch
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    fake_dl = _mock_downloaded(sha="b" * 64)
+    fake_r2 = MagicMock()
+    with patch("app.routes.exercise_routes.download_image", return_value=fake_dl), \
+         patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        c.post(
+            f"/exercises/{seeded_globals['wall']}/images",
+            headers=_h(tok), json={"url": "https://example.com/x.jpg"},
+        )
+        c.post(
+            f"/exercises/{seeded_globals['wall']}/images",
+            headers=_h(tok), json={"url": "https://example.com/different-url.jpg"},
+        )
+
+    # Only one upload — second call hit the dedup path before R2.
+    assert fake_r2.put_object.call_count == 1
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert len(fetched["images"]) == 1
+
+
+def test_add_image_r2_mode_422_on_download_error(auth_client, seeded_globals, monkeypatch):
+    """A SSRF-blocked URL surfaces as 422 with the error detail —
+    admin sees a clear inline message in the UI."""
+    from unittest.mock import patch
+    from app.image_download import DownloadError
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    with patch(
+        "app.routes.exercise_routes.download_image",
+        side_effect=DownloadError("Host internal.example resolves to a non-public IP"),
+    ):
+        r = c.post(
+            f"/exercises/{seeded_globals['wall']}/images",
+            headers=_h(tok), json={"url": "https://internal.example/x.jpg"},
+        )
+
+    assert r.status_code == 422
+    assert "non-public IP" in r.json()["detail"]
+
+
+def test_add_image_r2_mode_502_on_upload_failure(auth_client, seeded_globals, monkeypatch):
+    """R2 upload failure must NOT silently fall back to local storage —
+    the bytes wouldn't be durable. 502 surfaces the misconfiguration."""
+    from unittest.mock import MagicMock, patch
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    fake_dl = _mock_downloaded(sha="c" * 64)
+    fake_r2 = MagicMock()
+    fake_r2.put_object.side_effect = RuntimeError("bucket unreachable")
+    with patch("app.routes.exercise_routes.download_image", return_value=fake_dl), \
+         patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        r = c.post(
+            f"/exercises/{seeded_globals['wall']}/images",
+            headers=_h(tok), json={"url": "https://example.com/x.jpg"},
+        )
+
+    assert r.status_code == 502
+    assert "R2 upload failed" in r.json()["detail"]
+
+    # No DB row written (the upload failed before insert).
+    fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
+    assert fetched["images"] == []
+
+
+def test_add_image_legacy_mode_when_r2_not_configured(auth_client, seeded_globals):
+    """No R2 secrets → existing URL-passthrough behavior preserved.
+    Important: production today is in this mode; nothing should change
+    until secrets are flipped."""
+    c, tok, _ = auth_client
+    r = c.post(
+        f"/exercises/{seeded_globals['wall']}/images",
+        headers=_h(tok), json={"url": "https://example.com/legacy.jpg"},
+    )
+    assert r.status_code == 200
+    assert r.json()["url"] == "https://example.com/legacy.jpg"
+
+
+def test_permanent_delete_unlinks_r2_objects(client, monkeypatch):
+    """Permanent delete of an exercise that owns r2:-prefixed images
+    should call R2Storage.delete_object for each. Failures are logged
+    but don't block the response (best-effort)."""
+    from unittest.mock import MagicMock, patch
+    _configure_r2(monkeypatch)
+    tok = client.post(
+        "/auth/register",
+        json={"email": "u@x.com", "password": "pw1234567"},
+    ).json()["access_token"]
+    ex = client.post(
+        "/exercises", headers=_h(tok),
+        json={"name": "Test", "measurement": "reps"},
+    ).json()
+    # Insert an r2:-prefixed image directly so we don't have to mock
+    # the upload pipeline twice.
+    from app.database import get_db
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
+            "VALUES (?, ?, ?, ?)",
+            (ex["id"], "r2:abc.jpg", 0, "hash-abc"),
+        )
+
+    fake_r2 = MagicMock()
+    with patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        r = client.delete(f"/exercises/{ex['id']}/permanent", headers=_h(tok))
+
+    assert r.status_code == 200
+    fake_r2.delete_object.assert_called_once_with("abc.jpg")
