@@ -416,22 +416,43 @@ export default function WorkoutsScreen() {
             accessibilityLabel={`Group by ${activeGroupLabel}. Tap to change.`}
           />
           {groupDropdownOpen && (
-            <View style={styles.dropdown}>
-              {GROUP_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.key}
-                  style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
-                  onPress={() => handleGroupChange(opt.key)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: groupBy === opt.key }}
-                >
-                  <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
-                    {opt.label}
-                  </Text>
-                  {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
-                </Pressable>
-              ))}
-            </View>
+            <>
+              {/* Tap-outside-to-dismiss backdrop. Without this, the
+                  dropdown stays open after the user taps anywhere
+                  else (a routine card, the sort chip, off-bar
+                  whitespace), and subsequent chip taps just toggle
+                  it closed — looks like the chip "stopped working"
+                  after a few clicks. The backdrop sits zIndex:9998
+                  (one below the dropdown) so taps on dropdown items
+                  hit the items, while taps elsewhere hit the backdrop
+                  and close the dropdown. The huge negative inset is
+                  the cross-platform substitute for `position: fixed`
+                  (no native equivalent). */}
+              <Pressable
+                style={styles.dropdownBackdrop}
+                onPress={() => setGroupDropdownOpen(false)}
+                accessibilityLabel="Close group-by menu"
+                accessibilityRole="button"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
+              <View style={styles.dropdown}>
+                {GROUP_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.key}
+                    style={[styles.dropdownItem, groupBy === opt.key && styles.dropdownItemActive]}
+                    onPress={() => handleGroupChange(opt.key)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: groupBy === opt.key }}
+                  >
+                    <Text style={[styles.dropdownText, groupBy === opt.key && styles.dropdownTextActive]}>
+                      {opt.label}
+                    </Text>
+                    {groupBy === opt.key && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                  </Pressable>
+                ))}
+              </View>
+            </>
           )}
         </View>
       </View>
@@ -715,6 +736,15 @@ const styles = StyleSheet.create({
   },
 
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
+  dropdownBackdrop: {
+    // Cover the screen with a transparent tap target. Inset is large
+    // enough to catch any reasonable viewport without needing
+    // `position: fixed` (web-only) or a Modal wrapper (positioning
+    // the dropdown becomes layout-coupled).
+    position: 'absolute' as any,
+    top: -2000, left: -2000, right: -2000, bottom: -2000,
+    zIndex: 9998,
+  },
   dropdown: {
     position: 'absolute' as any, top: 34, left: 0, zIndex: 9999,
     backgroundColor: colors.surface, borderRadius: radii.sm, padding: spacing.xs,

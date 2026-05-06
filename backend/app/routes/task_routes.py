@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from typing import Optional
 from app.database import get_db
 from app.auth import get_current_user_id
+from app.concurrency import parse_ts, is_conflict
 from app.models import (
     TaskCreate, TaskUpdate, TaskResponse, TaskListResponse,
     BatchUpdate, ReorderRequest,
@@ -287,9 +289,32 @@ def get_task(task_id: int, user_id: int = Depends(get_current_user_id)):
 def update_task(task_id: int, req: TaskUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
-        if not cur.fetchone():
+        # Load `updated_at` alongside the existence check so the
+        # optimistic-concurrency comparison below has a single SELECT,
+        # not two.
+        cur.execute(
+            "SELECT updated_at FROM tasks WHERE id = ? AND user_id = ?",
+            (task_id, user_id),
+        )
+        existing = cur.fetchone()
+        if not existing:
             raise HTTPException(404, "Task not found")
+
+        # Optimistic concurrency: if the client sent expected_updated_at
+        # and the row has moved past it, return 409 with the current
+        # row embedded so the client can reconcile in one round-trip.
+        # Mirrors the routine PUT pattern. Opt-in: legacy callers that
+        # don't send expected_updated_at stay last-write-wins.
+        if is_conflict(parse_ts(existing["updated_at"]), parse_ts(req.expected_updated_at)):
+            current = _get_task_by_id(cur, task_id)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "conflict",
+                    "detail": "Task changed since you loaded it.",
+                    "current": jsonable_encoder(current),
+                },
+            )
 
         _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
         updates, params = ["updated_at = ?"], [_now]

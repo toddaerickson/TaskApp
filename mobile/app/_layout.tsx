@@ -1,6 +1,7 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
 import { AppState, View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import PinGate from '@/components/PinGate';
@@ -157,8 +158,14 @@ function RootLayout() {
   if (unlocked === null) return null;
   if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
+  // GestureHandlerRootView must wrap the OUTERMOST navigation root for
+  // react-native-gesture-handler to receive native touch events. Added
+  // in PR-D0 for the upcoming drag-and-drop work; harmless overhead
+  // for screens that don't use gestures (just a flex:1 wrapper). On
+  // web, this maps to a div with passive listeners.
   return (
-    <UndoSnackbarProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <UndoSnackbarProvider>
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.primary, height: 56 } as any, headerTitleStyle: { fontSize: 17, fontWeight: '600' }, headerTintColor: '#fff' }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -184,7 +191,8 @@ function RootLayout() {
           </View>
         </View>
       </Modal>
-    </UndoSnackbarProvider>
+      </UndoSnackbarProvider>
+    </GestureHandlerRootView>
   );
 }
 
