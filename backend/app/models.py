@@ -208,6 +208,13 @@ class TaskUpdate(BaseModel):
     repeat_from: Optional[str] = None
     sort_order: Optional[int] = None
     tag_ids: Optional[list[int]] = None
+    # Optimistic concurrency: when set, the server compares against the
+    # row's current `updated_at` and returns 409 if the row has moved
+    # past the snapshot. Mirrors the routine PUT pattern. Optional so
+    # legacy callers stay last-write-wins. The drag-to-regroup feature
+    # depends on this — concurrent drags without it silently clobber
+    # each other.
+    expected_updated_at: Optional[datetime] = None
 
 class TaskResponse(BaseModel):
     id: int
