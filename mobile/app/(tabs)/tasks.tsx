@@ -12,9 +12,13 @@ import { formatReminderChip } from '@/lib/taskReminder';
 import FiltersSheet from '@/components/FiltersSheet';
 import SortPopover from '@/components/SortPopover';
 import { MoveToSheet } from '@/components/MoveToSheet';
+import { Draggable } from '@/components/Draggable';
+import { DropTarget } from '@/components/DropTarget';
+import { DragProvider, useDrag } from '@/lib/dragContext';
 import { folderOptions } from '@/lib/moveToOptions';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
+import { reportError } from '@/lib/errorReporter';
 
 // Status values that GTD treats as "not acting on right now" — when
 // "Hide deferred" is on, rows with these statuses are dropped locally.
@@ -193,6 +197,65 @@ export default function TasksScreen() {
       throw e;
     }
   }, [moveTarget, load]);
+
+  // Drag-to-regroup: per-row in-flight tracking + drop handler.
+  // Per the silent-killer plan-review finding (S2), a naive
+  // optimistic-update pattern can corrupt state if two drags race
+  // on the same row. We track inFlight by task id; gesture-start
+  // is rejected for any row already in the set, so the second
+  // drag never fires until the first resolves.
+  const inFlightRef = useRef<Set<number>>(new Set());
+  const handleFolderDrop = useCallback(
+    (task: Task, targetId: string | null) => {
+      // Drop outside any target → snap back, no-op.
+      if (targetId === null || !targetId.startsWith('folder-')) return;
+      // Decode the folder id from the DropTarget id. "folder-null"
+      // maps to null (the "No folder" sentinel); "folder-N" to N.
+      const idPart = targetId.slice('folder-'.length);
+      const newFolderId = idPart === 'null' ? null : Number(idPart);
+      if (Number.isNaN(newFolderId as number) && idPart !== 'null') return;
+      // No-op if the user dropped on the same folder they were
+      // already in — common when a long-press doesn't quite move.
+      if (task.folder_id === newFolderId) return;
+      // Concurrent-drag guard. If the row is already mid-PATCH from
+      // a previous drag, refuse the second one.
+      if (inFlightRef.current.has(task.id)) return;
+      inFlightRef.current.add(task.id);
+      (async () => {
+        try {
+          await api.updateTask(task.id, {
+            folder_id: newFolderId,
+            expected_updated_at: task.updated_at,
+          });
+          await load();
+        } catch (e: any) {
+          const status = e?.response?.status;
+          if (status === 409) {
+            await load();
+            Alert.alert(
+              'Task changed',
+              `${task.title} was updated elsewhere. The list has been refreshed; try again.`,
+            );
+            return;
+          }
+          // Rollback breadcrumb (Silent-killer S2). The visual
+          // rollback is automatic — we never committed the optimistic
+          // state to the store, so a refetch on success is the only
+          // mutation; on failure no refetch fires and the row is
+          // already snap-back animating.
+          reportError(e, {
+            route: 'PUT /tasks/{id} (drag-to-regroup)',
+            tags: { feature: 'tasks_drag_regroup' },
+          });
+          Alert.alert('Move failed', describeApiError(e));
+        } finally {
+          inFlightRef.current.delete(task.id);
+        }
+      })();
+    },
+    [load],
+  );
+
   // Below 700px the 8-column desktop table becomes unreadable; render
   // a stacked card list instead.
   const { width } = useWindowDimensions();
@@ -356,6 +419,7 @@ export default function TasksScreen() {
   const activeGroupLabel = GROUP_OPTIONS.find(g => g.key === groupBy)?.label || 'None';
 
   return (
+    <DragProvider>
     <View style={styles.container}>
       {/* Quick-add row. Replaces the old search bar — type a title and
           press return to capture a task instantly. Search moved to a
@@ -616,8 +680,25 @@ export default function TasksScreen() {
         )
       ) : (
         <ScrollView style={styles.tableBody}>
-          {groupedTasks.map((group, gi) => (
-            <View key={gi}>
+          {groupedTasks.map((group, gi) => {
+            // Drag drop-target wiring: when grouped by folder, the
+            // entire group section (header + rows) is one DropTarget.
+            // The folder_id is read from the first task in the
+            // group (by construction all tasks in the group share
+            // it). "No Folder" encodes as id="folder-null"; the
+            // handler decodes it back.
+            const folderTargetId =
+              groupBy === 'folder' && group.tasks[0]
+                ? `folder-${group.tasks[0].folder_id ?? 'null'}`
+                : null;
+            const Wrapper = folderTargetId
+              ? ({ children }: { children: React.ReactNode }) => (
+                  <DropTarget id={folderTargetId}>{children}</DropTarget>
+                )
+              : ({ children }: { children: React.ReactNode }) => <>{children}</>;
+            return (
+              <View key={gi}>
+              <Wrapper>
               {/* Group header */}
               {groupBy !== 'none' && (
                 <View style={styles.groupHeader}>
@@ -634,8 +715,8 @@ export default function TasksScreen() {
               {group.tasks.map((task) => {
                 const nextRem = nextUpcomingReminder(task.reminders, Date.now());
                 const nextRemLabel = nextRem ? formatReminderChip(nextRem.remind_at) : null;
-                return isNarrow ? (
-                <View key={task.id} style={styles.cardRow}>
+                const rowNode = isNarrow ? (
+                <View style={styles.cardRow}>
                   <Pressable
                     onPress={() => complete(task.id)}
                     style={styles.cardCheck}
@@ -692,7 +773,6 @@ export default function TasksScreen() {
                 </View>
               ) : (
                 <View
-                  key={task.id}
                   style={styles.dataRow}
                 >
                   <View style={styles.actionCell}>
@@ -791,9 +871,23 @@ export default function TasksScreen() {
                   </View>
                 </View>
               );
+              // Wrap the row in <Draggable> only when the active
+              // grouping is the field a drop will mutate (folder
+              // here; PR-D4/D5 expand to status/starred/priority).
+              // Otherwise the row renders as before — no gesture
+              // handler, no perf cost, no a11y override.
+              return folderTargetId ? (
+                <Draggable<Task> key={task.id} data={task} onDrop={handleFolderDrop}>
+                  {rowNode}
+                </Draggable>
+              ) : (
+                <View key={task.id}>{rowNode}</View>
+              );
               })}
+              </Wrapper>
             </View>
-          ))}
+            );
+          })}
         </ScrollView>
       )}
 
@@ -829,6 +923,7 @@ export default function TasksScreen() {
         />
       )}
     </View>
+    </DragProvider>
   );
 }
 
