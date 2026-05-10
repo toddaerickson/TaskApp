@@ -184,6 +184,21 @@ export async function changePassword(currentPassword: string, newPassword: strin
   return data;
 }
 
+// Used by the mobile Reset PIN flow. Returns true on a 200, false on
+// a 401 (wrong password). Throws on network errors / 5xx so the caller
+// can distinguish "you typed the wrong password" from "we couldn't
+// reach the server" — the former is recoverable in-place, the latter
+// should keep the lockout intact.
+export async function verifyPassword(password: string): Promise<boolean> {
+  try {
+    await api.post('/auth/verify-password', { password });
+    return true;
+  } catch (e: any) {
+    if (e?.response?.status === 401) return false;
+    throw e;
+  }
+}
+
 export async function updateProfile(patch: { display_name?: string | null }) {
   const { data } = await api.put('/auth/me', patch);
   return data;
