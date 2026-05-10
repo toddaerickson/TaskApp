@@ -153,6 +153,33 @@ describe('<PinGate />', () => {
     }
   });
 
+  it('renders the bio-unlocking splash and auto-prompts when bio is enabled', async () => {
+    bioState.kind = 'face';
+    bioState.enabled = true;
+    bioState.authOk = true;
+    const onUnlock = jest.fn();
+    const api = render(<PinGate onUnlock={onUnlock} />);
+    // Splash, not keypad — title is "Unlocking…", and the Digit buttons
+    // are absent (they only render in 'enter' mode).
+    expect(await api.findByText('Unlocking…')).toBeTruthy();
+    expect(api.queryByLabelText('Digit 1')).toBeNull();
+    // Bio prompt fired and resolved truthy → onUnlock without a tap.
+    await waitFor(() => expect(onUnlock).toHaveBeenCalledTimes(1));
+  });
+
+  it('falls through from bio-unlocking to keypad when bio is cancelled', async () => {
+    bioState.kind = 'face';
+    bioState.enabled = true;
+    bioState.authOk = false;
+    const onUnlock = jest.fn();
+    const api = render(<PinGate onUnlock={onUnlock} />);
+    // Bio resolves false → transitions to 'enter'. Just assert the
+    // end state (keypad up, no unlock).
+    expect(await api.findByText('Enter PIN')).toBeTruthy();
+    expect(api.getByLabelText('Digit 1')).toBeTruthy();
+    expect(onUnlock).not.toHaveBeenCalled();
+  });
+
   it('Backspace key deletes the last entered digit on web', async () => {
     const RN = require('react-native');
     const originalOS = RN.Platform.OS;
