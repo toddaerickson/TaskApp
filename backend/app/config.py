@@ -16,7 +16,13 @@ DB_TYPE = "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite"
 _DEV_JWT_SECRET = "dev-secret-change-in-production"
 JWT_SECRET = os.environ.get("JWT_SECRET", _DEV_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = 72
+# 30 days. Single-user, self-hosted; PinGate (mobile/components/PinGate.tsx)
+# is the device-side security boundary, so a long-lived bearer token here
+# only changes how often the user types their password — not the realistic
+# blast radius of a stolen device. Trade-off: a leaked token is valid for
+# 30 days without server-side revocation. Acceptable for a single-tenant
+# deploy; revisit if this ever serves multiple users.
+JWT_EXPIRE_HOURS = 24 * 30
 
 # Refuse to run against Postgres with the public dev secret — tokens would
 # be forgeable by anyone who can read this repo.
