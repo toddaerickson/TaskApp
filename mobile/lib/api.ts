@@ -72,6 +72,14 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// Match any /auth/ route so error reporting / unlock-window logic skips
+// every credential-bearing endpoint, not just /auth/login + /auth/register.
+// Without this, a 5xx on /auth/change-password ships both the old and new
+// passwords to Sentry via the serialized axios config.
+function isAuthRoute(url: string): boolean {
+  return url.includes('/auth/');
+}
+
 // Active-use extends the PIN unlock window. Any successful authed API
 // call calls touchUnlock() so a user who's continuously interacting
 // doesn't get kicked to PinGate mid-session when the 8-hour window
@@ -82,7 +90,7 @@ api.interceptors.request.use(async (config) => {
 // wait on a SecureStore write. Also skip on /auth/* endpoints so a
 // failed login doesn't refresh a window the user no longer has.
 function maybeTouchUnlock(url: string) {
-  if (url.includes('/auth/login') || url.includes('/auth/register')) return;
+  if (isAuthRoute(url)) return;
   // Lazy require so the module stays tree-shakeable. Platform-safe.
   // Swallow errors: the worst case is that the user re-enters their
   // PIN eight hours from now, not nine.
@@ -110,7 +118,7 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const url: string = error?.config?.url || '';
     const hadAuth = Boolean(error?.config?.headers?.Authorization);
-    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+    const isAuthEndpoint = isAuthRoute(url);
     // Extend the PIN unlock window on error responses too, not only on
     // 2xx. A user stuck on a flaky network (airplane-mode train tunnel,
     // captive wifi) still counts as "actively using the app" — forcing
