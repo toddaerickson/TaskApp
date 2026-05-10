@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   logging, symptom tracking. See `app/routes/{exercise,routine,session}_routes.py`
   and `mobile/app/workout/`.
 - **PinGate** — 4-digit PIN on app launch, hashed in SecureStore, optional
-  Face ID / Touch ID, 15-minute soft timeout. See `mobile/components/PinGate.tsx`
+  Face ID / Touch ID, 4-hour soft timeout. See `mobile/components/PinGate.tsx`
   and `mobile/lib/{pin,biometric}.ts`.
 
 ## Skills

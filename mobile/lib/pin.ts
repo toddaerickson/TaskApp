@@ -33,13 +33,14 @@ const K_ATTEMPTS = 'pin.attempts';
 const K_UNLOCK_AT = 'pin.unlockAt';
 
 export const MAX_ATTEMPTS = 5;
-/** Re-gate after this many minutes of no activity. CLAUDE.md spec is
- *  15 min — short enough that a phone left briefly unattended doesn't
- *  expose the app, long enough that intended-use context-switches
- *  (open-app → check-something-elsewhere → return) don't trigger
- *  re-entry. Face ID / Touch ID is the soft escape: native biometric
- *  users see one-tap re-unlock, web users see the keypad. */
-export const TIMEOUT_MIN = 15;
+/** Re-gate after this many minutes of no activity. 4 hours: the
+ *  original 15-min cutoff was calibrated for a multi-user threat model
+ *  that doesn't apply here — single-tenant, owner's own phone, OS-level
+ *  passcode + biometrics already gating the device. Re-prompting for
+ *  the in-app PIN every 15 min of inactivity was pure friction. With
+ *  bio-first PinGate (PR-1), even when the timeout does fire the
+ *  re-unlock is a single Face ID glance. */
+export const TIMEOUT_MIN = 240;
 
 function randomSalt(): string {
   const bytes = new Uint8Array(16);
