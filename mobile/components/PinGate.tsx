@@ -14,7 +14,10 @@ import { haptics } from '@/lib/haptics';
 
 // 'intro' only fires on first run when biometrics are available — it
 // reframes the PIN setup as a fallback so the user isn't surprised later.
-type Mode = 'loading' | 'intro' | 'enter' | 'set' | 'confirm' | 'locked';
+// 'bio-unlocking' renders a minimal lock-icon splash while the system
+// biometric sheet is up, so the keypad never paints first on a returning
+// user with Face ID enabled. Cancel / failure falls through to 'enter'.
+type Mode = 'loading' | 'intro' | 'bio-unlocking' | 'enter' | 'set' | 'confirm' | 'locked';
 
 export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const [mode, setMode] = useState<Mode>('loading');
@@ -37,7 +40,8 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     (async () => {
       const bk = await biometricKind();
       setBioKind(bk);
-      setBioEnabled(await isBiometricEnabled());
+      const enabled = await isBiometricEnabled();
+      setBioEnabled(enabled);
       if (await isLockedOut()) { setMode('locked'); return; }
       const has = await isPinSet();
       if (!has) {
@@ -53,25 +57,31 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         return;
       }
       setWrong(await getFailedAttempts());
-      setMode('enter');
+      // Bio-first: if the user has biometrics enabled, render the
+      // unlocking splash (not the keypad) and fire the system prompt
+      // immediately. Cancel / failure falls through to 'enter'.
+      setMode(bk !== 'none' && enabled ? 'bio-unlocking' : 'enter');
     })();
     return () => { if (shakeTimer.current) clearTimeout(shakeTimer.current); };
   }, []);
 
-  // Auto-prompt biometric on first entry into 'enter' mode if the user has
-  // enabled it. One try — if they cancel, fall through to PIN.
+  // Auto-prompt biometric on entry into 'bio-unlocking' mode. One try —
+  // if the user cancels or it fails, transition to 'enter' (keypad).
+  // The splash stays up while the system sheet is visible, so the user
+  // never sees a keypad flash on a successful unlock.
   useEffect(() => {
-    if (mode !== 'enter' || bioAutoTried.current) return;
-    if (!bioEnabled || bioKind === 'none') return;
+    if (mode !== 'bio-unlocking' || bioAutoTried.current) return;
     bioAutoTried.current = true;
     (async () => {
       const ok = await authenticateBiometric(bioPrompt(bioKind));
       if (ok) {
         await touchUnlock();
         onUnlock();
+        return;
       }
+      setMode('enter');
     })();
-  }, [mode, bioEnabled, bioKind]);
+  }, [mode, bioKind]);
 
   const tryBiometric = async () => {
     const ok = await authenticateBiometric(bioPrompt(bioKind));
@@ -181,6 +191,25 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  }
+
+  if (mode === 'bio-unlocking') {
+    return (
+      <View style={styles.container} accessibilityLabel={`Unlocking with ${bioLabel(bioKind)}`}>
+        <Ionicons
+          name={bioKind === 'face' ? 'happy-outline' : 'finger-print'}
+          size={56} color={colors.primary}
+        />
+        <Text style={styles.title}>Unlocking…</Text>
+        <Pressable
+          style={styles.bioBtn}
+          onPress={() => setMode('enter')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.bioBtnText}>Use PIN instead</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   if (mode === 'intro') {
