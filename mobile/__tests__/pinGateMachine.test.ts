@@ -262,15 +262,58 @@ describe('pinGateMachine.reduce', () => {
     });
   });
 
-  describe('reset + shake', () => {
-    it('RESET_PIN_CLEARED routes back to set + clears all input state', () => {
+  describe('reset password-gate flow', () => {
+    const locked = { ...initialState, mode: 'locked' as const, wrong: 5 };
+
+    it('RESET_REQUESTED opens the password overlay + clears any prior error', () => {
+      const state = { ...locked, resetError: 'old message' };
+      const next = reduce(state, { type: 'RESET_REQUESTED' });
+      expect(next.pendingReset).toBe(true);
+      expect(next.resetError).toBe('');
+      expect(next.resetVerifying).toBe(false);
+      // Stays in locked mode — overlay only.
+      expect(next.mode).toBe('locked');
+    });
+
+    it('RESET_CANCELLED closes the overlay + clears verify state', () => {
       const state = {
-        ...initialState,
-        mode: 'locked' as const,
+        ...locked,
+        pendingReset: true,
+        resetError: 'wrong password',
+        resetVerifying: true,
+      };
+      const next = reduce(state, { type: 'RESET_CANCELLED' });
+      expect(next.pendingReset).toBe(false);
+      expect(next.resetError).toBe('');
+      expect(next.resetVerifying).toBe(false);
+      expect(next.mode).toBe('locked');
+    });
+
+    it('RESET_VERIFYING flips the in-flight flag + clears the prior error', () => {
+      const state = { ...locked, pendingReset: true, resetError: 'wrong before' };
+      const next = reduce(state, { type: 'RESET_VERIFYING' });
+      expect(next.resetVerifying).toBe(true);
+      expect(next.resetError).toBe('');
+    });
+
+    it('RESET_VERIFY_FAILED surfaces the message + clears the in-flight flag', () => {
+      const state = { ...locked, pendingReset: true, resetVerifying: true };
+      const next = reduce(state, { type: 'RESET_VERIFY_FAILED', message: 'Wrong password.' });
+      expect(next.resetVerifying).toBe(false);
+      expect(next.resetError).toBe('Wrong password.');
+      // Overlay stays open so the user can retry.
+      expect(next.pendingReset).toBe(true);
+    });
+
+    it('RESET_PIN_CLEARED resets all reset-flow state alongside the input fields', () => {
+      const state = {
+        ...locked,
         entered: '1234',
         firstPin: '0000',
-        wrong: 5,
         message: 'something',
+        pendingReset: true,
+        resetError: 'wrong',
+        resetVerifying: true,
       };
       const next = reduce(state, { type: 'RESET_PIN_CLEARED' });
       expect(next.mode).toBe('set');
@@ -278,6 +321,9 @@ describe('pinGateMachine.reduce', () => {
       expect(next.firstPin).toBeNull();
       expect(next.wrong).toBe(0);
       expect(next.message).toBe('');
+      expect(next.pendingReset).toBe(false);
+      expect(next.resetError).toBe('');
+      expect(next.resetVerifying).toBe(false);
     });
 
     it('SHAKE_DONE clears shake + entered', () => {
