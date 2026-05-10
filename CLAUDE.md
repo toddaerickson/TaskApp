@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # TaskApp — Collaboration Guide for Claude Code
 
 ## Stack
@@ -19,29 +23,15 @@
   Face ID / Touch ID, 15-minute soft timeout. See `mobile/components/PinGate.tsx`
   and `mobile/lib/{pin,biometric}.ts`.
 
-## Installed Skills (in `.claude/skills/`)
+## Skills
 
-Invoke via the `Skill` tool when the trigger applies. When in doubt, **run
-the skill** instead of winging it — they catch things I miss.
-
-| When | Use skill |
-|---|---|
-| Before merging a PR or committing multi-file changes | `code-reviewer` — automated PR analysis, complexity/risk scoring, SOLID + smell checks. Runs `pr_analyzer.py` on the diff. |
-| After I say "looks good" on my own code, or before a release | `adversarial-reviewer` — counterweight to my agreeableness bias. Hostile-persona review that catches blind spots the author shares with a compliant reviewer. |
-| Before shipping any user-facing UI changes | `a11y-audit` — WCAG 2.2 AA scan (color contrast, focus order, alt text, screen-reader flow). The workout UI has not been audited. |
-| When colors, spacing, typography feel inconsistent across screens | `ui-design-system` — extract design tokens, document components, generate dev handoff. Our workout screens still have hardcoded colors (`#1a73e8`, `#e67e22`, `#27ae60`) duplicated in ~7 StyleSheets. |
-| When a feature is "broken end-to-end" across files | `focused-fix` — systematic deep-dive repair, not single-bug patching. E.g. "session logging is flaky across mobile + API + DB." |
-| When a free API doesn't cover what we need (image search, tutorial sites, open-data extraction) | `browser-automation` — Playwright-based scraping with anti-detection patterns. Use instead of brittle `urllib`+regex attempts. |
-
-### Skill bundles (under `.claude/skills/_*/`)
-
-Invoke sub-skills directly, e.g. `_product-team/ui-design-system`, `_project-management/senior-pm`.
-
-| Bundle | Top picks for this project |
-|---|---|
-| `_product-team` | `ux-researcher-designer`, `ui-design-system`, `product-manager-toolkit`, `experiment-designer`, `spec-to-repo` |
-| `_project-management` | `senior-pm`, `scrum-master`, `meeting-analyzer`, `team-communications` |
-| `_ra-qm-team` | `gdpr-dsgvo-expert`, `information-security-manager-iso27001` — only relevant if this app starts handling other users' health data |
+The `.claude/skills/` directory was removed in commit `1d62294` ("Remove 285
+unused .claude/skills/ files"). The multi-agent review conventions below
+referenced sub-skills like `adversarial-reviewer`, `silent-killer`,
+`code-reviewer`, `a11y-audit`, `ui-design-system`, `focused-fix`, and
+`browser-automation` — none of those are currently installed. If you need
+that workflow, reinstall the skills first or run the equivalent reasoning
+manually via the Agent tool with `subagent_type=general-purpose`.
 
 ## Workflow conventions
 
@@ -253,16 +243,20 @@ cd mobile && npx expo start
 
 ## Tests
 
-~795 tests across backend (pytest) and mobile (jest). Run:
+~681 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # ~490 cases (3 PG-only skipped on the SQLite leg)
-cd mobile && npm test            # 305 cases (26 suites: pure-function libs + RN component tests)
+cd backend && venv/bin/pytest    # 435 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 246 cases (split into `node-libs` and `rn-components` projects)
 ```
 
 Counts drift fast — when you bump these, also bump the matching line
 in [README.md](README.md). The `test_seed_snapshot` ratchet pattern is
 the canonical example: a numeric expectation in the test that has to
 move down when seed gaps close.
+
+To run a single backend test: `venv/bin/pytest tests/test_<file>.py::test_<name>`.
+For a single mobile test: `npm test -- -t "<test name pattern>"` or
+`npm test -- <path/to/file.test.ts>`.
 
 ## CI / pre-commit
 
