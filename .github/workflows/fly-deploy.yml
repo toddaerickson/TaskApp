@@ -1,7 +1,7 @@
 name: Deploy backend to Fly.io
 
 # Auto-deploy the FastAPI backend to Fly whenever backend code lands on
-# master. The frontend is on Vercel (separate auto-deploy) so we don't
+# main. The frontend is on Vercel (separate auto-deploy) so we don't
 # trigger on mobile-only changes. `workflow_dispatch` lets you force a
 # manual redeploy from the Actions tab without a code change.
 #
@@ -13,7 +13,7 @@ name: Deploy backend to Fly.io
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - 'backend/**'
       - '.github/workflows/fly-deploy.yml'

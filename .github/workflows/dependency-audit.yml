@@ -6,12 +6,12 @@ on:
     - cron: '0 8 * * 1'
   # Also run on push/PR when lock files change
   push:
-    branches: [master, main]
+    branches: [main]
     paths:
       - 'backend/requirements.txt'
       - 'mobile/package-lock.json'
   pull_request:
-    branches: [master, main]
+    branches: [main]
     paths:
       - 'backend/requirements.txt'
       - 'mobile/package-lock.json'
