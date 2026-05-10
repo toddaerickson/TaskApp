@@ -12,7 +12,7 @@ import { formatReminderChip } from '@/lib/taskReminder';
 import FiltersSheet from '@/components/FiltersSheet';
 import SortPopover from '@/components/SortPopover';
 import { MoveToSheet } from '@/components/MoveToSheet';
-import { Draggable } from '@/components/Draggable';
+import { Draggable, DragHandle } from '@/components/Draggable';
 import { DropTarget } from '@/components/DropTarget';
 import { DragProvider, useDrag } from '@/lib/dragContext';
 import { folderOptions } from '@/lib/moveToOptions';
@@ -770,6 +770,15 @@ export default function TasksScreen() {
                       size={18} color={task.starred ? colors.accent : '#ddd'}
                     />
                   </Pressable>
+                  {/* Drag handle: only this small region arms the
+                      drag-to-folder gesture. Touches anywhere else
+                      on the row fall through to ScrollView so the
+                      list scrolls normally. Rendered only when a
+                      folder grouping is active (i.e. drop targets
+                      exist); otherwise it would be dead UI. */}
+                  {folderTargetId && (
+                    <DragHandle accessibilityLabel={`Reorder ${task.title}`} />
+                  )}
                 </View>
               ) : (
                 <View
@@ -869,6 +878,11 @@ export default function TasksScreen() {
                       <Ionicons name="swap-horizontal-outline" size={18} color="#999" />
                     </Pressable>
                   </View>
+                  {folderTargetId && (
+                    <View style={[styles.cell, { flex: 0.3, alignItems: 'center' }]}>
+                      <DragHandle accessibilityLabel={`Reorder ${task.title}`} />
+                    </View>
+                  )}
                 </View>
               );
               // Wrap the row in <Draggable> only when the active
