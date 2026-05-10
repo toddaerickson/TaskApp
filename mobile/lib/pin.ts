@@ -32,15 +32,13 @@ const K_HASH = 'pin.hash';
 const K_ATTEMPTS = 'pin.attempts';
 const K_UNLOCK_AT = 'pin.unlockAt';
 
-export const MAX_ATTEMPTS = 5;
-/** Re-gate after this many minutes of no activity. 4 hours: the
- *  original 15-min cutoff was calibrated for a multi-user threat model
- *  that doesn't apply here — single-tenant, owner's own phone, OS-level
- *  passcode + biometrics already gating the device. Re-prompting for
- *  the in-app PIN every 15 min of inactivity was pure friction. With
- *  bio-first PinGate (PR-1), even when the timeout does fire the
- *  re-unlock is a single Face ID glance. */
-export const TIMEOUT_MIN = 240;
+// MAX_ATTEMPTS / TIMEOUT_MIN moved to pinConstants.ts so the
+// pure-function pinGateMachine reducer can read them without pulling
+// react-native into the node-libs jest project. Re-exported here so
+// existing callers (lib/biometric.ts, components/PinGate.tsx, tests)
+// keep working unchanged.
+export { MAX_ATTEMPTS, TIMEOUT_MIN } from './pinConstants';
+import { MAX_ATTEMPTS, TIMEOUT_MIN } from './pinConstants';
 
 function randomSalt(): string {
   const bytes = new Uint8Array(16);
