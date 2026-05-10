@@ -59,6 +59,17 @@ export type State = {
    *  intro AND the system verified it. After PIN_CONFIRM_OK lands,
    *  bioEnabled flips without re-prompting the user. */
   autoEnableBio: boolean;
+  /** Overlay flag: when in 'locked' mode and the user taps Reset PIN,
+   *  this opens a password-entry screen that calls the backend
+   *  /auth/verify-password before clearing pin.hash. Without this gate,
+   *  anyone holding the unlocked phone could walk past PinGate by
+   *  tapping Reset PIN. */
+  pendingReset: boolean;
+  /** Inline error shown on the password-entry overlay. '' = no error. */
+  resetError: string;
+  /** True while verifyPassword() is in flight — disables the submit
+   *  button so a slow network doesn't enable double-submit. */
+  resetVerifying: boolean;
 };
 
 export const initialState: State = {
@@ -72,6 +83,9 @@ export const initialState: State = {
   bioEnabled: false,
   offerEnableBio: false,
   autoEnableBio: false,
+  pendingReset: false,
+  resetError: '',
+  resetVerifying: false,
 };
 
 export type Action =
@@ -123,7 +137,15 @@ export type Action =
    *  setBiometricEnabled(true) before dispatch; the reducer just
    *  flips bioEnabled + closes the overlay. */
   | { type: 'OFFER_BIO_ACCEPTED' }
-  /** Locked screen: user tapped Reset PIN + clearPin completed. */
+  /** Locked screen: user tapped Reset PIN — open the password gate. */
+  | { type: 'RESET_REQUESTED' }
+  /** Password gate: user tapped Cancel. */
+  | { type: 'RESET_CANCELLED' }
+  /** Password gate: verifyPassword call started (disables submit). */
+  | { type: 'RESET_VERIFYING' }
+  /** Password gate: verifyPassword returned 401 — surface inline. */
+  | { type: 'RESET_VERIFY_FAILED'; message: string }
+  /** Password gate: verify succeeded + clearPin completed. */
   | { type: 'RESET_PIN_CLEARED' }
   /** Shake animation settled — clear the wrong-shake visual + entered. */
   | { type: 'SHAKE_DONE' };
@@ -251,6 +273,18 @@ export function reduce(state: State, action: Action): State {
     case 'OFFER_BIO_ACCEPTED':
       return { ...state, offerEnableBio: false, bioEnabled: true };
 
+    case 'RESET_REQUESTED':
+      return { ...state, pendingReset: true, resetError: '', resetVerifying: false };
+
+    case 'RESET_CANCELLED':
+      return { ...state, pendingReset: false, resetError: '', resetVerifying: false };
+
+    case 'RESET_VERIFYING':
+      return { ...state, resetVerifying: true, resetError: '' };
+
+    case 'RESET_VERIFY_FAILED':
+      return { ...state, resetVerifying: false, resetError: action.message };
+
     case 'RESET_PIN_CLEARED':
       return {
         ...state,
@@ -259,6 +293,9 @@ export function reduce(state: State, action: Action): State {
         wrong: 0,
         message: '',
         mode: 'set',
+        pendingReset: false,
+        resetError: '',
+        resetVerifying: false,
       };
 
     case 'SHAKE_DONE':

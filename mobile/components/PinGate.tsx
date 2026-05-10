@@ -15,8 +15,8 @@
  * storage primitives.
  */
 import { colors } from "@/lib/colors";
-import { useEffect, useReducer, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   isPinSet, setPin, verifyPin, isLockedOut, getFailedAttempts, touchUnlock,
@@ -30,10 +30,18 @@ import { haptics } from '@/lib/haptics';
 import {
   initialState, reduce, bioLabel, bioPrompt,
 } from '@/lib/pinGateMachine';
+import { verifyPassword } from '@/lib/api';
 
 export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
   const [state, dispatch] = useReducer(reduce, initialState);
-  const { mode, entered, firstPin, wrong, shake, message, bioKind, bioEnabled, offerEnableBio } = state;
+  const {
+    mode, entered, firstPin, wrong, shake, message, bioKind, bioEnabled,
+    offerEnableBio, pendingReset, resetError, resetVerifying,
+  } = state;
+  // Local-only input — never lands in the reducer (no benefit to a
+  // re-renderable hold of the user's typed password, and keeping it
+  // local means the cleared-on-close behavior is just an unmount).
+  const [resetPassword, setResetPassword] = useState('');
   const shakeTimer = useRef<any>(null);
   const bioAutoTried = useRef(false);
 
@@ -238,6 +246,82 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     );
   }
 
+  if (mode === 'locked' && pendingReset) {
+    const submit = async () => {
+      if (!resetPassword || resetVerifying) return;
+      dispatch({ type: 'RESET_VERIFYING' });
+      try {
+        const ok = await verifyPassword(resetPassword);
+        if (!ok) {
+          dispatch({ type: 'RESET_VERIFY_FAILED', message: 'Wrong password.' });
+          return;
+        }
+        await clearPin();
+        setResetPassword('');
+        dispatch({ type: 'RESET_PIN_CLEARED' });
+      } catch {
+        // Network / 5xx — keep the lockout intact, let the user retry.
+        // Don't reveal whether the server is up vs. the password is
+        // wrong (the 401 path above is the only "wrong password" signal).
+        dispatch({
+          type: 'RESET_VERIFY_FAILED',
+          message: "Couldn't reach the server. Check your connection.",
+        });
+      }
+    };
+    return (
+      <View style={styles.container}>
+        <Ionicons name="lock-closed" size={48} color={colors.primary} />
+        <Text style={styles.title}>Enter account password</Text>
+        <Text style={styles.subtitle}>
+          Verify your account password to reset the PIN. The PIN itself stays cleared
+          until you set a new one.
+        </Text>
+        <TextInput
+          style={styles.resetInput}
+          value={resetPassword}
+          onChangeText={setResetPassword}
+          secureTextEntry
+          autoFocus
+          autoCapitalize="none"
+          autoComplete="current-password"
+          placeholder="Password"
+          placeholderTextColor="#6b7280"
+          accessibilityLabel="Account password"
+          onSubmitEditing={submit}
+          returnKeyType="go"
+          editable={!resetVerifying}
+        />
+        {!!resetError && (
+          <Text style={styles.wrongText} accessibilityLiveRegion="polite">{resetError}</Text>
+        )}
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+          <Pressable
+            style={styles.ghostBtn}
+            onPress={() => {
+              setResetPassword('');
+              dispatch({ type: 'RESET_CANCELLED' });
+            }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.ghostBtnText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.primaryBtn, (resetVerifying || !resetPassword) && { opacity: 0.5 }]}
+            onPress={submit}
+            disabled={resetVerifying || !resetPassword}
+            accessibilityRole="button"
+          >
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.primaryBtnText}>
+              {resetVerifying ? 'Verifying…' : 'Verify'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   if (offerEnableBio) {
     return (
       <View style={styles.container}>
@@ -327,17 +411,17 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       {mode === 'locked' && (
         <>
           <Text style={styles.lockedText}>
-            Too many wrong attempts. Reset the PIN to continue — you'll
-            be asked to set a new one.
+            Too many wrong attempts. Enter your account password to
+            reset the PIN.
           </Text>
           <Pressable
             style={styles.resetBtn}
-            onPress={async () => {
-              await clearPin();
-              dispatch({ type: 'RESET_PIN_CLEARED' });
+            onPress={() => {
+              setResetPassword('');
+              dispatch({ type: 'RESET_REQUESTED' });
             }}
             accessibilityRole="button"
-            accessibilityLabel="Reset PIN and start over"
+            accessibilityLabel="Reset PIN with your account password"
           >
             <Ionicons name="refresh-outline" size={16} color="#fff" />
             <Text style={styles.resetBtnText}>Reset PIN</Text>
@@ -419,6 +503,15 @@ const styles = StyleSheet.create({
     cursor: 'pointer' as any,
   },
   keyText: { fontSize: 26, color: '#333', fontWeight: '500' },
+
+  resetInput: {
+    width: 260,
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 16, color: '#333',
+    marginTop: 24,
+    backgroundColor: '#fff',
+  },
 
   bioBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
