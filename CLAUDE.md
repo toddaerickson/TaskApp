@@ -21,8 +21,15 @@
 
 ## Installed Skills (in `.claude/skills/`)
 
-Invoke via the `Skill` tool when the trigger applies. When in doubt, **run
-the skill** instead of winging it — they catch things I miss.
+**Auto-invoke contract (operator directive 2026-05-06):** when one
+of the trigger rows below fires, Claude MUST invoke the listed skill
+via the `Skill` tool without asking for confirmation. Rolling my own
+review / audit / sweep instead of using the skill defeats the
+"counterweight" purpose. If a skill turns out to be the wrong fit,
+note that in the same turn — don't silently skip.
+
+Bundles (`_product-team`, `_project-management`, `_ra-qm-team`) are
+user-invoked only — Claude never auto-fires those.
 
 | When | Use skill |
 |---|---|

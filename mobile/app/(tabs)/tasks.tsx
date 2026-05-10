@@ -25,6 +25,13 @@ import { reportError } from '@/lib/errorReporter';
 // Kept in one place so the FiltersSheet hint string stays in sync.
 const DEFERRED_STATUSES = new Set(['hold', 'someday', 'postponed', 'cancelled']);
 
+/** HTTP 409 = optimistic-concurrency conflict. The task PUT endpoint
+ *  (PR-D0) returns this when the row's `updated_at` has moved past
+ *  the snapshot the client sent in `expected_updated_at`. Callers
+ *  refetch + surface a "changed elsewhere" alert instead of clobbering
+ *  the competing write. */
+const HTTP_CONFLICT = 409;
+
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'Low', 1: 'Med', 2: 'High', 3: 'Top',
 };
@@ -185,7 +192,7 @@ export default function TasksScreen() {
       await load();
     } catch (e: any) {
       const status = e?.response?.status;
-      if (status === 409) {
+      if (status === HTTP_CONFLICT) {
         await load();
         Alert.alert(
           'Task changed',
@@ -230,7 +237,7 @@ export default function TasksScreen() {
           await load();
         } catch (e: any) {
           const status = e?.response?.status;
-          if (status === 409) {
+          if (status === HTTP_CONFLICT) {
             await load();
             Alert.alert(
               'Task changed',
