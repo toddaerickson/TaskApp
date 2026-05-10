@@ -1,5 +1,21 @@
+/**
+ * PinGate — local-device unlock for TaskApp.
+ *
+ * State transitions live in mobile/lib/pinGateMachine.ts (pure
+ * reducer, unit-tested in pinGateMachine.test.ts). This component
+ * owns the side-effects: reading pin/biometric state on mount,
+ * verifying / setting / clearing the PIN, prompting the system
+ * biometric sheet, firing onUnlock, and rendering the right view
+ * for the current mode.
+ *
+ * The pattern: every async side-effect either dispatches a
+ * `_RESOLVED`-shaped action when it completes (so the reducer drives
+ * the next mode) or calls onUnlock directly when the user is done
+ * with the gate. The reducer never knows about onUnlock or about
+ * storage primitives.
+ */
 import { colors } from "@/lib/colors";
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -7,67 +23,44 @@ import {
   clearPin, MAX_ATTEMPTS,
 } from '@/lib/pin';
 import {
-  biometricKind, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled,
-  authenticateBiometric, BiometricKind,
+  biometricKind, isBiometricEnabled, setBiometricEnabled,
+  authenticateBiometric,
 } from '@/lib/biometric';
 import { haptics } from '@/lib/haptics';
-
-// 'intro' only fires on first run when biometrics are available — it
-// reframes the PIN setup as a fallback so the user isn't surprised later.
-// 'bio-unlocking' renders a minimal lock-icon splash while the system
-// biometric sheet is up, so the keypad never paints first on a returning
-// user with Face ID enabled. Cancel / failure falls through to 'enter'.
-type Mode = 'loading' | 'intro' | 'bio-unlocking' | 'enter' | 'set' | 'confirm' | 'locked';
+import {
+  initialState, reduce, bioLabel, bioPrompt,
+} from '@/lib/pinGateMachine';
 
 export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
-  const [mode, setMode] = useState<Mode>('loading');
-  const [entered, setEntered] = useState('');
-  const [firstPin, setFirstPin] = useState<string | null>(null);
-  const [wrong, setWrong] = useState(0);
-  const [shake, setShake] = useState(false);
-  const [message, setMessage] = useState('');
-  const [bioKind, setBioKind] = useState<BiometricKind>('none');
-  const [bioEnabled, setBioEnabled] = useState(false);
-  const [offerEnableBio, setOfferEnableBio] = useState(false);
-  // Set by the intro "Continue with Face ID" button. After the user
-  // finishes the required PIN setup we auto-enable biometric without
-  // showing the post-setup offer again.
-  const [autoEnableBio, setAutoEnableBio] = useState(false);
+  const [state, dispatch] = useReducer(reduce, initialState);
+  const { mode, entered, firstPin, wrong, shake, message, bioKind, bioEnabled, offerEnableBio } = state;
   const shakeTimer = useRef<any>(null);
   const bioAutoTried = useRef(false);
 
+  // --- Mount: read pin + bio state, dispatch the routing decision. ---
   useEffect(() => {
     (async () => {
-      const bk = await biometricKind();
-      setBioKind(bk);
-      const enabled = await isBiometricEnabled();
-      setBioEnabled(enabled);
-      if (await isLockedOut()) { setMode('locked'); return; }
-      const has = await isPinSet();
-      if (!has) {
-        // First run: if biometrics are available, lead with the intro so
-        // the user knows Face ID / Touch ID will be the primary unlock
-        // and the PIN is a backup. Otherwise jump straight to PIN setup.
-        if (bk !== 'none') {
-          setMode('intro');
-        } else {
-          setMode('set');
-          setMessage('Set a 4-digit PIN to lock the app.');
-        }
-        return;
-      }
-      setWrong(await getFailedAttempts());
-      // Bio-first: if the user has biometrics enabled, render the
-      // unlocking splash (not the keypad) and fire the system prompt
-      // immediately. Cancel / failure falls through to 'enter'.
-      setMode(bk !== 'none' && enabled ? 'bio-unlocking' : 'enter');
+      const [bk, bEnabled, lockedOut, hasPin, attempts] = await Promise.all([
+        biometricKind(),
+        isBiometricEnabled(),
+        isLockedOut(),
+        isPinSet(),
+        getFailedAttempts(),
+      ]);
+      dispatch({
+        type: 'MOUNT_RESOLVED',
+        bioKind: bk,
+        bioEnabled: bEnabled,
+        lockedOut,
+        hasPin,
+        failedAttempts: attempts,
+      });
     })();
     return () => { if (shakeTimer.current) clearTimeout(shakeTimer.current); };
   }, []);
 
-  // Auto-prompt biometric on entry into 'bio-unlocking' mode. One try —
-  // if the user cancels or it fails, transition to 'enter' (keypad).
-  // The splash stays up while the system sheet is visible, so the user
+  // --- Bio-unlocking: fire biometric immediately on entry. ---
+  // The splash stays up while the system sheet is visible so the user
   // never sees a keypad flash on a successful unlock.
   useEffect(() => {
     if (mode !== 'bio-unlocking' || bioAutoTried.current) return;
@@ -79,15 +72,11 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         onUnlock();
         return;
       }
-      setMode('enter');
+      dispatch({ type: 'BIO_CANCEL' });
     })();
-  }, [mode, bioKind]);
+  }, [mode, bioKind, onUnlock]);
 
-  const tryBiometric = async () => {
-    const ok = await authenticateBiometric(bioPrompt(bioKind));
-    if (ok) { await touchUnlock(); onUnlock(); }
-  };
-
+  // --- 4 digits entered: run the appropriate side-effect for this mode. ---
   useEffect(() => {
     if (entered.length !== 4) return;
     (async () => {
@@ -95,74 +84,57 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         const ok = await verifyPin(entered);
         if (ok) {
           haptics.success();
-          if (bioKind !== 'none' && !bioEnabled) { setOfferEnableBio(true); return; }
-          onUnlock();
+          if (bioKind !== 'none' && !bioEnabled) {
+            dispatch({ type: 'PIN_VERIFIED' });
+          } else {
+            onUnlock();
+          }
           return;
         }
         haptics.error();
         const attempts = await getFailedAttempts();
-        setWrong(attempts);
-        shakeIt();
-        if (attempts >= MAX_ATTEMPTS) setMode('locked');
+        dispatch({ type: 'PIN_REJECTED', attempts });
       } else if (mode === 'set') {
-        setFirstPin(entered);
-        setMode('confirm');
-        setMessage('Re-enter the same PIN to confirm.');
-        setTimeout(() => setEntered(''), 120);
+        dispatch({ type: 'PIN_FIRST_CAPTURED' });
+        // Brief clear so the user sees the dots reset before re-entry.
+        setTimeout(() => dispatch({ type: 'CLEAR_ENTERED' }), 120);
       } else if (mode === 'confirm') {
         if (entered === firstPin) {
           await setPin(entered);
           haptics.success();
-          // If the user picked "Continue with Face ID" at the intro, we
-          // already confirmed their intent — skip the second prompt and
-          // flip the flag directly.
-          if (autoEnableBio) {
+          if (state.autoEnableBio) {
             await setBiometricEnabled(true);
-            setBioEnabled(true);
+            dispatch({ type: 'PIN_CONFIRM_OK' });
             onUnlock();
             return;
           }
-          if (bioKind !== 'none') { setOfferEnableBio(true); return; }
-          onUnlock();
+          if (bioKind !== 'none') {
+            dispatch({ type: 'PIN_CONFIRM_OK' });
+          } else {
+            onUnlock();
+          }
         } else {
           haptics.error();
-          setFirstPin(null);
-          setMode('set');
-          setMessage("PINs didn't match. Try again.");
-          shakeIt();
+          dispatch({ type: 'PIN_CONFIRM_MISMATCH' });
         }
       }
     })();
+    // We deliberately depend only on `entered` — same as the original
+    // component. Re-running on every state change would double-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entered]);
 
-  const shakeIt = () => {
-    setShake(true);
+  // --- Shake settle: schedule SHAKE_DONE after the animation window. ---
+  useEffect(() => {
+    if (!shake) return;
     if (shakeTimer.current) clearTimeout(shakeTimer.current);
-    shakeTimer.current = setTimeout(() => { setShake(false); setEntered(''); }, 500);
-  };
+    shakeTimer.current = setTimeout(() => dispatch({ type: 'SHAKE_DONE' }), 500);
+  }, [shake]);
 
-  const press = (n: string) => {
-    if (entered.length < 4) {
-      haptics.tap();
-      setEntered((e) => e + n);
-    }
-  };
-  const backspace = () => {
-    haptics.tap();
-    setEntered((e) => e.slice(0, -1));
-  };
-
-  // Web-only: support typing the PIN via keyboard. The keypad still
-  // works as before; this just adds a parallel input channel for users
-  // on a desktop browser where mousing through nine round buttons is
-  // slow and feels off. Native (iOS / Android) ignores this — there's
-  // no physical keyboard, and on Expo Go the listener noises onto a
-  // global Document polyfill.
-  //
-  // Only digits 0-9 and Backspace are honored. Enter / Return is a
-  // no-op because completion auto-submits at length 4. We don't
-  // preventDefault on non-handled keys — leave native browser
-  // shortcuts alone (Cmd-R, devtools etc.).
+  // --- Web keypad: physical keyboard input mirrors the touch keypad. ---
+  // Native (iOS / Android) ignores this — there's no physical keyboard,
+  // and the listener noises onto a global Document polyfill on Expo Go.
+  // Only digits 0-9 and Backspace are honored.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (mode !== 'enter' && mode !== 'set' && mode !== 'confirm') return;
@@ -170,8 +142,6 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
     if (typeof document === 'undefined') return;
 
     const onKey = (e: KeyboardEvent) => {
-      // Don't intercept while a focused text field consumes the key —
-      // PinGate currently has no inputs, but a future wrapper might.
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
@@ -179,15 +149,33 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        press(e.key);
+        haptics.tap();
+        dispatch({ type: 'DIGIT', n: e.key });
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        backspace();
+        haptics.tap();
+        dispatch({ type: 'BACKSPACE' });
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [mode, offerEnableBio]);
+
+  const press = (n: string) => {
+    haptics.tap();
+    dispatch({ type: 'DIGIT', n });
+  };
+  const backspace = () => {
+    haptics.tap();
+    dispatch({ type: 'BACKSPACE' });
+  };
+
+  const tryBiometric = async () => {
+    const ok = await authenticateBiometric(bioPrompt(bioKind));
+    if (ok) { await touchUnlock(); onUnlock(); }
+  };
+
+  // ----- render -----
 
   if (mode === 'loading') {
     return <View style={styles.container}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -203,7 +191,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         <Text style={styles.title}>Unlocking…</Text>
         <Pressable
           style={styles.bioBtn}
-          onPress={() => setMode('enter')}
+          onPress={() => dispatch({ type: 'BIO_CANCEL' })}
           accessibilityRole="button"
         >
           <Text style={styles.bioBtnText}>Use PIN instead</Text>
@@ -227,11 +215,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         <View style={{ flexDirection: 'row', gap: 12, marginTop: 28 }}>
           <Pressable
             style={styles.ghostBtn}
-            onPress={() => {
-              setAutoEnableBio(false);
-              setMode('set');
-              setMessage('Set a 4-digit PIN to lock the app.');
-            }}
+            onPress={() => dispatch({ type: 'INTRO_PIN_ONLY' })}
             accessibilityRole="button"
           >
             <Text style={styles.ghostBtnText}>PIN only</Text>
@@ -241,15 +225,8 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
             onPress={async () => {
               // Verify the user actually has biometrics enrolled — system
               // reports `face` availability even when no face is scanned.
-              // If the user cancels here we fall back to plain PIN setup.
               const ok = await authenticateBiometric(`Use ${bLabel} to unlock TaskApp`);
-              setAutoEnableBio(ok);
-              setMode('set');
-              setMessage(
-                ok
-                  ? `Now set a 4-digit PIN as a backup for ${bLabel}.`
-                  : 'Set a 4-digit PIN to lock the app.',
-              );
+              dispatch({ type: ok ? 'INTRO_BIO_OK' : 'INTRO_BIO_FAIL' });
             }}
             accessibilityRole="button"
           >
@@ -275,7 +252,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
         <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
           <Pressable
             style={styles.ghostBtn}
-            onPress={() => { setOfferEnableBio(false); onUnlock(); }}
+            onPress={() => { dispatch({ type: 'OFFER_BIO_DECLINED' }); onUnlock(); }}
           >
             <Text style={styles.ghostBtnText}>Not now</Text>
           </Pressable>
@@ -283,8 +260,12 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
             style={styles.primaryBtn}
             onPress={async () => {
               const ok = await authenticateBiometric(`Enable ${bioLabel(bioKind)}`);
-              if (ok) { await setBiometricEnabled(true); setBioEnabled(true); }
-              setOfferEnableBio(false);
+              if (ok) {
+                await setBiometricEnabled(true);
+                dispatch({ type: 'OFFER_BIO_ACCEPTED' });
+              } else {
+                dispatch({ type: 'OFFER_BIO_DECLINED' });
+              }
               onUnlock();
             }}
           >
@@ -353,15 +334,7 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
             style={styles.resetBtn}
             onPress={async () => {
               await clearPin();
-              setEntered('');
-              setFirstPin(null);
-              setWrong(0);
-              setMessage('');
-              // After clearPin(), isPinSet() returns false; the next gate
-              // pass routes to the "set" / "intro" branch. Re-running the
-              // mount-time effect would do the same thing but we already
-              // know the state, so transition directly.
-              setMode('set');
+              dispatch({ type: 'RESET_PIN_CLEARED' });
             }}
             accessibilityRole="button"
             accessibilityLabel="Reset PIN and start over"
@@ -406,17 +379,6 @@ export default function PinGate({ onUnlock }: { onUnlock: () => void }) {
       )}
     </View>
   );
-}
-
-function bioLabel(kind: BiometricKind): string {
-  if (kind === 'face') return 'Face ID';
-  if (kind === 'fingerprint') return 'Touch ID';
-  if (kind === 'iris') return 'Iris';
-  return 'Biometrics';
-}
-
-function bioPrompt(kind: BiometricKind): string {
-  return `Unlock TaskApp with ${bioLabel(kind)}`;
 }
 
 const styles = StyleSheet.create({
