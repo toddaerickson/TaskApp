@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
-import { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
@@ -22,6 +22,14 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const registerFn = useAuthStore((s) => s.register);
   const router = useRouter();
+
+  // accessibilityLiveRegion isn't sufficient on its own (the Text node
+  // doesn't re-announce when its content changes in place). Mirror the
+  // explicit announce pattern from login.tsx so screen-reader users
+  // hear validation failures.
+  useEffect(() => {
+    if (error) AccessibilityInfo.announceForAccessibility(error);
+  }, [error]);
 
   const handleRegister = async () => {
     setError('');
@@ -51,7 +59,9 @@ export default function RegisterScreen() {
       <View style={styles.card}>
         <Text style={styles.title}>Create Account</Text>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? (
+          <Text style={styles.error} accessibilityLiveRegion="polite">{error}</Text>
+        ) : null}
 
         <TextInput
           style={styles.input}
@@ -59,7 +69,7 @@ export default function RegisterScreen() {
           accessibilityLabel="Display name, optional"
           value={name}
           onChangeText={setName}
-          placeholderTextColor="#bbb"
+          placeholderTextColor="#6b7280"
         />
         <TextInput
           style={styles.input}
@@ -69,7 +79,7 @@ export default function RegisterScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor="#bbb"
+          placeholderTextColor="#6b7280"
         />
         <TextInput
           style={styles.input}
@@ -78,7 +88,7 @@ export default function RegisterScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor="#bbb"
+          placeholderTextColor="#6b7280"
         />
 
         <Pressable

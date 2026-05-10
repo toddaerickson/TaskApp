@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
-import { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
@@ -15,6 +15,13 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const loginFn = useAuthStore((s) => s.login);
   const router = useRouter();
+
+  // accessibilityLiveRegion="polite" doesn't re-fire when the same Text
+  // node re-renders with new content — VoiceOver / TalkBack stay silent.
+  // Announce explicitly on every error change.
+  useEffect(() => {
+    if (error) AccessibilityInfo.announceForAccessibility(error);
+  }, [error]);
 
   const handleLogin = async () => {
     if (!email || !password) { setError('Fill in all fields.'); return; }
@@ -44,7 +51,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor="#bbb"
+          placeholderTextColor="#6b7280"
         />
         <TextInput
           style={styles.input}
@@ -53,7 +60,7 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor="#bbb"
+          placeholderTextColor="#6b7280"
           onSubmitEditing={handleLogin}
           returnKeyType="go"
         />
