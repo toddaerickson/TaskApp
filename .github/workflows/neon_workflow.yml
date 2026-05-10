@@ -7,13 +7,19 @@ on:
       - reopened
       - synchronize
       - closed
+  delete:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   setup:
     name: Setup
+    if: github.event_name == 'pull_request'
     outputs:
       branch: ${{ steps.branch_name.outputs.current_branch }}
     runs-on: ubuntu-latest
@@ -40,11 +46,11 @@ jobs:
         uses: neondatabase/create-branch-action@v5
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
+          branch_name: preview/${{ needs.setup.outputs.branch }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
-  delete_neon_branch:
-    name: Delete Neon Branch
+  delete_neon_branch_on_pr_close:
+    name: Delete Neon Branch (PR closed)
     needs: setup
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed'
@@ -54,5 +60,17 @@ jobs:
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
+          branch: preview/${{ needs.setup.outputs.branch }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+  delete_neon_branch_on_branch_delete:
+    name: Delete Neon Branch (branch deleted)
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Neon Branch
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/${{ github.event.ref }}
           api_key: ${{ secrets.NEON_API_KEY }}
