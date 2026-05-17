@@ -35,6 +35,13 @@ manually via the Agent tool with `subagent_type=general-purpose`.
 
 ## Workflow conventions
 
+- **Default ship loop** — for any task that produces a code change:
+  commit → push → open a non-draft PR → let CI run → if all required
+  checks go green, squash-merge → delete the branch (local + remote) →
+  move to the next task. If there is no next task, prompt the operator.
+  Don't pause for permission between these steps unless something
+  fails or is architecturally ambiguous. Don't open PRs as drafts.
+  Don't merge on red — fix the failure or surface it.
 - **Don't commit** `taskapp.db`, `__pycache__/`, `.env`, or the TickTick CSV.
   `*.db` is in `.gitignore`; the CSV is not.
 - **Schema changes** go in BOTH `backend/migrations/001_schema.sql` (PG) and
