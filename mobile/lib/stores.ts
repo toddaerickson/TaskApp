@@ -4,7 +4,7 @@ import * as api from './api';
 import { haptics } from './haptics';
 
 // Lazy-load to avoid pulling the module into web module-eval — consistent
-// with lib/api.ts, lib/pin.ts, lib/biometric.ts.
+// with lib/api.ts.
 const SecureStore: typeof import('expo-secure-store') =
   Platform.OS === 'web' ? (null as any) : require('expo-secure-store');
 

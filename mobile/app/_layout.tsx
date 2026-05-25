@@ -1,11 +1,9 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { AppState, View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
-import PinGate from '@/components/PinGate';
-import { isRecentlyUnlocked } from '@/lib/pin';
 import { onSessionExpired } from '@/lib/sessionExpiry';
 import { reportError } from '@/lib/errorReporter';
 import { initSentry, sentryWrap } from '@/lib/sentry';
@@ -110,14 +108,10 @@ function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
-  const [unlocked, setUnlocked] = useState<boolean | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
     loadToken();
-    (async () => {
-      setUnlocked(await isRecentlyUnlocked());
-    })();
   }, []);
 
   // When the axios 401 interceptor fires, clear auth state and surface a
@@ -135,28 +129,6 @@ function RootLayout() {
     setSessionExpired(false);
     try { router.replace('/(auth)/login'); } catch { /* router not ready yet */ }
   };
-
-  // Re-lock on foreground transition after the unlock window expired.
-  // Previously this also polled every 30s while the app was open, which
-  // kicked users to PinGate mid-workout if the timeout elapsed while
-  // they were logging sets. User-visible regression. The foreground
-  // check alone is the right security/UX balance: if you walk away and
-  // come back past the window, re-enter PIN; if you're actively using
-  // the app (and pin.ts's touchUnlock in the axios interceptor extends
-  // the window on every request), you stay unlocked.
-  useEffect(() => {
-    if (!unlocked) return;
-    const recheck = async () => {
-      if (!(await isRecentlyUnlocked())) setUnlocked(false);
-    };
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') recheck();
-    });
-    return () => { sub.remove(); };
-  }, [unlocked]);
-
-  if (unlocked === null) return null;
-  if (!unlocked) return <PinGate onUnlock={() => setUnlocked(true)} />;
 
   // GestureHandlerRootView must wrap the OUTERMOST navigation root for
   // react-native-gesture-handler to receive native touch events. Added

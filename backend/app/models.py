@@ -107,13 +107,6 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
-class VerifyPasswordRequest(BaseModel):
-    """Re-verification of the current user's password without changing
-    anything else. Used by the mobile Reset PIN flow to gate the
-    PinGate lockout-escape behind a server-verified credential."""
-    password: str
-
-
 class ProfileUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=80)
 

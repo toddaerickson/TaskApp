@@ -22,7 +22,6 @@
     "expo-crypto": "~14.1.5",
     "expo-font": "~13.3.2",
     "expo-haptics": "~14.1.4",
-    "expo-local-authentication": "~16.0.5",
     "expo-notifications": "~0.31.5",
     "expo-router": "~5.1.0",
     "expo-secure-store": "~14.2.4",

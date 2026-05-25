@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Stack
 
 - **Backend:** FastAPI + SQLite (dev) / PostgreSQL (prod dual-support in
-  `app/database.py`). Auth via HS256 JWT + SHA-256 password hashing.
+  `app/database.py`). Auth via HS256 JWT (30-day expiry) + bcrypt password hashing.
 - **Mobile:** Expo + React Native + expo-router. Axios client (`mobile/lib/api.ts`).
-  Zustand stores. Expo SecureStore for tokens + PIN secrets.
+  Zustand stores. Expo SecureStore for the JWT.
 - **No ORM** — raw SQL with parameterized queries. Shared hydration helpers
   in `backend/app/hydrate.py`.
 
@@ -19,9 +19,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Workouts** — exercises (global + per-user), routines, sessions, set
   logging, symptom tracking. See `app/routes/{exercise,routine,session}_routes.py`
   and `mobile/app/workout/`.
-- **PinGate** — 4-digit PIN on app launch, hashed in SecureStore, optional
-  Face ID / Touch ID, 4-hour soft timeout. See `mobile/components/PinGate.tsx`
-  and `mobile/lib/{pin,biometric}.ts`.
 
 ## Skills
 
@@ -250,10 +247,10 @@ cd mobile && npx expo start
 
 ## Tests
 
-~681 tests across backend (pytest) and mobile (jest). Run:
+~820 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 435 cases (3 PG-only skipped on the SQLite leg)
-cd mobile && npm test            # 246 cases (split into `node-libs` and `rn-components` projects)
+cd backend && venv/bin/pytest    # 511 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 306 cases (split into `node-libs` and `rn-components` projects)
 ```
 
 Counts drift fast — when you bump these, also bump the matching line
@@ -277,12 +274,10 @@ For a single mobile test: `npm test -- -t "<test name pattern>"` or
 ## Known gaps worth flagging when relevant
 
 - Mobile jest is split into two projects: `node-libs` (pure-function
-  libs — pin, format, progress, etc.) and `rn-components` (renders
-  PinGate, Login, Register via @testing-library/react-native +
-  jest-expo). Adding more component tests is straightforward — match
-  the existing rn-components patterns.
-- `expo-local-authentication` doesn't work in Expo Go. Needs a dev build
-  (`npx expo prebuild && npx expo run:ios`) or EAS build to test Face ID.
+  libs — format, progress, etc.) and `rn-components` (renders Login,
+  Register via @testing-library/react-native + jest-expo). Adding more
+  component tests is straightforward — match the existing rn-components
+  patterns.
 - Route `GET /routines` and `GET /sessions` are no longer N+1 and have
   cursor-based pagination (`limit` + `cursor`). Mobile `getRoutines()`
   pages transparently; `listSessions()` accepts an optional `cursor`.
