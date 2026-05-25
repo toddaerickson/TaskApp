@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet, TextInput,
-  Platform, useWindowDimensions, Alert,
+  Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { folderOptions } from '@/lib/moveToOptions';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
 import { reportError } from '@/lib/errorReporter';
+import { showError } from '@/lib/alerts';
 
 // Status values that GTD treats as "not acting on right now" — when
 // "Hide deferred" is on, rows with these statuses are dropped locally.
@@ -187,13 +188,13 @@ export default function TasksScreen() {
       const status = e?.response?.status;
       if (status === 409) {
         await load();
-        Alert.alert(
+        showError(
           'Task changed',
           `${moveTarget.title} was updated elsewhere. The list has been refreshed; try again.`,
         );
         return;
       }
-      Alert.alert('Move failed', describeApiError(e));
+      showError('Move failed', describeApiError(e));
       throw e;
     }
   }, [moveTarget, load]);
@@ -232,7 +233,7 @@ export default function TasksScreen() {
           const status = e?.response?.status;
           if (status === 409) {
             await load();
-            Alert.alert(
+            showError(
               'Task changed',
               `${task.title} was updated elsewhere. The list has been refreshed; try again.`,
             );
@@ -247,7 +248,7 @@ export default function TasksScreen() {
             route: 'PUT /tasks/{id} (drag-to-regroup)',
             tags: { feature: 'tasks_drag_regroup' },
           });
-          Alert.alert('Move failed', describeApiError(e));
+          showError('Move failed', describeApiError(e));
         } finally {
           inFlightRef.current.delete(task.id);
         }
