@@ -3,8 +3,6 @@ extras, and the recurring-task completion branch."""
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
-import pytest
-
 
 def _h(tok):
     return {"Authorization": f"Bearer {tok}"}
