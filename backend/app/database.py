@@ -159,17 +159,6 @@ def _get_pg_connection():
     return _CompatConnection(conn)
 
 
-def _get_pg_health_connection():
-    """Fast-path connection for health probes — no retry, short timeout."""
-    conn = psycopg2.connect(
-        DATABASE_URL,
-        cursor_factory=psycopg2.extras.RealDictCursor,
-        connect_timeout=3,
-    )
-    conn.autocommit = True
-    return conn
-
-
 @contextmanager
 def get_db():
     if DB_TYPE != "postgresql":
