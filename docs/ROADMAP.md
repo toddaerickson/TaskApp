@@ -160,6 +160,26 @@ independent failure detectors converging on one alert thread."
   issue if >36h. Bilateral cron-disable (heartbeat + publish both
   silent) is the residual gap; documented as deferred.
 
+### Auth simplification + CI cleanup (PRs #180–#181, May 2026)
+
+- **#180** **Rip out PinGate.** The 4-digit device-PIN gate +
+  optional Face ID + 15-min unlock window + Reset-PIN flow + backend
+  `/auth/verify-password` endpoint — all removed. JWT was already
+  set to 30 days (`backend/app/config.py`), so the user only retypes
+  email + password roughly once a month. Rationale: for a
+  single-tenant productivity app the device's own lock screen is
+  the realistic security boundary; PIN was friction without a real
+  defense. Net −2200 lines. Walks back PRs #110 (Reset-PIN flow) +
+  #123 (web keyboard input on PinGate) — those shipped value for
+  the PIN-era UX but the whole layer is gone now.
+- **#181** Delete `neon_workflow.yml`. Added in #175 to create a
+  per-PR Neon DB branch; outputs `db_url` / `db_url_with_pooler`
+  were never consumed by any other workflow, so the per-PR branch
+  sat unused. Net effect was a 30s red X on PRs that didn't need
+  a DB at all. If we revive per-PR ephemeral DBs, the next attempt
+  wires `db_url` into `ci.yml`'s pytest matrix — a real design
+  pass, not a leftover stub.
+
 ## Open
 
 Audit's Tier-2 / Tier-3 items remain queued. Pick from this list when
