@@ -1,6 +1,6 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
+import { ActivityIndicator, View, Text, Pressable, StyleSheet, ScrollView, Modal, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
@@ -107,6 +107,7 @@ const errStyles = StyleSheet.create({
 function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const logout = useAuthStore((s) => s.logout);
+  const isLoading = useAuthStore((s) => s.isLoading);
   const router = useRouter();
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -129,6 +130,24 @@ function RootLayout() {
     setSessionExpired(false);
     try { router.replace('/(auth)/login'); } catch { /* router not ready yet */ }
   };
+
+  // Cold-start auth-loading curtain. Without this, a deep link to a
+  // non-root screen (push notification → /workout/session/[id], a
+  // shared URL to /(tabs)/settings, etc.) mounts that screen with the
+  // zustand auth state still uninitialized — settings.tsx briefly
+  // shows undefined user.email, conditional renders on `user` fall
+  // through, etc. The axios interceptor reads the token from
+  // SecureStore directly so axios calls aren't *missing* auth — this
+  // is purely a "flash of empty state" fix at the layout level.
+  // index.tsx already has this guard for the root route; pulling it
+  // up to the layout extends the same UX to every deep-link target.
+  if (isLoading) {
+    return (
+      <View style={loadingStyles.container}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   // GestureHandlerRootView must wrap the OUTERMOST navigation root for
   // react-native-gesture-handler to receive native touch events. Added
@@ -167,6 +186,13 @@ function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1, backgroundColor: colors.bg,
+    alignItems: 'center', justifyContent: 'center',
+  },
+});
 
 const sessionStyles = StyleSheet.create({
   overlay: {
