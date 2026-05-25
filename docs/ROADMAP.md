@@ -70,7 +70,7 @@ All 9 items from the April audit shipped.
 After multi-agent review of the full codebase surfaced several silent prod-only bugs:
 
 - **#109** Tier 1a "PG correctness": `date('now')` → `CURRENT_DATE`, `LIKE` → `ILIKE` on PG, deleted dead `db_compat.py`, rate-limited `/exercises/*/search-images` to 30/min, gated `/health/detailed` behind `SNAPSHOT_AUTH_TOKEN`.
-- **#110** Tier 1b "operational reliability": PinGate Reset-PIN button + 15-min PIN window (was 8h; CLAUDE.md spec drift), `KeyboardAvoidingView` on session + routine-detail screens, folder-delete uses `UndoSnackbar`, `sw.js CACHE_VERSION` stamped at deploy via `mobile/scripts/build-web.sh`.
+- **#110** Tier 1b "operational reliability": PinGate Reset-PIN button + 15-min PIN window (was 8h; CLAUDE.md spec drift) *(PinGate later removed entirely in #180)*, `KeyboardAvoidingView` on session + routine-detail screens, folder-delete uses `UndoSnackbar`, `sw.js CACHE_VERSION` stamped at deploy via `mobile/scripts/build-web.sh`.
 - **#111** Tier 2 numbered SQL migrations: `scripts/migrate.py` runner + `schema_migrations` table; `init_db` PG mode now verifies instead of running DDL. `release_command` runs `migrate.py && seed_workouts.py`.
 - **#112** Tier 3-V1 missed-reminder inbox banner on Workouts tab. `GET /routines/missed-reminders` + client-side dismiss in `kvStorage`. Single-tenant TZ via `TASKAPP_TZ` env. Full web push (V2) deferred — V1 captures most of the morning-routine UX with one PR and zero infra.
 - **#113** banner fails silently on fetch errors → telemetry only via `reportError` (Sentry sink). Caught: a deploy-lag window made `/routines/missed-reminders` 422 (FastAPI matched it as `/{routine_id}` against the older backend), banner showed "Some required information is missing or invalid" in red over the routine list. Now an ambient feature failure is invisible to the user.
@@ -93,7 +93,7 @@ A 4-day silent-deploy outage was discovered when the user reported "tap green ch
 
 - **#121 / #134** Knee Valgus PT rehab routine seed; `GLOBAL_ROUTINES` auto-materializes for every registered user on every release_command run. Pattern: add a slug to that list to make a routine "shipped to everyone."
 - **#122** task uncomplete toggle — `POST /tasks/{id}/uncomplete` (symmetric to `/complete`) + `useTaskStore.complete` reads `current.completed` and dispatches accordingly. Idempotent on already-active tasks.
-- **#123** PinGate keyboard input on web — digits 0–9 + Backspace via `document.addEventListener('keydown')`. jsdom-pinned tests guard the path.
+- **#123** PinGate keyboard input on web — digits 0–9 + Backspace via `document.addEventListener('keydown')`. jsdom-pinned tests guard the path. *(PinGate later removed entirely in #180; this work is gone.)*
 - **#124** logout button no-op on web — `Alert.alert` `onPress` callbacks don't fire reliably on RN Web. Mirrored the platform-aware `confirmDestructive` pattern (`Platform.OS === 'web'` falls back to `window.confirm`).
 - **#125** hoisted `showError` / `showInfo` to `mobile/lib/alerts.ts`; replaced 9 callsites that were either bare `Alert.alert(title, msg)` (silent on web) or `if (Platform.OS === 'web') window.alert(...)` with no else (silent on native).
 - **#126** a11y sweep — `colors.warning` text → `colors.warningText` on streak/reminder/due-date callsites (2.65:1 → 4.63:1); `RoutineImportCard` `smallBtn` minHeight 32→44; image-delete X hitSlop 4→8; folder rows `accessibilityRole="button"`.
