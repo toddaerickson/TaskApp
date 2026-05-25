@@ -315,24 +315,13 @@ app.include_router(admin_routes.router)
 
 @app.get("/health")
 def health():
-    if DB_TYPE != "postgresql":
-        return {"status": "ok"}
-    try:
-        from app.database import _get_pg_health_connection
-        conn = _get_pg_health_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 AS one")
-            cur.fetchone()
-        finally:
-            conn.close()
-        return {"status": "ok"}
-    except Exception as e:
-        log.warning("Health check DB probe failed: %s", e)
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "detail": "db_unreachable"},
-        )
+    # Liveness only — no DB probe. Fly hits this every 30s; the prior
+    # `SELECT 1` per probe kept Neon's compute hot 24/7 and exhausted
+    # the monthly compute quota in ~8 days (May 2026 outage —
+    # quota error blocked the release_command, freezing deploys at
+    # the 2026-05-10 image for ~15 days before anyone noticed).
+    # DB reachability lives on /health/detailed for operator curl.
+    return {"status": "ok"}
 
 
 @app.get("/health/detailed")
