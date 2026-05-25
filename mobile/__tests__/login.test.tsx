@@ -36,19 +36,19 @@ describe('<LoginScreen />', () => {
   });
 
   it('shows inline error and does not call login when fields are empty', () => {
-    const { getByText, queryByText } = render(<LoginScreen />);
-    fireEvent.press(getByText('Sign In'));
+    const { getByRole, queryByText } = render(<LoginScreen />);
+    fireEvent.press(getByRole('button', { name: /Sign in|Signing in/i }));
     expect(queryByText(/fill in all fields/i)).toBeTruthy();
     expect(mockLogin).not.toHaveBeenCalled();
   });
 
   it('trims and lowercases email, calls login, navigates on success', async () => {
     mockLogin.mockResolvedValue(undefined);
-    const { getByPlaceholderText, getByText } = render(<LoginScreen />);
+    const { getByLabelText, getByRole } = render(<LoginScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('Email'), '  User@Example.COM  ');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'secret');
-    fireEvent.press(getByText('Sign In'));
+    fireEvent.changeText(getByLabelText('Email'), '  User@Example.COM  ');
+    fireEvent.changeText(getByLabelText('Password'), 'secret');
+    fireEvent.press(getByRole('button', { name: /Sign in|Signing in/i }));
 
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith('user@example.com', 'secret');
@@ -58,11 +58,11 @@ describe('<LoginScreen />', () => {
 
   it('surfaces the login error through describeApiError inline', async () => {
     mockLogin.mockRejectedValue(new Error('nope'));
-    const { getByPlaceholderText, getByText, findByText } = render(<LoginScreen />);
+    const { getByLabelText, getByRole, findByText } = render(<LoginScreen />);
 
-    fireEvent.changeText(getByPlaceholderText('Email'), 'a@b.com');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'pw');
-    fireEvent.press(getByText('Sign In'));
+    fireEvent.changeText(getByLabelText('Email'), 'a@b.com');
+    fireEvent.changeText(getByLabelText('Password'), 'pw');
+    fireEvent.press(getByRole('button', { name: /Sign in|Signing in/i }));
 
     expect(await findByText(/check your credentials/i)).toBeTruthy();
     expect(mockReplace).not.toHaveBeenCalled();
