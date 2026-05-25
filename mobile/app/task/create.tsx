@@ -620,8 +620,8 @@ const styles = StyleSheet.create({
   },
   priChipText: { fontSize: 12, fontWeight: '600' },
 
-  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f3e8ff' },
-  tagChipOn: { backgroundColor: colors.violet },
+  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  tagChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 12, color: '#555' },
   chipTextActive: { fontSize: 12, color: '#fff', fontWeight: '600' },
 
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
   },
   newTagBtn: {
     width: 32, height: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.violet, cursor: 'pointer' as any,
+    backgroundColor: colors.primary, cursor: 'pointer' as any,
   },
 
   advancedToggle: {

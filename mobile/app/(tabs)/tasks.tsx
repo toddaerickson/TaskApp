@@ -980,7 +980,7 @@ const styles = StyleSheet.create({
 
   // Group By
   groupByContainer: { position: 'relative' as any, zIndex: 9999, overflow: 'visible' as any },
-  groupByActive: { backgroundColor: colors.group },
+  groupByActive: { backgroundColor: colors.primary },
   dropdownBackdrop: {
     // Tap-outside-to-dismiss backdrop. See workouts.tsx for the
     // rationale; identical sizing trick (huge negative inset) to
