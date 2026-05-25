@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
+from app.concurrency import parse_ts, is_conflict
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -45,35 +46,10 @@ class RoutineExerciseUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 
-def _parse_ts(v) -> Optional[datetime]:
-    """Coerce a DB timestamp (SQLite TEXT or PG datetime) into a timezone-
-    aware datetime for comparison. SQLite stores 'YYYY-MM-DD HH:MM:SS' UTC;
-    Postgres returns a proper datetime already. NULL (legacy rows without
-    updated_at) becomes None and opts the row out of the conflict check."""
-    if v is None:
-        return None
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    if isinstance(v, str):
-        s = v.replace("T", " ").rstrip("Z")
-        try:
-            dt = datetime.fromisoformat(s)
-        except ValueError:
-            return None
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    return None
-
-
-def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool:
-    """Row has moved past the client's snapshot. NULL current (legacy) opts
-    out. NULL expected (client didn't send one) also opts out — this is an
-    opt-in check so existing callers aren't broken. Compare at second
-    granularity because SQLite's datetime('now') truncates to seconds;
-    a round-trip through Pydantic that preserves microseconds would
-    otherwise trip a false positive."""
-    if expected is None or current is None:
-        return False
-    return current.replace(microsecond=0) > expected.replace(microsecond=0)
+# Optimistic-concurrency helpers used to live here; consolidated into
+# app.concurrency in PR #189 so the routine + task routes share one
+# canonical implementation. See app/concurrency.py for the canonical
+# parse_ts + is_conflict.
 
 
 class RoutineReorderRequest(BaseModel):
@@ -346,7 +322,7 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
         # so the client can reconcile in one round-trip.
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
-        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+        if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
             cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
             current = _hydrate_routine(cur, cur.fetchone())
             raise HTTPException(
@@ -434,7 +410,7 @@ def update_routine_exercise(
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
-        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+        if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
             cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
             current = cur.fetchone()
             current["keystone"] = bool(current["keystone"])
