@@ -124,6 +124,37 @@ def test_session_started_BEFORE_reminder_still_shows_miss(auth_client, fixed_now
     assert len(r.json()) == 1
 
 
+def test_naive_started_at_at_exact_reminder_second_hides_row(auth_client, fixed_now):
+    """Regression for the SQLite lex-vs-tz-suffix bug. A real session
+    POST uses the DB default `datetime('now')` which stores a tz-naive
+    'YYYY-MM-DD HH:MM:SS' string (no '+00:00' tail). At exact
+    second-equality with the reminder time, a tz-suffixed bind would
+    lex-compare GREATER than the naked stored value (because '+' >
+    '\\0'), so the SELECT 1 returned 0 rows and the route surfaced
+    the reminder as missed even though the user just started.
+
+    Stamp a session at exactly the reminder second (mimicking the API
+    path's DB-default behavior with no tz suffix) and assert the row
+    is hidden, not surfaced."""
+    c, tok, user_id = auth_client
+    rid = _make_routine(c, tok, reminder_time="07:00")
+    # Match what `datetime('now')` would store: tz-naive UTC string.
+    started_str = "2026-04-28 07:00:00"
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO workout_sessions (user_id, routine_id, started_at) "
+            "VALUES (?, ?, ?)",
+            (user_id, rid, started_str),
+        )
+    r = c.get("/routines/missed-reminders", headers=_h(tok))
+    assert r.json() == [], (
+        "Session stamped at the exact reminder second should hide the "
+        "row. Empty bind comparison against a tz-suffixed query value "
+        "is the lex-vs-temporal bug."
+    )
+
+
 def test_wrong_weekday_does_not_surface(auth_client, fixed_now):
     """Pinned now is Tuesday 2026-04-28. A routine scheduled mon,wed,fri
     shouldn't fire today even though the time has passed."""
