@@ -1,6 +1,7 @@
 """Deeper task-route coverage: pagination, filter flags, subtasks, batch
 extras, and the recurring-task completion branch."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from unittest.mock import patch
 
 
 def _h(tok):
@@ -185,3 +186,51 @@ def test_non_recurring_complete_sets_completed(auth_client):
     assert body["completed"] is True
     assert body["due_date"] == "2026-04-10"  # unchanged
     assert body["completed_at"] is not None
+
+
+def test_completion_date_recurring_uses_operator_tz(auth_client, monkeypatch):
+    """Regression: a recurring task with `repeat_from='completion_date'`
+    advances `due_date` relative to the *operator's* calendar day, not
+    UTC's. A user in America/New_York who completes a daily task at
+    23:30 ET (03:30 UTC next day) should see the new due_date land on
+    the next ET calendar day, not the day after that.
+
+    Bug shape: `base_date = now.date()` used `datetime.now(timezone.utc)`,
+    so the user "lost" a day at every late-evening completion in any
+    westward TZ. Fix reads TASKAPP_TZ via `_operator_tz()`."""
+    c, tok, _ = auth_client
+
+    monkeypatch.setenv("TASKAPP_TZ", "America/New_York")
+    # Bust the cached zone in app.reminders.
+    from app import reminders as _rem
+    _rem._TZ_CACHE["name"] = None
+    _rem._TZ_CACHE["zone"] = None
+    _rem._TZ_CACHE["warned"] = False
+
+    # 23:30 ET on 2026-04-10 = 03:30 UTC on 2026-04-11. The pre-fix
+    # code would have read .date() as 2026-04-11 (UTC) and advanced
+    # to 2026-04-12 — wrong by one day.
+    pinned = datetime(2026, 4, 11, 3, 30, tzinfo=timezone.utc)
+
+    class _PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return pinned.replace(tzinfo=None)
+            return pinned.astimezone(tz)
+
+    t = c.post("/tasks", headers=_h(tok), json={
+        "title": "Daily ET stretch",
+        "due_date": "2026-04-10",
+        "repeat_type": "daily",
+        "repeat_from": "completion_date",
+    }).json()
+
+    with patch("app.routes.task_routes.datetime", _PinnedDatetime):
+        body = c.post(f"/tasks/{t['id']}/complete", headers=_h(tok)).json()
+
+    # Next ET day, not next UTC day.
+    assert body["due_date"] == "2026-04-11", (
+        f"expected next ET day 2026-04-11, got {body['due_date']} — "
+        "looks like UTC date is being used for the completion-date base."
+    )

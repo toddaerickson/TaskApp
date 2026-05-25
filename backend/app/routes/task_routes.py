@@ -6,6 +6,7 @@ from typing import Optional
 from app.database import get_db
 from app.auth import get_current_user_id
 from app.concurrency import parse_ts, is_conflict
+from app.reminders import _operator_tz
 from app.models import (
     TaskCreate, TaskUpdate, TaskResponse, TaskListResponse,
     BatchUpdate, ReorderRequest,
@@ -383,7 +384,11 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
                 from datetime import date as date_type
                 base_date = task["due_date"]
                 if task["repeat_from"] == "completion_date":
-                    base_date = now.date()
+                    # User's calendar day, not server's UTC day. A daily
+                    # task completed at 9pm ET (01:00 UTC next day) used
+                    # to advance two calendar days from the user's POV.
+                    # Single-tenant TZ via TASKAPP_TZ env (see reminders.py).
+                    base_date = datetime.now(_operator_tz()).date()
                 elif isinstance(base_date, str):
                     base_date = date_type.fromisoformat(base_date)
                 new_due = base_date + delta
