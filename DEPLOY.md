@@ -354,7 +354,7 @@ EXPO_PUBLIC_API_URL="https://YOUR-APP-NAME.fly.dev" eas build --platform ios --p
 # Install TestFlight on iPhone → accept invite → install the app.
 ```
 
-Face ID, push notifications, and offline cache all work in this build.
+Push notifications and offline cache all work in this build.
 
 ---
 

@@ -86,11 +86,12 @@ manually via the Agent tool with `subagent_type=general-purpose`.
   See PRs #116, #117, #118, #119, #120 for the canonical example.
 
   **Don't** trust an audit agent's claim without spot-checking — in
-  the April 2026 run the deferred-tracker flagged "Settings PIN
-  management UI" as missing; it was already shipped end-to-end at
-  `mobile/app/settings/account.tsx`. The agent followed
-  `(tabs)/settings.tsx` and missed the chevron link. Skip findings
-  that don't survive a 30-second look at the file.
+  the April 2026 run the deferred-tracker flagged a "missing"
+  Settings sub-screen that was already shipped end-to-end one
+  chevron-tap below `(tabs)/settings.tsx`. Audit agents that crawl
+  the tab root and don't follow links produce false positives at
+  this exact shape. Skip findings that don't survive a 30-second
+  look at the file.
 - **Self-hosted exercise images** — image bytes live at
   `backend/seed_data/exercise_images/<sha256>.<ext>`, served via the
   `/static/exercise-images` mount on Fly. DB rows store the sentinel
