@@ -16,14 +16,15 @@ from app.models import (
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
-# `compute_missed_reminders` is called from this module. `_DAYS` and
-# `_parse_reminder_days` are re-exported (noqa F401) so existing tests
-# `from app.routes.routine_routes import _parse_reminder_days, _DAYS`
-# keep working without churn. PR-Y6 dropped the `_DAY_SET, _TZ_CACHE,
-# _operator_tz` re-exports — no caller went through this path; they're
-# imported directly from `app.reminders` where needed.
+# `compute_missed_reminders` is called from this module. The others are
+# re-exported (noqa F401) so existing tests `from app.routes.routine_routes
+# import _parse_reminder_days, _DAYS` and `rr._TZ_CACHE` keep working
+# without churn. PR-Y6 dropped `_DAY_SET` (verified zero importers);
+# kept `_TZ_CACHE` + `_operator_tz` after CI showed test_missed_reminders
+# patches them via this module path.
 from app.reminders import (  # noqa: F401
     _DAYS, _parse_reminder_days,
+    _TZ_CACHE, _operator_tz,
     compute_missed_reminders,
 )
 
