@@ -75,12 +75,13 @@ def test_complete_task_sets_flag_and_timestamp(auth_client):
 def test_complete_task_completed_at_format_matches_updated_at(auth_client):
     # Regression for the silent-killer audit (PR-Y2). `completed_at` was
     # `now.isoformat()` (microseconds + T + tz tail) while `updated_at`
-    # used `sep=" ", timespec="seconds"`. Mixed TEXT shapes break a future
-    # "completed today" lex compare against `date('now')` — same trap as
-    # PR #190's started_at.
-    # Queries the DB directly because Pydantic re-serializes datetimes
-    # to T+Z on the way out, masking the stored shape in the JSON response.
-    from app.database import get_db
+    # used `sep=" ", timespec="seconds"`. The mismatch breaks a future
+    # "completed today" TEXT lex compare against `date('now')` on SQLite —
+    # same trap as PR #190's started_at. Postgres stores TIMESTAMPTZ as a
+    # real datetime so the lex hazard doesn't apply; the assertion is
+    # SQLite-only. Queries the DB directly because Pydantic re-serializes
+    # datetimes to T+Z on the way out, masking the stored shape in JSON.
+    from app.database import get_db, DB_TYPE
     c, tok, _ = auth_client
     t = c.post("/tasks", headers=_h(tok), json={"title": "Format check"}).json()
     c.post(f"/tasks/{t['id']}/complete", headers=_h(tok))
@@ -88,10 +89,11 @@ def test_complete_task_completed_at_format_matches_updated_at(auth_client):
         cur = conn.cursor()
         cur.execute("SELECT completed_at, updated_at FROM tasks WHERE id = ?", (t["id"],))
         row = cur.fetchone()
+    if DB_TYPE != "sqlite":
+        return  # PG stores real datetime; lex-compare hazard doesn't apply.
     completed_at, updated_at = str(row["completed_at"]), str(row["updated_at"])
     assert completed_at == updated_at, \
         f"completed_at and updated_at should match second-for-second: {completed_at!r} vs {updated_at!r}"
-    # Cheap shape check — no microseconds, no T, no tz tail in the stored TEXT.
     assert "T" not in completed_at and "+" not in completed_at and "." not in completed_at, \
         f"completed_at carries T/tz/microseconds: {completed_at!r}"
 
