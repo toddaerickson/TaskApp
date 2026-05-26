@@ -14,7 +14,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(req: RegisterRequest):
+@limiter.limit("5/minute")
+def register(request: Request, req: RegisterRequest):
     try:
         with get_db() as conn:
             cur = conn.cursor()
@@ -96,7 +97,8 @@ def update_me(req: ProfileUpdate, user_id: int = Depends(get_current_user_id)):
 
 
 @router.post("/change-password")
-def change_password(req: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
+@limiter.limit("5/minute")
+def change_password(request: Request, req: ChangePasswordRequest, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,))
