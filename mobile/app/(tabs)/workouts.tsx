@@ -2,7 +2,7 @@ import { colors } from "@/lib/colors";
 import { spacing, type as ftype, radii, shadow, minHitTarget } from '@/lib/theme';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet, TextInput, Platform, Alert,
+  View, Text, FlatList, Pressable, StyleSheet, TextInput, Platform,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import { MoveToSheet } from '@/components/MoveToSheet';
 import { goalOptions } from '@/lib/moveToOptions';
 import * as api from '@/lib/api';
 import { describeApiError } from '@/lib/apiErrors';
+import { showError, showInfo } from '@/lib/alerts';
 import { formatRel } from '@/lib/format';
 import { syncRoutineReminders } from '@/lib/routineReminders';
 import { formatReminder } from '@/lib/reminders';
@@ -704,13 +705,18 @@ export default function WorkoutsScreen() {
               const status = e?.response?.status;
               if (status === 409) {
                 await loadRoutines();
-                Alert.alert(
+                // PR-Y12: was `Alert.alert(...)` which is silent on web
+                // (RN's Alert.alert is a no-op in the browser). The user
+                // dogfoods PWA / Safari, so they'd see nothing — same
+                // trap PR #186 fixed for tasks.tsx. showInfo routes
+                // through window.alert on web.
+                showInfo(
                   'Routine changed',
                   `${moveTarget.name} was updated elsewhere. The list has been refreshed; try again.`,
                 );
                 return;
               }
-              Alert.alert('Move failed', describeApiError(e));
+              showError('Move failed', describeApiError(e));
               throw e;  // re-throw so MoveToSheet doesn't auto-close on error
             }
           }}
