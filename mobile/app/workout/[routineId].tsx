@@ -21,6 +21,7 @@ import * as api from '@/lib/api';
 import { describeApiErrorDetailed } from '@/lib/apiErrors';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
 import { askConflict, isConflict } from '@/lib/conflictPrompt';
+import { showError } from '@/lib/alerts';
 
 /** Yes/no confirm dialog for destructive actions. Web-vs-native split
  *  kept inline for simplicity. */
@@ -682,7 +683,13 @@ function RoutineExerciseEdit({
           await save(true);
         }
       } else {
-        throw e;
+        // PR-Y12: this `save()` is invoked from `onPress={() => save()}`
+        // — fire-and-forget, no .catch(). A `throw e` here becomes an
+        // unhandled promise rejection (on web, just a console log) and
+        // the editor stays open while the spinner clears, so the user
+        // thinks the save landed. Surface the error inline so they see
+        // what happened.
+        showError('Save failed', describeApiErrorDetailed(e, 'Could not save changes.'));
       }
     } finally { setBusy(false); }
   };
@@ -927,7 +934,11 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
           await save(true);
         }
       } else {
-        throw e;
+        // PR-Y12 — same shape as RoutineExerciseEdit.save above: this
+        // `save()` is called from `onPress={() => save()}` so a `throw`
+        // becomes an unhandled rejection (silent on web). Show the
+        // error inline so the user knows.
+        showError('Save failed', describeApiErrorDetailed(e, 'Could not save changes.'));
       }
     } finally { setBusy(false); }
   };
