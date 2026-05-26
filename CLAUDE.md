@@ -7,9 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Stack
 
 - **Backend:** FastAPI + SQLite (dev) / PostgreSQL (prod dual-support in
-  `app/database.py`). Auth via HS256 JWT + SHA-256 password hashing.
+  `app/database.py`). Auth via HS256 JWT (30-day expiry) + bcrypt password hashing.
+  No `/auth/verify-password` endpoint — it existed for the PinGate reset flow,
+  removed with PinGate in #180. Don't recreate it unless there's a new caller
+  that genuinely needs read-only credential re-verification.
 - **Mobile:** Expo + React Native + expo-router. Axios client (`mobile/lib/api.ts`).
-  Zustand stores. Expo SecureStore for tokens + PIN secrets.
+  Zustand stores. Expo SecureStore for the JWT.
 - **No ORM** — raw SQL with parameterized queries. Shared hydration helpers
   in `backend/app/hydrate.py`.
 
@@ -19,9 +22,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Workouts** — exercises (global + per-user), routines, sessions, set
   logging, symptom tracking. See `app/routes/{exercise,routine,session}_routes.py`
   and `mobile/app/workout/`.
-- **PinGate** — 4-digit PIN on app launch, hashed in SecureStore, optional
-  Face ID / Touch ID, 4-hour soft timeout. See `mobile/components/PinGate.tsx`
-  and `mobile/lib/{pin,biometric}.ts`.
 
 ## Skills
 
@@ -35,6 +35,13 @@ manually via the Agent tool with `subagent_type=general-purpose`.
 
 ## Workflow conventions
 
+- **Default ship loop** — for any task that produces a code change:
+  commit → push → open a non-draft PR → let CI run → if all required
+  checks go green, squash-merge → delete the branch (local + remote) →
+  move to the next task. If there is no next task, prompt the operator.
+  Don't pause for permission between these steps unless something
+  fails or is architecturally ambiguous. Don't open PRs as drafts.
+  Don't merge on red — fix the failure or surface it.
 - **Don't commit** `taskapp.db`, `__pycache__/`, `.env`, or the TickTick CSV.
   `*.db` is in `.gitignore`; the CSV is not.
 - **Schema changes** go in BOTH `backend/migrations/001_schema.sql` (PG) and
@@ -82,11 +89,12 @@ manually via the Agent tool with `subagent_type=general-purpose`.
   See PRs #116, #117, #118, #119, #120 for the canonical example.
 
   **Don't** trust an audit agent's claim without spot-checking — in
-  the April 2026 run the deferred-tracker flagged "Settings PIN
-  management UI" as missing; it was already shipped end-to-end at
-  `mobile/app/settings/account.tsx`. The agent followed
-  `(tabs)/settings.tsx` and missed the chevron link. Skip findings
-  that don't survive a 30-second look at the file.
+  the April 2026 run the deferred-tracker flagged a "missing"
+  Settings sub-screen that was already shipped end-to-end one
+  chevron-tap below `(tabs)/settings.tsx`. Audit agents that crawl
+  the tab root and don't follow links produce false positives at
+  this exact shape. Skip findings that don't survive a 30-second
+  look at the file.
 - **Self-hosted exercise images** — image bytes live at
   `backend/seed_data/exercise_images/<sha256>.<ext>`, served via the
   `/static/exercise-images` mount on Fly. DB rows store the sentinel
@@ -107,10 +115,12 @@ manually via the Agent tool with `subagent_type=general-purpose`.
 
   The script is idempotent + content-addressed, so reruns only fetch
   URLs that haven't been self-hosted yet. **Auto-self-hosting on save
-  was deliberately punted** — at 1-5 image uploads/month the manual
-  step is cheaper than wiring GitHub Contents API + admin gating +
-  background tasks. Revisit (and pick R2 / S3, not git) if upload
-  volume ever climbs past ~50/month.
+  is now live** — PR-A2b (#153) wired `add_image` + `bulk_images`
+  through `R2Storage.put_object` when `config.r2_configured()`. The
+  git-backed `backfill_exercise_images.py` script is now strictly the
+  migrate-old-rows tool; new admin uploads land in R2 immediately on
+  R2-configured deploys. Dev (no R2 secrets) stays in URL-passthrough
+  mode.
 - **Routine reminders (V1)** — `GET /routines/missed-reminders` returns
   routines whose `reminder_time` already passed today (in operator
   TZ) and the user hasn't started yet. Surfaces as a banner at the
@@ -217,9 +227,11 @@ manually via the Agent tool with `subagent_type=general-purpose`.
   **PG client pin lives in two workflows** (`backup-neon.yml` +
   `backup-restore-drill.yml`). They MUST move together when Neon
   majors-upgrade. The pre-flight step in publish (PR #139) fails
-  loudly with the bump-the-pin recipe when this is needed; obey
-  it. A workflow lint to enforce the two pins match is on the
-  open list — not yet built.
+  loudly with the bump-the-pin recipe when this is needed; obey it.
+  The `Postgres client pin matches across backup workflows` job in
+  `workflow-lint.yml` (lines 27–50) greps both files and fails CI
+  with `::error::PG client pin mismatch` if they diverge — keeps
+  the two pins in sync without operator memory.
 
   **R2 mirror is opt-in** — set the four `R2_*` repo secrets
   (recipe in `docs/DISASTER_RECOVERY.md` § Required secrets) to
@@ -243,10 +255,10 @@ cd mobile && npx expo start
 
 ## Tests
 
-~681 tests across backend (pytest) and mobile (jest). Run:
+~820 tests across backend (pytest) and mobile (jest). Run:
 ```bash
-cd backend && venv/bin/pytest    # 435 cases (3 PG-only skipped on the SQLite leg)
-cd mobile && npm test            # 246 cases (split into `node-libs` and `rn-components` projects)
+cd backend && venv/bin/pytest    # 511 cases (3 PG-only skipped on the SQLite leg)
+cd mobile && npm test            # 306 cases (split into `node-libs` and `rn-components` projects)
 ```
 
 Counts drift fast — when you bump these, also bump the matching line
@@ -270,12 +282,10 @@ For a single mobile test: `npm test -- -t "<test name pattern>"` or
 ## Known gaps worth flagging when relevant
 
 - Mobile jest is split into two projects: `node-libs` (pure-function
-  libs — pin, format, progress, etc.) and `rn-components` (renders
-  PinGate, Login, Register via @testing-library/react-native +
-  jest-expo). Adding more component tests is straightforward — match
-  the existing rn-components patterns.
-- `expo-local-authentication` doesn't work in Expo Go. Needs a dev build
-  (`npx expo prebuild && npx expo run:ios`) or EAS build to test Face ID.
+  libs — format, progress, etc.) and `rn-components` (renders Login,
+  Register via @testing-library/react-native + jest-expo). Adding more
+  component tests is straightforward — match the existing rn-components
+  patterns.
 - Route `GET /routines` and `GET /sessions` are no longer N+1 and have
   cursor-based pagination (`limit` + `cursor`). Mobile `getRoutines()`
   pages transparently; `listSessions()` accepts an optional `cursor`.

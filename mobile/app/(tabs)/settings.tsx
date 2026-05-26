@@ -201,10 +201,10 @@ export default function SettingsScreen() {
         style={styles.row}
         onPress={() => router.push('/settings/account')}
         accessibilityRole="button"
-        accessibilityLabel="Account: password, PIN, display name"
+        accessibilityLabel="Account: password and display name"
       >
         <Ionicons name="person-outline" size={22} color={colors.primary} />
-        <Text style={styles.rowText}>Password, PIN, display name</Text>
+        <Text style={styles.rowText}>Password, display name</Text>
         <Ionicons name="chevron-forward" size={18} color="#bbb" />
       </TouchableOpacity>
 

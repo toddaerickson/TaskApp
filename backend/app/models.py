@@ -107,13 +107,6 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
-class VerifyPasswordRequest(BaseModel):
-    """Re-verification of the current user's password without changing
-    anything else. Used by the mobile Reset PIN flow to gate the
-    PinGate lockout-escape behind a server-verified credential."""
-    password: str
-
-
 class ProfileUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=80)
 
@@ -300,6 +293,10 @@ class BulkImageResult(BaseModel):
     status: str  # "ok", "not_found"
     added: int = 0
     replaced: int = 0
+    # PR-Y1: count of URLs in this entry that couldn't be downloaded /
+    # uploaded to R2 (SSRF-blocked, non-image, oversized, R2 transport
+    # error). Always 0 in legacy URL-passthrough mode.
+    failed: int = 0
 
 class ExerciseCreate(BaseModel):
     name: str
@@ -550,6 +547,10 @@ class SessionUpdate(BaseModel):
     rpe: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    # PR-Y3 optimistic concurrency — mirrors TaskUpdate / RoutineUpdate.
+    # Opt-in: legacy callers stay last-write-wins. The two-device "End
+    # session" + "Add notes" race silently clobbered before this.
+    expected_updated_at: Optional[datetime] = None
 
 class SessionResponse(BaseModel):
     id: int
@@ -563,6 +564,11 @@ class SessionResponse(BaseModel):
     # Session-time snapshot of the starting routine's tracks_symptoms.
     # Clients read this to decide whether to render pain UX.
     tracks_symptoms: bool = False
+    # PR-Y3: surfaced so clients can echo it back as expected_updated_at
+    # on the next PUT for the optimistic-concurrency check. Optional so
+    # legacy rows backfilled to NULL on the SQLite leg don't blow up the
+    # response validator.
+    updated_at: Optional[datetime] = None
     sets: list[SessionSetResponse] = []
 
 

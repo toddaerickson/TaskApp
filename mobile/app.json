@@ -8,10 +8,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.taskapp.tasks",
-      "infoPlist": {
-        "NSFaceIDUsageDescription": "Unlock TaskApp with Face ID instead of entering your PIN."
-      }
+      "bundleIdentifier": "com.taskapp.tasks"
     },
     "android": {
       "package": "com.taskapp.tasks"
@@ -46,12 +43,6 @@
       "expo-router",
       "expo-secure-store",
       "expo-asset",
-      [
-        "expo-local-authentication",
-        {
-          "faceIDPermission": "Unlock TaskApp with Face ID instead of entering your PIN."
-        }
-      ],
       [
         "expo-notifications",
         {

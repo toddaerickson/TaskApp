@@ -1,18 +1,9 @@
 import { colors } from "@/lib/colors";
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native';
+import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
-
-const showAlert = (title: string, msg: string) => {
-  if (Platform.OS === 'web') {
-    window.alert(`${title}: ${msg}`);
-  } else {
-    const { Alert } = require('react-native');
-    Alert.alert(title, msg);
-  }
-};
 
 export default function RegisterScreen() {
   const [email, setEmail] = useState('');
@@ -55,66 +46,87 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Create Account</Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.eyebrow}>TaskApp</Text>
+        <Text style={styles.title}>Create account</Text>
+
+        <Text style={styles.label}>Display name (optional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="How should we address you?"
+          accessibilityLabel="Display name, optional"
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          placeholderTextColor={colors.placeholder}
+        />
+
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="you@example.com"
+          accessibilityLabel="Email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoComplete="email"
+          keyboardType="email-address"
+          placeholderTextColor={colors.placeholder}
+        />
+
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="At least 8 characters"
+          accessibilityLabel="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoComplete="new-password"
+          placeholderTextColor={colors.placeholder}
+          onSubmitEditing={handleRegister}
+          returnKeyType="go"
+        />
 
         {error ? (
           <Text style={styles.error} accessibilityLiveRegion="polite">{error}</Text>
         ) : null}
 
-        <TextInput
-          style={styles.input}
-          placeholder="Display Name (optional)"
-          accessibilityLabel="Display name, optional"
-          value={name}
-          onChangeText={setName}
-          placeholderTextColor="#6b7280"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          accessibilityLabel="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholderTextColor="#6b7280"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          accessibilityLabel="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholderTextColor="#6b7280"
-        />
-
         <Pressable
-          style={({ pressed }) => [styles.button, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [styles.button, (loading || pressed) && { opacity: 0.7 }]}
           onPress={handleRegister}
           disabled={loading}
-          role="button"
+          accessibilityRole="button"
         >
-          <Text style={styles.buttonText}>{loading ? 'Creating...' : 'Create Account'}</Text>
+          <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Create account'}</Text>
         </Pressable>
 
-        <Pressable onPress={() => router.back()} role="link">
-          <Text style={styles.link}>Already have an account? Sign In</Text>
+        <Pressable onPress={() => router.back()} accessibilityRole="link">
+          <Text style={styles.link}>Already have an account? <Text style={styles.linkStrong}>Sign in</Text></Text>
         </Pressable>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f4f8', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 24, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 3 },
-  title: { fontSize: 28, fontWeight: '700', color: colors.primary, textAlign: 'center', marginBottom: 24 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12, color: '#333' },
-  button: { backgroundColor: colors.primary, borderRadius: 8, padding: 16, alignItems: 'center', marginTop: 8, cursor: 'pointer' as any },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  error: { color: '#d32f2f', textAlign: 'center', marginBottom: 12, fontSize: 14 },
-  link: { color: colors.primary, textAlign: 'center', marginTop: 16, fontSize: 14, cursor: 'pointer' as any },
+  container: { flex: 1, backgroundColor: colors.bg },
+  scroll: { paddingHorizontal: 20, paddingTop: 64, paddingBottom: 40, gap: 8 },
+  eyebrow: { fontSize: 13, fontWeight: '600', color: colors.primary, letterSpacing: 1, textTransform: 'uppercase' },
+  title: { fontSize: 34, fontWeight: '700', color: colors.textStrong, marginBottom: 28 },
+  label: { fontSize: 12, fontWeight: '600', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 14 },
+  input: {
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.text,
+    backgroundColor: colors.surface,
+  },
+  error: { color: colors.dangerText, fontSize: 13, marginTop: 8 },
+  button: {
+    backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 14,
+    alignItems: 'center', marginTop: 20,
+  },
+  buttonText: { color: colors.onColor, fontSize: 16, fontWeight: '600' },
+  link: { color: colors.textMuted, textAlign: 'center', marginTop: 20, fontSize: 14 },
+  linkStrong: { color: colors.primary, fontWeight: '600' },
 });

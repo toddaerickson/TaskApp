@@ -20,31 +20,8 @@ import ErrorCard from '@/components/ErrorCard';
 import * as api from '@/lib/api';
 import { describeApiErrorDetailed } from '@/lib/apiErrors';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
-
-/** Two-choice conflict prompt. Resolves with the user's decision rather
- *  than blocking state. Web uses confirm() because there's no native
- *  modal affordance we share; iOS/Android get a proper destructive
- *  Alert.alert with distinct labels. */
-function askConflict(label: string): Promise<'overwrite' | 'reload'> {
-  return new Promise((resolve) => {
-    const msg = `The ${label} changed since you loaded it. Overwrite your changes would replace the newer version. Reload discards yours.`;
-    if (Platform.OS === 'web') {
-      // eslint-disable-next-line no-alert
-      const overwrite = window.confirm(`${msg}\n\nOK = Overwrite anyway. Cancel = Discard & reload.`);
-      resolve(overwrite ? 'overwrite' : 'reload');
-    } else {
-      Alert.alert(`This ${label} changed`, msg, [
-        { text: 'Discard & reload', style: 'cancel', onPress: () => resolve('reload') },
-        { text: 'Overwrite anyway', style: 'destructive', onPress: () => resolve('overwrite') },
-      ]);
-    }
-  });
-}
-
-function isConflict(err: unknown): err is { response: { status: 409 } } {
-  const e = err as { response?: { status?: number } };
-  return e?.response?.status === 409;
-}
+import { askConflict, isConflict } from '@/lib/conflictPrompt';
+import { showError } from '@/lib/alerts';
 
 /** Yes/no confirm dialog for destructive actions. Web-vs-native split
  *  kept inline for simplicity. */
@@ -77,6 +54,13 @@ export default function RoutineDetailScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
 
+  // PR-Y13: split the reload into routine-only vs everything. Inline
+  // dose edits and exercise reorders bump `updated_at` on the routine
+  // row but don't change suggestions (those move when a session
+  // completes). The screen previously fired BOTH getRoutine and
+  // getRoutineSuggestions on every onSaved callback; a screen visit
+  // with three small edits triggered six round trips. Now inline
+  // edits use `reload`; focus + return-from-session use `reloadAll`.
   const reload = useCallback(() => {
     if (!routineId) return;
     const id = Number(routineId);
@@ -87,13 +71,18 @@ export default function RoutineDetailScreen() {
         console.warn('[routine] getRoutine failed:', e);
         setLoadError(describeApiErrorDetailed(e, 'Could not load this routine.'));
       });
+  }, [routineId]);
+  const reloadAll = useCallback(() => {
+    reload();
+    if (!routineId) return;
+    const id = Number(routineId);
     // Suggestions are best-effort — a failure here is not a screen-level
     // error, it just means the "Next: …" hint row doesn't render.
     api.getRoutineSuggestions(id).then(setSuggestions).catch(() => setSuggestions([]));
-  }, [routineId]);
-  // Reload on focus so returning from a finished session picks up the new
-  // suggestion immediately, not the pre-workout one.
-  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+  }, [reload, routineId]);
+  // Refresh-all on focus so returning from a finished session picks up
+  // the new suggestion immediately, not the pre-workout one.
+  useFocusEffect(useCallback(() => { reloadAll(); }, [reloadAll]));
 
   const moveExercise = async (idx: number, dir: -1 | 1) => {
     if (!routine) return;
@@ -706,7 +695,13 @@ function RoutineExerciseEdit({
           await save(true);
         }
       } else {
-        throw e;
+        // PR-Y12: this `save()` is invoked from `onPress={() => save()}`
+        // — fire-and-forget, no .catch(). A `throw e` here becomes an
+        // unhandled promise rejection (on web, just a console log) and
+        // the editor stays open while the spinner clears, so the user
+        // thinks the save landed. Surface the error inline so they see
+        // what happened.
+        showError('Save failed', describeApiErrorDetailed(e, 'Could not save changes.'));
       }
     } finally { setBusy(false); }
   };
@@ -951,7 +946,11 @@ function InlineDoseEditor({ kind, re, onClose, onSaved }: {
           await save(true);
         }
       } else {
-        throw e;
+        // PR-Y12 — same shape as RoutineExerciseEdit.save above: this
+        // `save()` is called from `onPress={() => save()}` so a `throw`
+        // becomes an unhandled rejection (silent on web). Show the
+        // error inline so the user knows.
+        showError('Save failed', describeApiErrorDetailed(e, 'Could not save changes.'));
       }
     } finally { setBusy(false); }
   };

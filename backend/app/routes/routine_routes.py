@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
+from app.concurrency import parse_ts, is_conflict, raise_conflict, utc_now_text
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -16,13 +16,14 @@ from app.models import (
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
-# Reminder helpers extracted to app/reminders.py in PR-X4. Re-exported
-# below so existing test imports
-# `from app.routes.routine_routes import _parse_reminder_days, _DAYS`
-# keep working without touching every test that touched the old API.
-# F401 silenced because the un-used-here imports ARE the export.
+# `compute_missed_reminders` is called from this module. The others are
+# re-exported (noqa F401) so existing tests `from app.routes.routine_routes
+# import _parse_reminder_days, _DAYS` and `rr._TZ_CACHE` keep working
+# without churn. PR-Y6 dropped `_DAY_SET` (verified zero importers);
+# kept `_TZ_CACHE` + `_operator_tz` after CI showed test_missed_reminders
+# patches them via this module path.
 from app.reminders import (  # noqa: F401
-    _DAYS, _DAY_SET, _parse_reminder_days,
+    _DAYS, _parse_reminder_days,
     _TZ_CACHE, _operator_tz,
     compute_missed_reminders,
 )
@@ -45,35 +46,10 @@ class RoutineExerciseUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 
-def _parse_ts(v) -> Optional[datetime]:
-    """Coerce a DB timestamp (SQLite TEXT or PG datetime) into a timezone-
-    aware datetime for comparison. SQLite stores 'YYYY-MM-DD HH:MM:SS' UTC;
-    Postgres returns a proper datetime already. NULL (legacy rows without
-    updated_at) becomes None and opts the row out of the conflict check."""
-    if v is None:
-        return None
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    if isinstance(v, str):
-        s = v.replace("T", " ").rstrip("Z")
-        try:
-            dt = datetime.fromisoformat(s)
-        except ValueError:
-            return None
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-    return None
-
-
-def _conflict(current: Optional[datetime], expected: Optional[datetime]) -> bool:
-    """Row has moved past the client's snapshot. NULL current (legacy) opts
-    out. NULL expected (client didn't send one) also opts out — this is an
-    opt-in check so existing callers aren't broken. Compare at second
-    granularity because SQLite's datetime('now') truncates to seconds;
-    a round-trip through Pydantic that preserves microseconds would
-    otherwise trip a false positive."""
-    if expected is None or current is None:
-        return False
-    return current.replace(microsecond=0) > expected.replace(microsecond=0)
+# Optimistic-concurrency helpers used to live here; consolidated into
+# app.concurrency in PR #189 so the routine + task routes share one
+# canonical implementation. See app/concurrency.py for the canonical
+# parse_ts + is_conflict.
 
 
 class RoutineReorderRequest(BaseModel):
@@ -97,22 +73,39 @@ def list_routines(
     limit: int = Query(50, ge=1, le=200),
     cursor: int | None = Query(
         None,
-        description="Routine id from the previous page's last item. Returns "
-                    "routines with id > cursor (sort_order, id ASC).",
+        description="Routine id from the previous page's last item. Server "
+                    "looks up that row's sort_order and returns rows ranked "
+                    "after (sort_order, id) under the same ORDER BY.",
     ),
     user_id: int = Depends(get_current_user_id),
 ):
     """List a user's routines. Paginated: `limit` caps page size (default 50,
-    max 200), `cursor` is the id of the last routine on the prior page so
-    the client can request id > cursor for the next page. Ordering is
-    `(sort_order ASC, id ASC)` so pagination is deterministic."""
+    max 200), `cursor` is the id of the last routine on the prior page.
+    Ordering is `(sort_order ASC, id ASC)` so pagination is deterministic.
+
+    Cursor handling resolves the cursor row's sort_order and uses a
+    row-value comparison `(sort_order, id) > (cursor_sort, cursor_id)`.
+    A bare `id > cursor` predicate (the pre-PR-Y4 shape) skipped rows
+    whose id was ≤ cursor but whose composite rank was after the cursor —
+    e.g. user drags a low-id routine to a higher sort position, then
+    pages: the dragged routine vanishes from page-2.
+    """
     with get_db() as conn:
         cur = conn.cursor()
         sql = "SELECT * FROM routines WHERE user_id = ?"
         params: list = [user_id]
         if cursor is not None:
-            sql += " AND id > ?"
-            params.append(cursor)
+            # Resolve the cursor row's sort_order in Python so a deleted-
+            # between-pages cursor falls back to "no cursor" instead of
+            # returning an empty page forever.
+            cur.execute(
+                "SELECT sort_order FROM routines WHERE id = ? AND user_id = ?",
+                (cursor, user_id),
+            )
+            cursor_row = cur.fetchone()
+            if cursor_row is not None:
+                sql += " AND (sort_order, id) > (?, ?)"
+                params.extend([cursor_row["sort_order"], cursor])
         sql += " ORDER BY sort_order ASC, id ASC LIMIT ?"
         params.append(limit)
         cur.execute(sql, tuple(params))
@@ -346,21 +339,14 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
         # so the client can reconcile in one round-trip.
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
-        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+        if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
             cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
             current = _hydrate_routine(cur, cur.fetchone())
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "conflict",
-                    "detail": "Routine changed since you loaded it.",
-                    "current": jsonable_encoder(current),
-                },
-            )
+            raise_conflict(current, "routine")
 
         if fields:
             # Always bump updated_at alongside the caller's fields.
-            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+            fields["updated_at"] = utc_now_text()
             # Allow-list the columns — hardens the dynamic UPDATE against
             # a future Pydantic config that lets extra fields through.
             fields = {k: v for k, v in fields.items() if k in _ROUTINE_UPDATE_COLUMNS}
@@ -434,19 +420,12 @@ def update_routine_exercise(
             raise HTTPException(404, "Not found")
         fields = req.model_dump(exclude_unset=True)
         expected = fields.pop("expected_updated_at", None)
-        if _conflict(_parse_ts(row["updated_at"]), _parse_ts(expected)):
+        if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
             cur.execute("SELECT * FROM routine_exercises WHERE id = ?", (routine_exercise_id,))
             current = cur.fetchone()
             current["keystone"] = bool(current["keystone"])
             current["exercise"] = _load_exercise(cur, current["exercise_id"])
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "conflict",
-                    "detail": "Exercise changed since you loaded it.",
-                    "current": jsonable_encoder(current),
-                },
-            )
+            raise_conflict(current, "exercise")
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
         # Allow-list the columns that can be updated — protects the
@@ -454,7 +433,7 @@ def update_routine_exercise(
         # fields through.
         fields = {k: v for k, v in fields.items() if k in _ROUTINE_EXERCISE_UPDATE_COLUMNS}
         if fields:
-            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+            fields["updated_at"] = utc_now_text()
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(
                 f"UPDATE routine_exercises SET {sets} WHERE id = ?",

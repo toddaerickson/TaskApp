@@ -4,8 +4,10 @@ R2 is S3-compatible — boto3 talks to it as a custom-endpoint S3 client.
 This wrapper is the seam between FastAPI route handlers and the byte
 store, so nothing else in the codebase needs to know boto3 exists.
 
-**This module is wired but not yet called.** PR-A2a (foundation) ships
-the wrapper; PR-A2b switches admin uploads to use it; PR-A2c migrates
+Live as of PR-A2b (#153 merged 2026-05-06): `exercise_routes.add_image`
++ `bulk_images` route admin uploads through `R2Storage.put_object`
+when `config.r2_configured()`; `delete_object` runs during permanent-
+delete cleanup; `backfill_exercise_images.py --storage=r2` migrates
 existing `https:` rows.
 
 Threading model: boto3 clients are thread-safe but not asyncio-aware.
@@ -98,24 +100,3 @@ class R2Storage:
         except Exception as e:
             raise RuntimeError(f"R2 delete_object failed for {filename}") from e
 
-    def head_object(self, filename: str) -> bool:
-        """Existence check. Returns True if the key exists, False on
-        404. Raises only on transport failure (so a smoke-test workflow
-        can distinguish "bucket misconfigured" from "object missing")."""
-        try:
-            self._client.head_object(Bucket=self._bucket, Key=filename)
-            return True
-        except Exception as e:
-            # boto3 raises ClientError with response['Error']['Code'] ==
-            # '404' for missing objects; everything else is a real error.
-            err = getattr(e, "response", {}).get("Error", {})
-            if err.get("Code") in ("404", "NoSuchKey", "NotFound"):
-                return False
-            raise RuntimeError(f"R2 head_object failed for {filename}") from e
-
-    def public_url(self, filename: str) -> str:
-        """Build the public URL for a stored object. Used by the
-        resolver in image_urls.py once `r2:<filename>` sentinels start
-        appearing (PR-A2b).
-        """
-        return f"{self._public_url}/{filename}"

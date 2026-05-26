@@ -39,8 +39,6 @@ export const colors = {
   // docs/a11y-audit-2026-04.md.
   accent: '#d4a017',
   accentText: '#7a5500',     // ≥ 7.8:1 on every surface; chip-bg use
-  violet: '#8e44ad',   // tag badges
-  group: '#6c5ce7',    // group-by pill
 
   // Surface / text tokens.
   bg: '#f5f6fa',

@@ -16,12 +16,10 @@ DB_TYPE = "postgresql" if DATABASE_URL.startswith("postgresql") else "sqlite"
 _DEV_JWT_SECRET = "dev-secret-change-in-production"
 JWT_SECRET = os.environ.get("JWT_SECRET", _DEV_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
-# 30 days. Single-user, self-hosted; PinGate (mobile/components/PinGate.tsx)
-# is the device-side security boundary, so a long-lived bearer token here
-# only changes how often the user types their password — not the realistic
-# blast radius of a stolen device. Trade-off: a leaked token is valid for
-# 30 days without server-side revocation. Acceptable for a single-tenant
-# deploy; revisit if this ever serves multiple users.
+# 30 days. Single-user, self-hosted productivity app — the device's own
+# lock screen is the realistic security boundary. Trade-off: a leaked
+# token is valid for 30 days without server-side revocation. Acceptable
+# for a single-tenant deploy; revisit if this ever serves multiple users.
 JWT_EXPIRE_HOURS = 24 * 30
 
 # Refuse to run against Postgres with the public dev secret — tokens would
@@ -59,11 +57,10 @@ IMAGE_STORAGE_DIR = Path(
     os.environ.get("IMAGE_STORAGE_DIR", str(_DEFAULT_IMAGE_DIR))
 )
 
-# Cloudflare R2 credentials. Read at import time but NOT used yet — the
-# `R2Storage` wrapper in app/r2_storage.py is wired but no route calls it.
-# PR-A2b adds the upload pipeline and PR-A2c adds the backfill. Setting
-# these in advance is harmless: an unset value just means R2Storage
-# raises `RuntimeError("R2 not configured")` if instantiated.
+# Cloudflare R2 credentials. Live since PR-A2b (#153): when all five
+# vars are set, `exercise_routes.add_image` + `bulk_images` upload
+# bytes to R2 instead of storing raw upstream URLs. Unset = legacy
+# URL-passthrough mode (current dev + early-prod fallback).
 R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
 R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")

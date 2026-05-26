@@ -148,10 +148,19 @@ def compute_missed_reminders(user_id: int) -> list[MissedReminder]:
             if expected_local > now_local:
                 continue  # reminder still in the future
             expected_utc = expected_local.astimezone(timezone.utc)
+            # SQLite stores `started_at` via the column default
+            # `datetime('now')`, which returns a tz-naive
+            # 'YYYY-MM-DD HH:MM:SS' string. Binding a tz-aware
+            # `…+00:00` string would lex-compare against that and FAIL
+            # at exact second-equality (the suffix's '+' makes the bare
+            # string sort *before* the suffixed one). Strip the tz tail
+            # before binding — comparison is UTC-against-UTC either way
+            # since both sides are anchored UTC by convention. PG's
+            # TIMESTAMPTZ parses the bare string as session-tz UTC.
             cur.execute(
                 "SELECT 1 FROM workout_sessions "
                 "WHERE user_id = ? AND routine_id = ? AND started_at >= ? LIMIT 1",
-                (user_id, r["id"], expected_utc.isoformat(sep=" ")),
+                (user_id, r["id"], expected_utc.replace(tzinfo=None).isoformat(sep=" ")),
             )
             if cur.fetchone():
                 continue

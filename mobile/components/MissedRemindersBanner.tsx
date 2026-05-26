@@ -49,16 +49,24 @@ export function MissedRemindersBanner() {
   const [actionError, setActionError] = useState<string | null>(null);
   const today = localDateKey();
 
-  // Returns the list it just set, so callers (the focus effect) can
-  // pre-populate the dismiss-state from kvStorage against the actually-
-  // fetched rows — earlier draft iterated `reminders` from a stale
-  // closure (eslint-disable hid the bug; first focus saw `[]` and
-  // subsequent focuses saw yesterday's array). On error we DON'T wipe
-  // existing state — a transient 5xx mid-day shouldn't make the banner
-  // forget what was already on it. Telemetry-only; the user never sees
-  // a 4xx/5xx through this surface. 401 is suppressed to avoid Sentry
-  // noise on every PIN-locked launch.
-  const reload = useCallback(async (): Promise<MissedReminder[]> => {
+  // Returns the freshly-fetched list (or null on error) so the focus
+  // effect can pre-populate dismissed keys against the actually-fetched
+  // rows. On error we DON'T wipe existing state — a transient 5xx
+  // mid-day shouldn't make the banner forget what was already on it.
+  // Telemetry-only; the user never sees a 4xx/5xx through this surface.
+  // 401 is suppressed to avoid Sentry noise on every PIN-locked launch.
+  //
+  // PR-Y11: `reload` deliberately has NO deps. The previous shape
+  // (`useCallback(..., [reminders])`) caused a fetch storm on the
+  // Workouts tab — each fetch called setReminders(fresh), bumping
+  // `reminders` to a new reference, which re-derived `reload`, which
+  // re-derived the inner useCallback in useFocusEffect, which made
+  // useFocusEffect re-fire its callback while the tab stayed focused,
+  // looping forever. Returning null on error (vs the stale `reminders`
+  // value) lets us drop the dep entirely — the caller skips the
+  // dismissed-bootstrap on failure rather than re-deriving it from
+  // stale state.
+  const reload = useCallback(async (): Promise<MissedReminder[] | null> => {
     try {
       const fresh = await api.getMissedReminders();
       setReminders(fresh);
@@ -72,11 +80,9 @@ export function MissedRemindersBanner() {
           tags: { feature: 'missed_reminders_banner' },
         });
       }
-      // Preserve last-known-good state. The banner stays exactly as it
-      // was before the failed refresh; user dismisses still work.
-      return reminders;
+      return null;
     }
-  }, [reminders]);
+  }, []);
 
   // Refetch + reload dismisses each time the Workouts tab regains focus.
   // Tracking dismisses in component state lets the banner update
@@ -86,7 +92,7 @@ export function MissedRemindersBanner() {
       let cancelled = false;
       (async () => {
         const fresh = await reload();
-        if (cancelled) return;
+        if (cancelled || !fresh) return;
         // Pre-populate `dismissed` from storage against the freshly-
         // fetched list — NOT the closure-captured `reminders`, which
         // is stale for one render after `setReminders(fresh)` runs.

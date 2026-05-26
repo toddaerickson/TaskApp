@@ -33,27 +33,27 @@ describe('<RegisterScreen />', () => {
 
   it('blocks submission when email or password missing', () => {
     const { getByRole, queryByText } = render(<RegisterScreen />);
-    fireEvent.press(getByRole('button', { name: /Create Account|Creating/ }));
+    fireEvent.press(getByRole('button', { name: /Create account|Creating/i }));
     expect(queryByText('Email and password required')).toBeTruthy();
     expect(mockRegister).not.toHaveBeenCalled();
   });
 
   it('blocks submission when password shorter than 8 chars', () => {
-    const { getByPlaceholderText, getByRole, queryByText } = render(<RegisterScreen />);
-    fireEvent.changeText(getByPlaceholderText('Email'), 'a@b.com');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'short');
-    fireEvent.press(getByRole('button', { name: /Create Account|Creating/ }));
+    const { getByLabelText, getByRole, queryByText } = render(<RegisterScreen />);
+    fireEvent.changeText(getByLabelText('Email'), 'a@b.com');
+    fireEvent.changeText(getByLabelText('Password'), 'short');
+    fireEvent.press(getByRole('button', { name: /Create account|Creating/i }));
     expect(queryByText('Password must be at least 8 characters')).toBeTruthy();
     expect(mockRegister).not.toHaveBeenCalled();
   });
 
   it('trims + lowercases email, passes display name when set', async () => {
     mockRegister.mockResolvedValue(undefined);
-    const { getByPlaceholderText, getByRole } = render(<RegisterScreen />);
-    fireEvent.changeText(getByPlaceholderText('Email'), '  Todd@Example.COM  ');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'longenoughpw');
-    fireEvent.changeText(getByPlaceholderText('Display Name (optional)'), '  Todd  ');
-    fireEvent.press(getByRole('button', { name: /Create Account|Creating/ }));
+    const { getByLabelText, getByRole } = render(<RegisterScreen />);
+    fireEvent.changeText(getByLabelText('Email'), '  Todd@Example.COM  ');
+    fireEvent.changeText(getByLabelText('Password'), 'longenoughpw');
+    fireEvent.changeText(getByLabelText('Display name, optional'), '  Todd  ');
+    fireEvent.press(getByRole('button', { name: /Create account|Creating/i }));
 
     await waitFor(() => {
       expect(mockRegister).toHaveBeenCalledWith('todd@example.com', 'longenoughpw', 'Todd');
@@ -63,11 +63,11 @@ describe('<RegisterScreen />', () => {
 
   it('omits display name when only whitespace', async () => {
     mockRegister.mockResolvedValue(undefined);
-    const { getByPlaceholderText, getByRole } = render(<RegisterScreen />);
-    fireEvent.changeText(getByPlaceholderText('Email'), 'a@b.com');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'longenoughpw');
-    fireEvent.changeText(getByPlaceholderText('Display Name (optional)'), '   ');
-    fireEvent.press(getByRole('button', { name: /Create Account|Creating/ }));
+    const { getByLabelText, getByRole } = render(<RegisterScreen />);
+    fireEvent.changeText(getByLabelText('Email'), 'a@b.com');
+    fireEvent.changeText(getByLabelText('Password'), 'longenoughpw');
+    fireEvent.changeText(getByLabelText('Display name, optional'), '   ');
+    fireEvent.press(getByRole('button', { name: /Create account|Creating/i }));
 
     await waitFor(() => {
       expect(mockRegister).toHaveBeenCalledWith('a@b.com', 'longenoughpw', undefined);
@@ -76,10 +76,10 @@ describe('<RegisterScreen />', () => {
 
   it('shows the describeApiError fallback on failure', async () => {
     mockRegister.mockRejectedValue(new Error('boom'));
-    const { getByPlaceholderText, getByRole, findByText } = render(<RegisterScreen />);
-    fireEvent.changeText(getByPlaceholderText('Email'), 'a@b.com');
-    fireEvent.changeText(getByPlaceholderText('Password'), 'longenoughpw');
-    fireEvent.press(getByRole('button', { name: /Create Account|Creating/ }));
+    const { getByLabelText, getByRole, findByText } = render(<RegisterScreen />);
+    fireEvent.changeText(getByLabelText('Email'), 'a@b.com');
+    fireEvent.changeText(getByLabelText('Password'), 'longenoughpw');
+    fireEvent.press(getByRole('button', { name: /Create account|Creating/i }));
 
     expect(await findByText('Registration failed. Try again.')).toBeTruthy();
     expect(mockReplace).not.toHaveBeenCalled();
@@ -87,7 +87,7 @@ describe('<RegisterScreen />', () => {
 
   it('navigates back when the sign-in link is pressed', () => {
     const { getByText } = render(<RegisterScreen />);
-    fireEvent.press(getByText(/Sign In/i));
+    fireEvent.press(getByText(/Sign in/i));
     expect(mockBack).toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import * as api from './api';
 import { haptics } from './haptics';
 
 // Lazy-load to avoid pulling the module into web module-eval — consistent
-// with lib/api.ts, lib/pin.ts, lib/biometric.ts.
+// with lib/api.ts.
 const SecureStore: typeof import('expo-secure-store') =
   Platform.OS === 'web' ? (null as any) : require('expo-secure-store');
 
@@ -16,6 +16,37 @@ const tokenStorage = Platform.OS === 'web'
       deleteItemAsync: async (key: string) => { localStorage.removeItem(key); },
     }
   : SecureStore;
+
+// Legacy PIN-gate keys. PR #180 removed PinGate but any device that ever
+// set a PIN still holds these in SecureStore (Keychain on iOS / Keystore
+// on Android) or localStorage (web). Wipe once per device so the
+// deprecated bcrypt material doesn't sit indefinitely. Idempotent: the
+// flag gates re-runs; deleteItemAsync no-ops on missing keys so fresh
+// installs pay one write to set the flag and that's it.
+//
+// Removable once we're confident every active device has run this at
+// least once (call it 6 months after #180 lands — Aug 2026 or later).
+const LEGACY_PIN_KEYS = [
+  'pin.salt',
+  'pin.hash',
+  'pin.attempts',
+  'pin.unlockAt',
+  'pin.biometricOptIn',
+] as const;
+const PIN_CLEANUP_FLAG = 'pin_cleanup_v1_done';
+
+export async function cleanupLegacyPinKeys(): Promise<void> {
+  try {
+    if (await tokenStorage.getItemAsync(PIN_CLEANUP_FLAG)) return;
+    for (const key of LEGACY_PIN_KEYS) {
+      try { await tokenStorage.deleteItemAsync(key); } catch { /* best-effort */ }
+    }
+    await tokenStorage.setItemAsync(PIN_CLEANUP_FLAG, '1');
+  } catch {
+    // SecureStore unreachable at cold-start — keys just sit for now.
+    // Next loadToken() call retries the cleanup. Non-fatal.
+  }
+}
 
 // --- Auth Store ---
 interface AuthState {
@@ -35,6 +66,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
 
   loadToken: async () => {
+    // One-time wipe of orphan PinGate secrets. Fire-and-forget — the
+    // auth load below doesn't depend on it.
+    cleanupLegacyPinKeys();
     const token = await tokenStorage.getItemAsync('token');
     if (token) {
       set({ token });

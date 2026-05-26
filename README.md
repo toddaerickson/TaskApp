@@ -60,12 +60,8 @@ phased progressions, and per-set pain tracking for rehab. Highlights:
   the timer commits.
 
 **Auth + shell** — email / password (bcrypt, backward-compat with a legacy
-SHA-256 upgrade path), 10/min login rate limit, JWT (72 h), device-level PIN
-+ Face ID / Touch ID with a 15-min soft timeout, cross-platform 401
-session-expired modal. PinGate "locked" state has an explicit Reset
-PIN button (used to brick after 5 wrong attempts; SecureStore-backed
-counter survived process restarts and the message lied about
-re-launching).
+SHA-256 upgrade path), 10/min login rate limit, JWT (30 days),
+cross-platform 401 session-expired modal.
 
 **Admin** — image library for exercises with bulk paste, per-slug upload
 progress, search / filter by name / category / "needs image", and a
@@ -117,13 +113,13 @@ cd backend && venv/bin/pytest
 ```
 
 **Mobile** — jest, split into a node-only project (pure-function libs) and
-an `rn-components` project (renders PinGate, Login, Register):
+an `rn-components` project (renders Login, Register):
 
 ```bash
 cd mobile && npm test
 ```
 
-Current totals: **435 backend (3 PG-only skipped on the SQLite leg) + 246 mobile**, `tsc --noEmit` + `ruff --select F` clean.
+Current totals: **511 backend (3 PG-only skipped on the SQLite leg) + 306 mobile**, `tsc --noEmit` + `ruff --select F` clean.
 
 ## CI
 
@@ -167,7 +163,7 @@ mobile/
     task/             # task detail, create
     workout/          # routine detail, session, admin, progress, track
     _layout.tsx       # root layout + ErrorBoundary + session-expired modal
-  components/         # PinGate, Skeleton, EvidenceTierChip,
+  components/         # Skeleton, EvidenceTierChip,
                       #   RoutineDurationPill, MissedRemindersBanner,
                       #   ExerciseImage, UndoSnackbar, …
   lib/                # api client, stores, pr, restTimer, offlineQueue,
