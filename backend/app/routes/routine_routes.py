@@ -1,10 +1,9 @@
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.encoders import jsonable_encoder
 from app.database import get_db
 from app.auth import get_current_user_id
-from app.concurrency import parse_ts, is_conflict
+from app.concurrency import parse_ts, is_conflict, raise_conflict
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -342,14 +341,7 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
         if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
             cur.execute("SELECT * FROM routines WHERE id = ?", (routine_id,))
             current = _hydrate_routine(cur, cur.fetchone())
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "conflict",
-                    "detail": "Routine changed since you loaded it.",
-                    "current": jsonable_encoder(current),
-                },
-            )
+            raise_conflict(current, "routine")
 
         if fields:
             # Always bump updated_at alongside the caller's fields.
@@ -432,14 +424,7 @@ def update_routine_exercise(
             current = cur.fetchone()
             current["keystone"] = bool(current["keystone"])
             current["exercise"] = _load_exercise(cur, current["exercise_id"])
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "conflict",
-                    "detail": "Exercise changed since you loaded it.",
-                    "current": jsonable_encoder(current),
-                },
-            )
+            raise_conflict(current, "exercise")
         if "keystone" in fields and fields["keystone"] is not None:
             fields["keystone"] = bool(fields["keystone"])
         # Allow-list the columns that can be updated — protects the
