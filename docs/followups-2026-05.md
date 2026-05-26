@@ -24,6 +24,13 @@ All Audit SEVERE items from the original 4-agent review (UI, a11y+security,
 architect, PM) are closed *except* JWT revocation hooks and web-storage
 `pin.hash` exposure — both listed below.
 
+> **Update 2026-05-25:** PinGate was ripped out entirely in commit
+> `aefcea8` (`feat(auth): rip out PinGate; rely on email login alone`).
+> Items **#5** (web `pin.hash`) and **#6** (Android TalkBack focusable
+> spacer in `PinGate.tsx`) are now obsolete — the device's own lock
+> screen covers the threat model and the file no longer exists. Items
+> are kept below for traceability but should not be worked.
+
 ---
 
 ## URGENT — security / attack surface
@@ -79,9 +86,10 @@ endpoint. Encode the version into the JWT and validate in
 `get_current_user_id`. Mismatch → 401.
 **Estimated:** M (schema migration + auth flow + tests).
 
-### 5. Web `pin.hash` stored in plain `localStorage`
+### 5. ~~Web `pin.hash` stored in plain `localStorage`~~ — OBSOLETE
 **Source:** Audit SEVERE (4-agent review, May 2026).
-**Status:** Not addressed.
+**Status:** Obsolete as of commit `aefcea8` (2026-05-25) — PinGate
+removed; no PIN hash is persisted anywhere anymore. Skip.
 **Risk:** 4-digit PIN space = 10k SHA-256 attempts = milliseconds offline
 once the hash is read from `localStorage`. Threat model: someone with
 physical access to your phone + Safari devtools. Low realistic risk for
@@ -98,9 +106,10 @@ single-tenant but flagged.
 
 ## HIGH — functional / a11y gaps
 
-### 6. Android TalkBack: keypad bottom-left spacer is focusable
+### 6. ~~Android TalkBack: keypad bottom-left spacer is focusable~~ — OBSOLETE
 **Source:** Audit IMPORTANT (4-agent review, May 2026).
-**Status:** Not addressed.
+**Status:** Obsolete as of commit `aefcea8` (2026-05-25) — PinGate
+keypad removed entirely. Skip.
 **Risk:** `PinGate.tsx` renders `<View style={styles.key} />` with
 `accessibilityElementsHidden + importantForAccessibility="no"`, but per
 the audit Android TalkBack doesn't honor these on a raw `View`. The 72×72
@@ -220,3 +229,7 @@ If shipping in priority order, the cheapest urgent wins are **#1 + #2 + #4 +
 the lingering a11y gaps. **#3** needs design first (which recovery model fits
 the self-hosted single-user posture). **#10, #11, #12** are pure tidying and
 can wait until a future architecture sweep.
+
+**Update 2026-05-26:** #1, #2, #4 shipped in PRs #207–#209. #5 + #6 are
+obsolete after the PinGate rip-out (commit `aefcea8`). Remaining cheap
+wins are **#7 + #8 + #9**; #3 still needs the recovery-model design call.

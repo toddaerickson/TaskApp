@@ -1,6 +1,7 @@
 import { colors } from "@/lib/colors";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
@@ -8,8 +9,10 @@ import { describeApiError } from '@/lib/apiErrors';
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
   const loginFn = useAuthStore((s) => s.login);
   const router = useRouter();
 
@@ -49,23 +52,40 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
+          returnKeyType="next"
+          blurOnSubmit={false}
+          onSubmitEditing={() => passwordRef.current?.focus()}
           placeholderTextColor={colors.placeholder}
         />
 
         <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Your password"
-          accessibilityLabel="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="current-password"
-          placeholderTextColor={colors.placeholder}
-          onSubmitEditing={handleLogin}
-          returnKeyType="go"
-        />
+        <View style={styles.passwordRow}>
+          <TextInput
+            ref={passwordRef}
+            style={[styles.input, styles.passwordInput]}
+            placeholder="Your password"
+            accessibilityLabel="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            autoComplete="current-password"
+            textContentType="password"
+            placeholderTextColor={colors.placeholder}
+            onSubmitEditing={handleLogin}
+            returnKeyType="go"
+          />
+          <Pressable
+            onPress={() => setShowPassword((s) => !s)}
+            style={styles.eyeToggle}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            hitSlop={8}
+          >
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
+          </Pressable>
+        </View>
 
         {error && (
           <Text style={styles.error} accessibilityLiveRegion="polite">{error}</Text>
@@ -98,6 +118,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.borderInput, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.text,
     backgroundColor: colors.surface,
+  },
+  passwordRow: { position: 'relative' },
+  passwordInput: { paddingRight: 44 },
+  eyeToggle: {
+    position: 'absolute', right: 8, top: 0, bottom: 0,
+    width: 36, justifyContent: 'center', alignItems: 'center',
   },
   error: { color: colors.dangerText, fontSize: 13, marginTop: 8 },
   button: {
