@@ -4,9 +4,8 @@ The wrapper is wired but not yet called from any route — PR-A2a foundation
 work. These tests use a pure-mock boto3 client so the suite still runs in
 environments without R2 credentials (CI, dev, the SQLite leg).
 
-Tests cover: misconfigured construction (refuses to construct), happy
-paths for put/delete/head, the head_object 404 / non-404 distinction,
-and public URL formatting.
+Tests cover: misconfigured construction (refuses to construct) and
+happy paths for put / delete.
 """
 from unittest.mock import MagicMock, patch
 
@@ -104,42 +103,6 @@ def test_r2_storage_delete_object(configured_r2):
         )
 
 
-def test_r2_storage_head_object_returns_true_when_exists(configured_r2):
-    fake_client = MagicMock()
-    with patch("boto3.client", return_value=fake_client):
-        from app.r2_storage import R2Storage
-        s = R2Storage()
-        assert s.head_object("abc.jpg") is True
-
-
-def test_r2_storage_head_object_returns_false_on_404(configured_r2):
-    fake_client = MagicMock()
-    err = Exception("not found")
-    err.response = {"Error": {"Code": "404"}}
-    fake_client.head_object.side_effect = err
-    with patch("boto3.client", return_value=fake_client):
-        from app.r2_storage import R2Storage
-        s = R2Storage()
-        assert s.head_object("abc.jpg") is False
-
-
-def test_r2_storage_head_object_raises_on_other_errors(configured_r2):
-    """Transport / auth failures must NOT silently report False — the
-    smoke-test workflow needs to distinguish 'object missing' from
-    'bucket misconfigured'."""
-    fake_client = MagicMock()
-    err = Exception("auth failed")
-    err.response = {"Error": {"Code": "403"}}
-    fake_client.head_object.side_effect = err
-    with patch("boto3.client", return_value=fake_client):
-        from app.r2_storage import R2Storage
-        s = R2Storage()
-        with pytest.raises(RuntimeError, match="R2 head_object failed"):
-            s.head_object("abc.jpg")
-
-
-def test_r2_storage_public_url_format(configured_r2):
-    with patch("boto3.client"):
-        from app.r2_storage import R2Storage
-        s = R2Storage()
-        assert s.public_url("abc.jpg") == "https://cdn.example.com/abc.jpg"
+# head_object + public_url were removed in PR-Y6 (dead-code sweep) —
+# they had zero callers in app code; image_urls.resolve_image_url
+# builds the public URL inline from config.R2_PUBLIC_URL.

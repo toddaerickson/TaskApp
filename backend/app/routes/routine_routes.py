@@ -16,14 +16,14 @@ from app.models import (
 )
 from app.hydrate import hydrate_routines_full, load_exercises_by_ids
 from app.progression import suggest as compute_suggest, Suggestion
-# Reminder helpers extracted to app/reminders.py in PR-X4. Re-exported
-# below so existing test imports
+# `compute_missed_reminders` is called from this module. `_DAYS` and
+# `_parse_reminder_days` are re-exported (noqa F401) so existing tests
 # `from app.routes.routine_routes import _parse_reminder_days, _DAYS`
-# keep working without touching every test that touched the old API.
-# F401 silenced because the un-used-here imports ARE the export.
+# keep working without churn. PR-Y6 dropped the `_DAY_SET, _TZ_CACHE,
+# _operator_tz` re-exports — no caller went through this path; they're
+# imported directly from `app.reminders` where needed.
 from app.reminders import (  # noqa: F401
-    _DAYS, _DAY_SET, _parse_reminder_days,
-    _TZ_CACHE, _operator_tz,
+    _DAYS, _parse_reminder_days,
     compute_missed_reminders,
 )
 
