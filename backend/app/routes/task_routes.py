@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.encoders import jsonable_encoder
 from typing import Optional
 from app.database import get_db
 from app.auth import get_current_user_id
-from app.concurrency import parse_ts, is_conflict
+from app.concurrency import parse_ts, is_conflict, raise_conflict
 from app.reminders import _operator_tz
 from app.models import (
     TaskCreate, TaskUpdate, TaskResponse, TaskListResponse,
@@ -308,14 +307,7 @@ def update_task(task_id: int, req: TaskUpdate, user_id: int = Depends(get_curren
         # don't send expected_updated_at stay last-write-wins.
         if is_conflict(parse_ts(existing["updated_at"]), parse_ts(req.expected_updated_at)):
             current = _get_task_by_id(cur, task_id)
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "conflict",
-                    "detail": "Task changed since you loaded it.",
-                    "current": jsonable_encoder(current),
-                },
-            )
+            raise_conflict(current, "task")
 
         _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
         updates, params = ["updated_at = ?"], [_now]

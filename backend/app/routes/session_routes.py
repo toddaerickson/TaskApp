@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import get_db, is_unique_violation
 from app.auth import get_current_user_id
+from app.concurrency import parse_ts, is_conflict, raise_conflict
 from app.models import (
     SessionCreate, SessionUpdate, SessionResponse,
     SessionSetCreate, SessionSetResponse, SessionSetUpdate,
@@ -155,29 +157,44 @@ def get_session_prs(session_id: int, user_id: int = Depends(get_current_user_id)
     ]
 
 
-_SESSION_UPDATE_COLUMNS = {"ended_at", "rpe", "mood", "notes"}
+_SESSION_UPDATE_COLUMNS = {"ended_at", "rpe", "mood", "notes", "updated_at"}
 
 
 @router.put("/sessions/{session_id}", response_model=SessionResponse)
 def update_session(session_id: int, req: SessionUpdate, user_id: int = Depends(get_current_user_id)):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM workout_sessions WHERE id = ? AND user_id = ?",
-                    (session_id, user_id))
-        if not cur.fetchone():
+        cur.execute(
+            "SELECT id, updated_at FROM workout_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Session not found")
+
+        all_fields = req.model_dump(exclude_unset=True)
+        expected = all_fields.pop("expected_updated_at", None)
+
+        # Optimistic-concurrency check — mirrors update_routine /
+        # update_task. PR-Y3 closed the gap where two devices' PUTs
+        # on the same session silently last-write-wins.
+        if is_conflict(parse_ts(row["updated_at"]), parse_ts(expected)):
+            cur.execute("SELECT * FROM workout_sessions WHERE id = ?", (session_id,))
+            current = _hydrate(cur, cur.fetchone())
+            raise_conflict(current, "session")
+
         # Allow-list the columns so the dynamic UPDATE can never
         # interpolate a column name that wasn't hand-approved here.
-        fields = {
-            k: v for k, v in req.model_dump(exclude_unset=True).items()
-            if k in _SESSION_UPDATE_COLUMNS
-        }
+        fields = {k: v for k, v in all_fields.items() if k in _SESSION_UPDATE_COLUMNS}
         if "ended_at" in fields and fields["ended_at"] is not None:
-            # Strip tz suffix + use ' '-separator so the stored shape matches
-            # `started_at` (SQLite's `datetime('now')` default). Mixed shapes
-            # break TEXT lex comparisons on SQLite — see PR #190.
+            # Strip tz + use ' '-separator so SQLite stores 'YYYY-MM-DD
+            # HH:MM:SS' matching `started_at`'s `datetime('now')` default
+            # — PR-Y2 / silent-killer S4.
             fields["ended_at"] = fields["ended_at"].replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
         if fields:
+            # Always bump updated_at alongside caller fields so the
+            # next PUT's concurrency check sees the new snapshot.
+            fields["updated_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE workout_sessions SET {sets} WHERE id = ?",
                         tuple(list(fields.values()) + [session_id]))

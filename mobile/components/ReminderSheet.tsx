@@ -14,7 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  View, Text, Pressable, Modal, TextInput, StyleSheet, Platform, Alert, ActivityIndicator,
+  View, Text, Pressable, Modal, TextInput, StyleSheet, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/lib/colors';
@@ -23,31 +23,12 @@ import * as api from '@/lib/api';
 import {
   DAYS, DayCode, parseDays, daysCsv, formatTime12h,
 } from '@/lib/reminders';
+import { askConflict, isConflict } from '@/lib/conflictPrompt';
 
 interface Props {
   routine: Routine;
   onClose: () => void;
   onSaved: () => void;
-}
-
-function isConflict(err: unknown): err is { response: { status: 409 } } {
-  const e = err as { response?: { status?: number } };
-  return e?.response?.status === 409;
-}
-
-function askConflict(): Promise<'overwrite' | 'reload'> {
-  return new Promise((resolve) => {
-    const msg = 'This routine changed since you opened it. Overwrite replaces the newer version; Reload discards your edits.';
-    if (Platform.OS === 'web') {
-      // eslint-disable-next-line no-alert
-      resolve(window.confirm(`${msg}\n\nOK = Overwrite. Cancel = Reload.`) ? 'overwrite' : 'reload');
-    } else {
-      Alert.alert('This routine changed', msg, [
-        { text: 'Discard & reload', style: 'cancel', onPress: () => resolve('reload') },
-        { text: 'Overwrite', style: 'destructive', onPress: () => resolve('overwrite') },
-      ]);
-    }
-  });
 }
 
 const DAY_LABEL: Record<DayCode, string> = {
@@ -103,7 +84,7 @@ export default function ReminderSheet({ routine, onClose, onSaved }: Props) {
       onClose();
     } catch (e) {
       if (isConflict(e)) {
-        const choice = await askConflict();
+        const choice = await askConflict('routine');
         if (choice === 'reload') {
           onSaved();
           onClose();
