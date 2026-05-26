@@ -515,6 +515,81 @@ def test_add_image_r2_mode_502_on_upload_failure(auth_client, seeded_globals, mo
     assert fetched["images"] == []
 
 
+def test_bulk_images_r2_mode_stores_sentinel_not_raw_url(auth_client, seeded_globals, monkeypatch):
+    """PR-Y1 regression for silent-killer finding S1. `bulk_images`
+    previously skipped the R2 path and inserted raw `https://...` URLs
+    even when R2 was configured — undermining the byte-rot fix that R2
+    is supposed to deliver. The row's stored `url` should be the
+    `r2:<sha>.<ext>` sentinel, not the upstream URL."""
+    from unittest.mock import MagicMock, patch
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    fake_dl = _mock_downloaded(sha="e" * 64)
+    fake_r2 = MagicMock()
+    with patch("app.routes.exercise_routes.download_image", return_value=fake_dl), \
+         patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        r = c.post(
+            "/exercises/images/bulk",
+            headers=_h(tok),
+            json={"entries": [
+                {"slug": "wall_ankle_dorsiflexion", "urls": ["https://example.com/y.jpg"]}
+            ]},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body[0]["status"] == "ok"
+    assert body[0]["added"] == 1
+    assert body[0]["failed"] == 0
+    fake_r2.put_object.assert_called_once()
+
+    # Verify the stored row carries the r2: sentinel (raw URL would mean
+    # the row points at a host that can rot tomorrow).
+    from app.database import get_db
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT url FROM exercise_images WHERE exercise_id = ?",
+                    (seeded_globals["wall"],))
+        rows = cur.fetchall()
+    assert len(rows) == 1
+    assert str(rows[0]["url"]) == "r2:" + "e" * 64 + ".jpg"
+
+
+def test_bulk_images_r2_mode_skips_bad_urls_counts_failed(auth_client, seeded_globals, monkeypatch):
+    """One URL fails download → that URL is skipped, batch continues,
+    failed count surfaces in the response."""
+    from unittest.mock import MagicMock, patch
+    from app.image_download import DownloadError
+    _configure_r2(monkeypatch)
+    c, tok, _ = auth_client
+
+    good_dl = _mock_downloaded(sha="f" * 64)
+    fake_r2 = MagicMock()
+
+    def fake_download(url: str):
+        if "bad" in url:
+            raise DownloadError("non-image content type")
+        return good_dl
+
+    with patch("app.routes.exercise_routes.download_image", side_effect=fake_download), \
+         patch("app.r2_storage.R2Storage", return_value=fake_r2):
+        r = c.post(
+            "/exercises/images/bulk",
+            headers=_h(tok),
+            json={"entries": [{
+                "slug": "wall_ankle_dorsiflexion",
+                "urls": ["https://example.com/good.jpg", "https://example.com/bad.txt"],
+            }]},
+        )
+
+    assert r.status_code == 200
+    body = r.json()[0]
+    assert body["status"] == "ok"
+    assert body["added"] == 1
+    assert body["failed"] == 1
+
+
 def test_add_image_legacy_mode_when_r2_not_configured(auth_client, seeded_globals):
     """No R2 secrets → existing URL-passthrough behavior preserved.
     Important: production today is in this mode; nothing should change

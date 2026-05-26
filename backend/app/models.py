@@ -293,6 +293,10 @@ class BulkImageResult(BaseModel):
     status: str  # "ok", "not_found"
     added: int = 0
     replaced: int = 0
+    # PR-Y1: count of URLs in this entry that couldn't be downloaded /
+    # uploaded to R2 (SSRF-blocked, non-image, oversized, R2 transport
+    # error). Always 0 in legacy URL-passthrough mode.
+    failed: int = 0
 
 class ExerciseCreate(BaseModel):
     name: str

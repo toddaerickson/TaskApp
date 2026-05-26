@@ -50,6 +50,34 @@ def _image_hash(url: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def _r2_upload(downloaded) -> str:
+    """Upload a downloaded image to R2; return the r2: sentinel URL.
+    Raises RuntimeError on R2 transport failure. Separated from the
+    download step so dedup-by-content-hash can short-circuit the
+    upload."""
+    r2_filename = f"{downloaded.sha256}{downloaded.extension}"
+    from app.r2_storage import R2Storage
+    R2Storage().put_object(
+        r2_filename, downloaded.bytes_, downloaded.content_type,
+    )
+    return f"{R2_PREFIX}{r2_filename}"
+
+
+def _resolve_image_storage(url: str) -> tuple[str, str]:
+    """One-shot download+upload for callers that don't need per-step
+    control (bulk_images). Returns (store_url, content_hash). Must be
+    called OUTSIDE any get_db() block (network I/O).
+
+    R2 PUT is idempotent at the content-hash key, so a duplicate
+    upload during a same-batch repeat is wasted RTT but harmless on
+    the bucket. Raises DownloadError (422) or RuntimeError (502)."""
+    if config.r2_configured():
+        downloaded = download_image(url)
+        store_url = _r2_upload(downloaded)
+        return (store_url, downloaded.sha256)
+    return (url, _image_hash(url))
+
+
 @router.get("", response_model=list[ExerciseResponse])
 def list_exercises(
     category: str | None = None,
@@ -305,6 +333,13 @@ def add_image(
     content hash for R2 mode, same URL hash for legacy mode) returns
     the existing row.
     """
+    # Pre-flight ownership check in a brief DB block — 403/404 before
+    # any expensive network I/O, then close the conn so it's released
+    # during the slow download / upload that follows. The previous
+    # shape held a Neon connection across `download_image` (up to 10s)
+    # + R2 `put_object`, which under N concurrent admin saves would
+    # pin every Neon connection slot Fly's pool will issue. Silent-
+    # killer audit finding S2.
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT user_id, name FROM exercises WHERE id = ?", (exercise_id,))
@@ -315,64 +350,50 @@ def add_image(
             raise HTTPException(403, "Cannot add image to another user's exercise")
         default_alt = f"{row['name']} demonstration"
 
-        # Decide storage path. R2-configured deploys: server-side
-        # download + bucket upload, store r2: sentinel. Otherwise:
-        # legacy URL-passthrough storage.
-        store_url: str
-        content_hash: str
-        if config.r2_configured():
-            try:
-                downloaded = download_image(req.url)
-            except DownloadError as e:
-                # 422 because the input URL is the problem (private
-                # host, non-image content type, oversized, etc.). The
-                # admin sees a clear inline error in the UI.
-                raise HTTPException(422, f"Could not import image: {e}") from e
-            content_hash = downloaded.sha256
-            r2_filename = f"{downloaded.sha256}{downloaded.extension}"
-            store_url = f"{R2_PREFIX}{r2_filename}"
-            # Dedup BEFORE the R2 upload — same content_hash for this
-            # exercise means the bytes are already in R2 (idempotent
-            # upload would no-op anyway, but skipping the network call
-            # is cheaper).
-            cur.execute(
-                "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
-                "WHERE exercise_id = ? AND content_hash = ?",
-                (exercise_id, content_hash),
-            )
-            existing = cur.fetchone()
-            if existing:
-                if not existing.get("alt_text"):
-                    existing["alt_text"] = default_alt
-                existing["url"] = resolve_image_url(existing["url"])
-                return existing
-            # Upload to R2. Failures here surface as 502 — the bytes
-            # aren't durable yet, so we must NOT insert the DB row
-            # claiming they are. Local fallback would silently degrade
-            # the storage contract; better to fail loudly so the
-            # operator notices the misconfiguration.
-            try:
-                from app.r2_storage import R2Storage
-                R2Storage().put_object(
-                    r2_filename, downloaded.bytes_, downloaded.content_type,
-                )
-            except RuntimeError as e:
-                raise HTTPException(502, f"R2 upload failed: {e}") from e
-        else:
-            content_hash = _image_hash(req.url)
-            store_url = req.url
-            cur.execute(
-                "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
-                "WHERE exercise_id = ? AND content_hash = ?",
-                (exercise_id, content_hash),
-            )
-            existing = cur.fetchone()
-            if existing:
-                if not existing.get("alt_text"):
-                    existing["alt_text"] = default_alt
-                existing["url"] = resolve_image_url(existing["url"])
-                return existing
+    # Compute content_hash + (in R2 mode) buffer the downloaded bytes.
+    # Done OUTSIDE the DB block. In legacy mode this is cheap — just
+    # hash the URL string.
+    downloaded = None
+    if config.r2_configured():
+        try:
+            downloaded = download_image(req.url)
+        except DownloadError as e:
+            raise HTTPException(422, f"Could not import image: {e}") from e
+        content_hash = downloaded.sha256
+    else:
+        content_hash = _image_hash(req.url)
 
+    # Dedup check in a brief DB block. If found, return existing without
+    # touching R2. Preserves the "second POST of the same image is free"
+    # contract that the existing dedup test asserts.
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, url, caption, sort_order, alt_text FROM exercise_images "
+            "WHERE exercise_id = ? AND content_hash = ?",
+            (exercise_id, content_hash),
+        )
+        existing = cur.fetchone()
+        if existing:
+            if not existing.get("alt_text"):
+                existing["alt_text"] = default_alt
+            existing["url"] = resolve_image_url(existing["url"])
+            return existing
+
+    # Not a dup → upload to R2 (still outside the DB block). Failures
+    # surface as 502 because the bytes aren't durable; we must NOT
+    # insert a row claiming they are.
+    if downloaded is not None:
+        try:
+            store_url = _r2_upload(downloaded)
+        except RuntimeError as e:
+            raise HTTPException(502, f"R2 upload failed: {e}") from e
+    else:
+        store_url = req.url
+
+    # Final brief DB block — insert + re-fetch for the response.
+    with get_db() as conn:
+        cur = conn.cursor()
         cur.execute(
             "INSERT INTO exercise_images (exercise_id, url, caption, sort_order, content_hash, alt_text) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -395,20 +416,68 @@ def bulk_images(
     background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Admin: paste rows mapping slug -> [urls]. Appends by default; replace=true clears existing first."""
+    """Admin: paste rows mapping slug -> [urls]. Appends by default;
+    replace=true clears existing first.
+
+    R2-aware (PR-Y1, finding S1): when the deploy has R2 configured,
+    each URL is server-side-downloaded and uploaded to the bucket,
+    same as the single-image `add_image` route. Previously this route
+    skipped that path and inserted raw upstream URLs even in R2 mode,
+    silently undermining the byte-rot fix that R2 was meant to deliver.
+    URLs that fail download/upload (SSRF-blocked, non-image, oversized,
+    R2 transport error) are skipped and counted into `failed` so the
+    admin sees per-entry success without a 4xx aborting the whole batch.
+    """
     results: list[BulkImageResult] = []
+
+    # Phase 1: brief DB scan for slug → exercise_id resolution. Closed
+    # before any network work so we don't hold Neon during downloads.
+    slug_to_ex: dict[str, int] = {}
     with get_db() as conn:
         cur = conn.cursor()
         for entry in req.entries:
             cur.execute(
-                "SELECT id, user_id FROM exercises WHERE slug = ? AND (user_id IS NULL OR user_id = ?)",
+                "SELECT id FROM exercises WHERE slug = ? AND (user_id IS NULL OR user_id = ?)",
                 (entry.slug, user_id),
             )
             row = cur.fetchone()
-            if not row:
+            if row:
+                slug_to_ex[entry.slug] = row["id"]
+
+    # Phase 2: outside the DB, resolve each URL (download + R2 upload
+    # in R2 mode, or pass-through hash in legacy mode). One failure
+    # doesn't kill the entry — the URL is dropped and counted.
+    resolved: dict[str, list[tuple[str, str]]] = {}  # slug → [(store_url, hash), ...]
+    failed: dict[str, int] = {}
+    for entry in req.entries:
+        if entry.slug not in slug_to_ex:
+            continue
+        per_entry: list[tuple[str, str]] = []
+        fail_count = 0
+        seen_in_batch: set[str] = set()
+        for url in entry.urls:
+            url = url.strip()
+            if not url or url in seen_in_batch:
+                continue
+            seen_in_batch.add(url)
+            try:
+                store_url, h = _resolve_image_storage(url)
+            except (DownloadError, RuntimeError) as e:
+                log.warning("bulk_images: skipping %s for %s: %s", url, entry.slug, e)
+                fail_count += 1
+                continue
+            per_entry.append((store_url, h))
+        resolved[entry.slug] = per_entry
+        failed[entry.slug] = fail_count
+
+    # Phase 3: short DB block for the actual writes.
+    with get_db() as conn:
+        cur = conn.cursor()
+        for entry in req.entries:
+            if entry.slug not in slug_to_ex:
                 results.append(BulkImageResult(slug=entry.slug, status="not_found"))
                 continue
-            ex_id = row["id"]
+            ex_id = slug_to_ex[entry.slug]
             replaced = 0
             if entry.replace:
                 cur.execute("SELECT COUNT(*) AS c FROM exercise_images WHERE exercise_id = ?", (ex_id,))
@@ -419,8 +488,8 @@ def bulk_images(
                 (ex_id,),
             )
             start = cur.fetchone()["m"] + 1
-            # Dedup within the batch AND against existing rows for this
-            # exercise. Same hash twice = same image; don't double-insert.
+            # Dedup against existing rows for this exercise (within-batch
+            # dedup already handled by seen_in_batch above).
             cur.execute(
                 "SELECT content_hash FROM exercise_images "
                 "WHERE exercise_id = ? AND content_hash IS NOT NULL",
@@ -428,22 +497,20 @@ def bulk_images(
             )
             seen_hashes = {r["content_hash"] for r in cur.fetchall()}
             added = 0
-            for i, url in enumerate(entry.urls):
-                url = url.strip()
-                if not url:
-                    continue
-                h = _image_hash(url)
+            for i, (store_url, h) in enumerate(resolved.get(entry.slug, [])):
                 if h in seen_hashes:
                     continue
                 seen_hashes.add(h)
                 cur.execute(
                     "INSERT INTO exercise_images (exercise_id, url, sort_order, content_hash) "
                     "VALUES (?, ?, ?, ?)",
-                    (ex_id, url, start + i, h),
+                    (ex_id, store_url, start + i, h),
                 )
                 added += 1
-            results.append(BulkImageResult(slug=entry.slug, status="ok",
-                                            added=added, replaced=replaced))
+            results.append(BulkImageResult(
+                slug=entry.slug, status="ok",
+                added=added, replaced=replaced, failed=failed.get(entry.slug, 0),
+            ))
     if any(r.status == "ok" and (r.added or r.replaced) for r in results):
         background_tasks.add_task(dispatch_library_updated)
     return results
