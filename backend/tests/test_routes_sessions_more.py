@@ -52,6 +52,34 @@ def test_update_session_partial_fields(auth_client, seeded_globals):
     assert r.json()["ended_at"] is None  # untouched
 
 
+def test_update_session_ended_at_stored_in_started_at_shape(auth_client, seeded_globals):
+    # Regression for the silent-killer audit (PR-Y2). `ended_at` was
+    # `.isoformat()` (T + tz tail) while `started_at` defaults to
+    # SQLite's `datetime('now')` ('YYYY-MM-DD HH:MM:SS', naive). The
+    # mismatch breaks TEXT lex compares on SQLite — same trap as PR #190.
+    # PG stores TIMESTAMPTZ as a real datetime so the hazard doesn't
+    # apply there; the assertion is SQLite-only. Queries the DB directly
+    # because Pydantic re-serializes datetimes to T+Z on the way out.
+    from app.database import get_db, DB_TYPE
+    c, tok, _ = auth_client
+    _, sid = _start(c, tok, seeded_globals["bridge"])
+    r = c.put(f"/sessions/{sid}", headers=_h(tok),
+              json={"ended_at": "2026-05-25T18:30:00+00:00"})
+    assert r.status_code == 200
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT started_at, ended_at FROM workout_sessions WHERE id = ?", (sid,))
+        row = cur.fetchone()
+    if DB_TYPE != "sqlite":
+        return  # PG stores real datetime; lex-compare hazard doesn't apply.
+    started_at, ended_at = str(row["started_at"]), str(row["ended_at"])
+    # Both should follow 'YYYY-MM-DD HH:MM:SS' — no T separator, no tz tail.
+    assert "T" not in ended_at and "+" not in ended_at, \
+        f"ended_at carries T/tz: {ended_at!r}"
+    assert "T" not in started_at and "+" not in started_at, \
+        f"started_at unexpectedly carries T/tz: {started_at!r}"
+
+
 def test_delete_session_cascades_sets(auth_client, seeded_globals):
     c, tok, _ = auth_client
     _, sid = _start(c, tok, seeded_globals["bridge"])
