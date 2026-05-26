@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from app.database import get_db
 from app.auth import get_current_user_id
-from app.concurrency import parse_ts, is_conflict, raise_conflict
+from app.concurrency import parse_ts, is_conflict, raise_conflict, utc_now_text
 from app.reminders import _operator_tz
 from app.models import (
     TaskCreate, TaskUpdate, TaskResponse, TaskListResponse,
@@ -309,7 +309,7 @@ def update_task(task_id: int, req: TaskUpdate, user_id: int = Depends(get_curren
             current = _get_task_by_id(cur, task_id)
             raise_conflict(current, "task")
 
-        _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+        _now = utc_now_text()
         updates, params = ["updated_at = ?"], [_now]
         for field in ["title", "folder_id", "subfolder_id", "parent_id", "note", "priority", "status",
                       "due_time", "repeat_type", "repeat_from", "sort_order"]:
@@ -362,7 +362,6 @@ REPEAT_DELTAS = {
 
 @router.post("/{task_id}/complete", response_model=TaskResponse)
 def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
-    now = datetime.now(timezone.utc)
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
@@ -386,14 +385,10 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
                 new_due = base_date + delta
                 cur.execute(
                     "UPDATE tasks SET due_date = ?, updated_at = ? WHERE id = ?",
-                    (str(new_due), datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds"), task_id),
+                    (str(new_due), utc_now_text(), task_id),
                 )
         else:
-            # Strip tz suffix so SQLite stores 'YYYY-MM-DD HH:MM:SS'
-            # (matches PR #190 — `isoformat(sep=" ", timespec="seconds")`
-            # on a tz-aware datetime STILL appends '+00:00' to the string).
-            # PG stores a real TIMESTAMPTZ either way; harmless there.
-            ts = now.replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
+            ts = utc_now_text()
             cur.execute(
                 "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?",
                 (True, ts, ts, task_id),
@@ -412,7 +407,6 @@ def uncomplete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
     don't apply here — completing a recurring task advances `due_date`
     instead of setting `completed=True`, so a recurring row never lands
     in the Completed view in the first place."""
-    now = datetime.now(timezone.utc)
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
@@ -425,7 +419,7 @@ def uncomplete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
             return _get_task_by_id(cur, task_id)
         cur.execute(
             "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-            (False, None, now.isoformat(sep=" ", timespec="seconds"), task_id),
+            (False, None, utc_now_text(), task_id),
         )
         return _get_task_by_id(cur, task_id)
 
@@ -442,7 +436,7 @@ def reorder_tasks(req: ReorderRequest, user_id: int = Depends(get_current_user_i
 
 @router.post("/batch")
 def batch_update(req: BatchUpdate, user_id: int = Depends(get_current_user_id)):
-    _now = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+    _now = utc_now_text()
     updates, params = ["updated_at = ?"], [_now]
     if req.folder_id is not None:
         updates.append("folder_id = ?")
