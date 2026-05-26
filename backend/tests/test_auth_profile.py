@@ -20,7 +20,10 @@ def test_change_password_happy_path_allows_reauth(client):
         headers=_auth_header(token),
     )
     assert r2.status_code == 200
-    assert r2.json() == {"ok": True}
+    # Shape changed in PR-Y14: response now carries a fresh JWT (with the
+    # bumped token_version) so the current session keeps working after
+    # the password rotate.
+    assert "access_token" in r2.json()
 
     # Old password is now invalid.
     r3 = client.post("/auth/login", json={"email": "u@x.com", "password": "oldpw1234"})

@@ -7,8 +7,10 @@
  *
  * Each section lives in its own card. Errors are rendered inline (no
  * Alert modals) so the user's place in the form survives a validation
- * bounce. No session invalidation on password change — single-user
- * self-hosted.
+ * bounce. Password change bumps the server-side token_version (PR-Y14)
+ * to invalidate other devices' sessions; the response carries a fresh
+ * token for THIS device which we swap into SecureStore so the current
+ * session keeps working.
  */
 import { useState } from 'react';
 import {
@@ -21,7 +23,7 @@ import * as api from '@/lib/api';
 import { useAuthStore } from '@/lib/stores';
 
 export default function AccountSettingsScreen() {
-  const { user, setDisplayName: storeSetDisplayName } = useAuthStore();
+  const { user, setDisplayName: storeSetDisplayName, setToken } = useAuthStore();
 
   // --- Change password --------------------------------------------------
   const [curPw, setCurPw] = useState('');
@@ -46,7 +48,11 @@ export default function AccountSettingsScreen() {
     }
     setPwBusy(true);
     try {
-      await api.changePassword(curPw, newPw);
+      const { access_token } = await api.changePassword(curPw, newPw);
+      // The server bumped token_version, so the JWT we sent on this
+      // request is now invalid. Swap the fresh token into storage
+      // before any subsequent request fires a 401.
+      await setToken(access_token);
       setCurPw(''); setNewPw(''); setConfirmPw('');
       setPwStatus({ kind: 'ok', text: 'Password updated.' });
     } catch (e: any) {

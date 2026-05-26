@@ -58,6 +58,9 @@ interface AuthState {
   logout: () => Promise<void>;
   loadToken: () => Promise<void>;
   setDisplayName: (name: string | null) => void;
+  /** Persist a fresh token from a flow that issues one mid-session
+   *  (e.g. change-password). Doesn't touch the cached user. */
+  setToken: (access_token: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -119,6 +122,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   setDisplayName: (name: string | null) => set((s) => ({
     user: s.user ? { ...s.user, display_name: name } : s.user,
   })),
+
+  setToken: async (access_token: string) => {
+    await tokenStorage.setItemAsync('token', access_token);
+    set({ token: access_token });
+  },
 }));
 
 // --- Folder Store ---

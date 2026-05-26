@@ -54,9 +54,13 @@ def needs_rehash(stored: str) -> bool:
     return _is_legacy_sha256(stored)
 
 
-def create_token(user_id: int) -> str:
+def create_token(user_id: int, token_version: int = 0) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(
+        {"sub": str(user_id), "exp": expire, "ver": token_version},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
+    )
 
 
 def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> int:
@@ -64,5 +68,18 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(secu
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    # Tokens issued before PR-Y14 lack the `ver` claim — treat as 0 so
+    # existing 30-day sessions keep validating until natural expiry or
+    # until the user explicitly bumps their version via change-password
+    # or sign-out-everywhere.
+    claimed_ver = payload.get("ver", 0)
+    from app.database import get_db
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT token_version FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+    if row is None or row["token_version"] != claimed_ver:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return user_id
