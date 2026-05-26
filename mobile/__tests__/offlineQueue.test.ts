@@ -118,5 +118,48 @@ describe('offlineQueue', () => {
       });
       expect(result).toEqual({ sent: 0, remaining: 0, stoppedOnNetworkError: false });
     });
+
+    it('with only_session_id, skips foreign-session entries (preserves them)', async () => {
+      // PR-Y10 regression. Before: the session screen filtered foreign
+      // entries inside its sendOne lambda by `return`-ing without
+      // throwing — drainQueue read that as success and shifted them
+      // off, permanently losing the other session's queued sets.
+      // Now drainQueue skips foreign entries in-place.
+      const kv = makeKV();
+      await enqueueSet(kv, 42, { exercise_id: 1, reps: 10 });   // foreign
+      await enqueueSet(kv, 99, { exercise_id: 2, reps: 8 });    // current
+      await enqueueSet(kv, 42, { exercise_id: 3, reps: 12 });   // foreign
+      await enqueueSet(kv, 99, { exercise_id: 4, reps: 5 });    // current
+      const sent: QueuedSet[] = [];
+      const result = await drainQueue(kv, async (q) => { sent.push(q); }, 99);
+      // Only the two session-99 entries got sent.
+      expect(result.sent).toBe(2);
+      expect(sent.map((s) => s.payload.exercise_id)).toEqual([2, 4]);
+      // Foreign-session entries are PRESERVED for the other session
+      // screen to drain when it opens.
+      const remaining = await listPending(kv);
+      expect(remaining.map((r) => ({ s: r.session_id, ex: r.payload.exercise_id }))).toEqual([
+        { s: 42, ex: 1 },
+        { s: 42, ex: 3 },
+      ]);
+      expect(result.remaining).toBe(2);
+    });
+
+    it('with only_session_id, still drops server-rejected current-session entries', async () => {
+      // Filter doesn't change the 4xx-drop semantics — a server-rejected
+      // current-session entry should still be dropped to avoid looping
+      // on a permanently-bad payload.
+      const kv = makeKV();
+      await enqueueSet(kv, 99, { exercise_id: 1 });   // will 400
+      await enqueueSet(kv, 99, { exercise_id: 2 });   // will succeed
+      let attempt = 0;
+      const result = await drainQueue(
+        kv,
+        async () => { attempt++; if (attempt === 1) throw serverError(400); },
+        99,
+      );
+      expect(result.sent).toBe(1);
+      expect(result.remaining).toBe(0);
+    });
   });
 });

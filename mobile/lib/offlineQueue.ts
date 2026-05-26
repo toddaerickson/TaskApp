@@ -102,20 +102,40 @@ export interface DrainResult {
  * calls that are all going to fail. A 4xx / 5xx response error, on the
  * other hand, means the server was reachable but rejected the payload;
  * drop that entry (it would never succeed on retry) and continue.
+ *
+ * When `only_session_id` is given, entries belonging to other sessions
+ * are SKIPPED (left in place untouched, neither sent nor dropped). The
+ * session screen only knows how to log sets against its own session id;
+ * if it called `api.logSet(currentSession.id, foreignEntry.payload)`
+ * the set would land in the wrong session — and previously the screen's
+ * own filter (`if (q.session_id !== session.id) return`) silently
+ * returned, which drainQueue read as "success, drop." Foreign-session
+ * entries were permanently lost. PR-Y10 moved the filter into the
+ * helper so the drop-on-success path can never be reached for them.
  */
 export async function drainQueue(
   store: KV,
   sendOne: (q: QueuedSet) => Promise<void>,
+  only_session_id?: number,
 ): Promise<DrainResult> {
   const queue = await loadQueue(store);
   const startLen = queue.length;
   let stoppedOnNetworkError = false;
   let droppedOnServerReject = 0;
-  while (queue.length > 0) {
-    const entry = queue[0];
+  // Walk by index instead of always-head so we can skip non-matching
+  // entries without shifting them off. When the filter is unset, this
+  // collapses to the old always-process-head behavior because every
+  // entry matches.
+  let i = 0;
+  while (i < queue.length) {
+    const entry = queue[i];
+    if (only_session_id !== undefined && entry.session_id !== only_session_id) {
+      i++;
+      continue;
+    }
     try {
       await sendOne(entry);
-      queue.shift(); // accepted — drop from the head
+      queue.splice(i, 1); // accepted — drop in-place, don't advance i
     } catch (err) {
       const hasResponse = Boolean((err as { response?: unknown })?.response);
       if (!hasResponse) {
@@ -123,7 +143,7 @@ export async function drainQueue(
         break;
       }
       // Server rejected — drop so we don't loop on a permanently bad entry.
-      queue.shift();
+      queue.splice(i, 1);
       droppedOnServerReject++;
     }
   }
