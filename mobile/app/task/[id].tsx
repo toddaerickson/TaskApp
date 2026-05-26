@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTaskStore, useFolderStore, useTagStore, Task, Tag, Reminder } from '@/lib/stores';
 import * as api from '@/lib/api';
 import { showError } from '@/lib/alerts';
+import { describeApiError } from '@/lib/apiErrors';
 import Dropdown from '@/components/Dropdown';
 import DateField from '@/components/DateField';
 import TaskReminderEditor from '@/components/TaskReminderEditor';
@@ -97,6 +98,17 @@ export default function TaskDetailScreen() {
     loadTask();
   }, [id]);
 
+  // PR-Y13: clear both auto-save timers on unmount. Without this, a
+  // user who types a note then immediately backs out of the screen
+  // gets a setState-on-unmounted warning from the `setSaved(false)`
+  // call, and the deferred `autoSave({ note })` still fires after
+  // unmount. Mostly harmless server-side (server tolerates the late
+  // PUT), but leaves the note edit un-cancellable by navigation.
+  useEffect(() => () => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
+  }, []);
+
   const loadTask = async () => {
     try {
       const t = await api.getTask(taskId);
@@ -137,12 +149,19 @@ export default function TaskDetailScreen() {
     savedTimerRef.current = setTimeout(() => setSaved(false), 1200);
   }, []);
 
+  // PR-Y13: was `catch { /* silent */ }` which swallowed 409s, 422s,
+  // and 5xx alike. User typed → fields updated locally → closed the
+  // screen → change was gone, no warning. Particularly bad for a 409
+  // after editing the same task in two tabs. showError routes through
+  // window.alert on web so the user actually sees the failure.
   const autoSave = useCallback(async (updates: Record<string, any>) => {
     try {
       await api.updateTask(taskId, updates);
       reloadTasks();
       flashSaved();
-    } catch { /* silent */ }
+    } catch (e) {
+      showError('Not saved', describeApiError(e, 'Could not save your change.'));
+    }
   }, [taskId, flashSaved, reloadTasks]);
 
   // Field change helpers — auto-save immediately.

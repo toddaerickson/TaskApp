@@ -187,8 +187,17 @@ export default function ActiveSessionScreen() {
     }
   };
 
-  const handleLogSet = async (re: RoutineExercise, payload: Partial<SessionSet>) => {
-    if (!session || logInFlight.current) return;
+  // PR-Y13: returns `true` when the set was accepted (logged or
+  // queued for offline retry), `false` when the server rejected it.
+  // The block-level handler uses this to decide whether to advance /
+  // start the rest timer — previously the child read a stale `setsRef`
+  // length AFTER the await and got off-by-one on the last set of an
+  // exercise.
+  const handleLogSet = async (
+    re: RoutineExercise,
+    payload: Partial<SessionSet>,
+  ): Promise<boolean> => {
+    if (!session || logInFlight.current) return false;
     logInFlight.current = true;
     const body = {
       exercise_id: re.exercise_id,
@@ -212,18 +221,22 @@ export default function ActiveSessionScreen() {
       await reload();
       // We're back online — flush anything that queued while offline.
       if (pendingSync > 0) drain();
+      return true;
     } catch (e) {
       const hasResponse = Boolean((e as { response?: unknown })?.response);
       if (!hasResponse) {
         // Network error: stash the set so it's not lost. The user gets
         // a subtle "N pending sync" chip instead of a failure alert.
+        // Queued counts as "accepted" for advance/rest purposes — the
+        // user expects the workout to flow forward as if the set landed.
         await enqueueSet(kv, session.id, body);
         setPendingSync(await pendingCount(kv, session.id));
         haptics.warning();
-      } else {
-        haptics.error();
-        showError('Set not saved', describeApiError(e, 'Could not log that set.'));
+        return true;
       }
+      haptics.error();
+      showError('Set not saved', describeApiError(e, 'Could not log that set.'));
+      return false;
     } finally {
       logInFlight.current = false;
     }
@@ -596,7 +609,7 @@ function ExerciseBlock({
    *  hidden and pain_score is never collected at log time. */
   tracksSymptoms: boolean;
   onActivate: () => void;
-  onLog: (payload: Partial<SessionSet>) => Promise<void>;
+  onLog: (payload: Partial<SessionSet>) => Promise<boolean>;
   onAdvance: () => void;
   onRestRequest: (seconds: number) => void;
   restActive: boolean;
@@ -651,10 +664,14 @@ function ExerciseBlock({
   const [holdRemaining, setHoldRemaining] = useState(0);
   const [holdActive, setHoldActive] = useState(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Keep sets in a ref so the timer's onDone closure reads fresh values,
-  // not the length captured when the timer started.
-  const setsRef = useRef(sets);
-  useEffect(() => { setsRef.current = sets; }, [sets]);
+  // PR-Y13: the previous setsRef+effect pattern intended to read fresh
+  // length after onLog returned, but the effect can't run until React
+  // commits the parent's reload() — which doesn't happen between the
+  // `await onLog(...)` resolution and the next line of the same async
+  // function. Both `sets` (the prop) and `setsRef.current` were stale
+  // by one set on the boundary check, breaking auto-advance on the
+  // final set of an exercise. Now we capture the expected post-log
+  // length before the await and gate on the boolean onLog return.
 
   const stopHold = () => {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
@@ -692,7 +709,11 @@ function ExerciseBlock({
   };
 
   const handleQuickLog = async () => {
-    await onLog({
+    // Capture pre-log length before any awaits so React's render timing
+    // can't make us off-by-one. If the log was accepted (or queued for
+    // offline retry), this is the new effective set count.
+    const nextLen = sets.length + 1;
+    const accepted = await onLog({
       reps: !isDuration && reps ? Number(reps) : undefined,
       duration_sec: isDuration && duration ? Number(duration) : undefined,
       weight: weight ? Number(weight) : undefined,
@@ -701,6 +722,7 @@ function ExerciseBlock({
       side: side ?? undefined,
       is_warmup: isWarmup || undefined,
     });
+    if (!accepted) return;
     // Clear the once-per-set fields so the next set starts blank. Reps /
     // weight / duration are persistent across sets (they tend to repeat);
     // RPE + pain + warmup genuinely change set-to-set. Side is kept
@@ -709,9 +731,7 @@ function ExerciseBlock({
     setRpe(null);
     setPain('');
     setIsWarmup(false);
-    // Read fresh length AFTER onLog's reload so we don't miss sets logged
-    // concurrently elsewhere in the session.
-    if (setsRef.current.length >= targetSets) {
+    if (nextLen >= targetSets) {
       onAdvance();
     } else if (re.rest_sec && re.rest_sec > 0) {
       onRestRequest(re.rest_sec);
@@ -720,9 +740,14 @@ function ExerciseBlock({
 
   const startDurationTimer = () => {
     const secs = Number(duration) || re.target_duration_sec || 30;
+    // Capture pre-log length at timer-start time. In a single-user app
+    // nothing else mutates `sets` during the hold, so this is the
+    // expected post-log length once the timer rings and we await onLog.
+    const nextLen = sets.length + 1;
     startHoldTimer(secs, async () => {
-      await onLog({ duration_sec: secs });
-      if (setsRef.current.length >= targetSets) {
+      const accepted = await onLog({ duration_sec: secs });
+      if (!accepted) return;
+      if (nextLen >= targetSets) {
         onAdvance();
       } else if (re.rest_sec && re.rest_sec > 0) {
         onRestRequest(re.rest_sec);
