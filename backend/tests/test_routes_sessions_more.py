@@ -57,14 +57,24 @@ def test_update_session_ended_at_stored_in_started_at_shape(auth_client, seeded_
     # `.isoformat()` (T + tz tail) while `started_at` defaults to
     # SQLite's `datetime('now')` ('YYYY-MM-DD HH:MM:SS', naive). Mixed
     # shapes break TEXT lex compares — same trap as PR #190.
-    import re
+    # Queries the DB directly because Pydantic re-serializes datetimes to
+    # T+Z on the way out, masking the stored shape in the JSON response.
+    from app.database import get_db
     c, tok, _ = auth_client
     _, sid = _start(c, tok, seeded_globals["bridge"])
     r = c.put(f"/sessions/{sid}", headers=_h(tok),
               json={"ended_at": "2026-05-25T18:30:00+00:00"})
     assert r.status_code == 200
-    pat = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
-    assert pat.match(r.json()["ended_at"]), f"ended_at not 'YYYY-MM-DD HH:MM:SS': {r.json()['ended_at']!r}"
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT started_at, ended_at FROM workout_sessions WHERE id = ?", (sid,))
+        row = cur.fetchone()
+    started_at, ended_at = str(row["started_at"]), str(row["ended_at"])
+    # Both should follow 'YYYY-MM-DD HH:MM:SS' — no T separator, no tz tail.
+    assert "T" not in ended_at and "+" not in ended_at, \
+        f"ended_at carries T/tz: {ended_at!r}"
+    assert "T" not in started_at and "+" not in started_at, \
+        f"started_at unexpectedly carries T/tz: {started_at!r}"
 
 
 def test_delete_session_cascades_sets(auth_client, seeded_globals):

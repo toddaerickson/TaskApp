@@ -78,13 +78,22 @@ def test_complete_task_completed_at_format_matches_updated_at(auth_client):
     # used `sep=" ", timespec="seconds"`. Mixed TEXT shapes break a future
     # "completed today" lex compare against `date('now')` — same trap as
     # PR #190's started_at.
-    import re
+    # Queries the DB directly because Pydantic re-serializes datetimes
+    # to T+Z on the way out, masking the stored shape in the JSON response.
+    from app.database import get_db
     c, tok, _ = auth_client
     t = c.post("/tasks", headers=_h(tok), json={"title": "Format check"}).json()
     c.post(f"/tasks/{t['id']}/complete", headers=_h(tok))
-    body = c.get(f"/tasks/{t['id']}", headers=_h(tok)).json()
-    pat = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
-    assert pat.match(body["completed_at"]), f"completed_at not 'YYYY-MM-DD HH:MM:SS': {body['completed_at']!r}"
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT completed_at, updated_at FROM tasks WHERE id = ?", (t["id"],))
+        row = cur.fetchone()
+    completed_at, updated_at = str(row["completed_at"]), str(row["updated_at"])
+    assert completed_at == updated_at, \
+        f"completed_at and updated_at should match second-for-second: {completed_at!r} vs {updated_at!r}"
+    # Cheap shape check — no microseconds, no T, no tz tail in the stored TEXT.
+    assert "T" not in completed_at and "+" not in completed_at and "." not in completed_at, \
+        f"completed_at carries T/tz/microseconds: {completed_at!r}"
 
 
 def test_uncomplete_task_clears_flag_and_timestamp(auth_client):
