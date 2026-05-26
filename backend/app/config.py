@@ -57,11 +57,10 @@ IMAGE_STORAGE_DIR = Path(
     os.environ.get("IMAGE_STORAGE_DIR", str(_DEFAULT_IMAGE_DIR))
 )
 
-# Cloudflare R2 credentials. Read at import time but NOT used yet — the
-# `R2Storage` wrapper in app/r2_storage.py is wired but no route calls it.
-# PR-A2b adds the upload pipeline and PR-A2c adds the backfill. Setting
-# these in advance is harmless: an unset value just means R2Storage
-# raises `RuntimeError("R2 not configured")` if instantiated.
+# Cloudflare R2 credentials. Live since PR-A2b (#153): when all five
+# vars are set, `exercise_routes.add_image` + `bulk_images` upload
+# bytes to R2 instead of storing raw upstream URLs. Unset = legacy
+# URL-passthrough mode (current dev + early-prod fallback).
 R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
 R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
