@@ -397,9 +397,10 @@ def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
                     (str(new_due), datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds"), task_id),
                 )
         else:
+            ts = now.isoformat(sep=" ", timespec="seconds")
             cur.execute(
                 "UPDATE tasks SET completed = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-                (True, now.isoformat(), now.isoformat(sep=" ", timespec="seconds"), task_id),
+                (True, ts, ts, task_id),
             )
 
         task = _get_task_by_id(cur, task_id)

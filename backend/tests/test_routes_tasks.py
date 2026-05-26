@@ -72,6 +72,21 @@ def test_complete_task_sets_flag_and_timestamp(auth_client):
     assert body["completed_at"] is not None
 
 
+def test_complete_task_completed_at_format_matches_updated_at(auth_client):
+    # Regression for the silent-killer audit (PR-Y2). `completed_at` was
+    # `now.isoformat()` (microseconds + T + tz tail) while `updated_at`
+    # used `sep=" ", timespec="seconds"`. Mixed TEXT shapes break a future
+    # "completed today" lex compare against `date('now')` — same trap as
+    # PR #190's started_at.
+    import re
+    c, tok, _ = auth_client
+    t = c.post("/tasks", headers=_h(tok), json={"title": "Format check"}).json()
+    c.post(f"/tasks/{t['id']}/complete", headers=_h(tok))
+    body = c.get(f"/tasks/{t['id']}", headers=_h(tok)).json()
+    pat = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+    assert pat.match(body["completed_at"]), f"completed_at not 'YYYY-MM-DD HH:MM:SS': {body['completed_at']!r}"
+
+
 def test_uncomplete_task_clears_flag_and_timestamp(auth_client):
     """Symmetric to /complete: the Tasks tab's Completed filter view
     needs an un-check action so the user can move a row back to the

@@ -52,6 +52,21 @@ def test_update_session_partial_fields(auth_client, seeded_globals):
     assert r.json()["ended_at"] is None  # untouched
 
 
+def test_update_session_ended_at_stored_in_started_at_shape(auth_client, seeded_globals):
+    # Regression for the silent-killer audit (PR-Y2). `ended_at` was
+    # `.isoformat()` (T + tz tail) while `started_at` defaults to
+    # SQLite's `datetime('now')` ('YYYY-MM-DD HH:MM:SS', naive). Mixed
+    # shapes break TEXT lex compares — same trap as PR #190.
+    import re
+    c, tok, _ = auth_client
+    _, sid = _start(c, tok, seeded_globals["bridge"])
+    r = c.put(f"/sessions/{sid}", headers=_h(tok),
+              json={"ended_at": "2026-05-25T18:30:00+00:00"})
+    assert r.status_code == 200
+    pat = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+    assert pat.match(r.json()["ended_at"]), f"ended_at not 'YYYY-MM-DD HH:MM:SS': {r.json()['ended_at']!r}"
+
+
 def test_delete_session_cascades_sets(auth_client, seeded_globals):
     c, tok, _ = auth_client
     _, sid = _start(c, tok, seeded_globals["bridge"])

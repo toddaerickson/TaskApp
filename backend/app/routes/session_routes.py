@@ -173,7 +173,10 @@ def update_session(session_id: int, req: SessionUpdate, user_id: int = Depends(g
             if k in _SESSION_UPDATE_COLUMNS
         }
         if "ended_at" in fields and fields["ended_at"] is not None:
-            fields["ended_at"] = fields["ended_at"].isoformat()
+            # Strip tz suffix + use ' '-separator so the stored shape matches
+            # `started_at` (SQLite's `datetime('now')` default). Mixed shapes
+            # break TEXT lex comparisons on SQLite — see PR #190.
+            fields["ended_at"] = fields["ended_at"].replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE workout_sessions SET {sets} WHERE id = ?",
