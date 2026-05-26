@@ -168,10 +168,16 @@ export default function ActiveSessionScreen() {
     if (!session || draining) return;
     setDraining(true);
     try {
-      const result = await drainQueue(kv, async (q) => {
-        if (q.session_id !== session.id) return; // belongs to a different session
-        await api.logSet(session.id, q.payload);
-      });
+      // PR-Y10: pass session.id as the third arg so foreign-session
+      // entries are SKIPPED in-place rather than misrouted through
+      // `api.logSet(session.id, ...)` (which would log them against
+      // the wrong session) or silently lost via the old in-lambda
+      // early-return (drainQueue read that as "accepted, drop").
+      const result = await drainQueue(
+        kv,
+        async (q) => { await api.logSet(session.id, q.payload); },
+        session.id,
+      );
       if (result.sent > 0) {
         await reload();
       }
