@@ -44,22 +44,16 @@ def test_validation_error_returns_validation_code(client):
     assert isinstance(body["detail"], list)
 
 
-def test_rate_limited_returns_rate_limited_code(client):
-    from app.rate_limit import limiter
-    limiter.enabled = True
-    try:
-        client.post("/auth/register", json={"email": "rl2@x.com", "password": "pw12345!"})
-        statuses = []
-        bodies = []
-        for _ in range(11):
-            r = client.post("/auth/login", json={"email": "rl2@x.com", "password": "wrong"})
-            statuses.append(r.status_code)
-            bodies.append(r.json())
-        assert statuses[10] == 429
-        assert bodies[10]["code"] == "rate_limited"
-    finally:
-        limiter.enabled = False
-        limiter.reset()
+def test_rate_limited_returns_rate_limited_code(client, rate_limit_on):
+    client.post("/auth/register", json={"email": "rl2@x.com", "password": "pw12345!"})
+    statuses = []
+    bodies = []
+    for _ in range(11):
+        r = client.post("/auth/login", json={"email": "rl2@x.com", "password": "wrong"})
+        statuses.append(r.status_code)
+        bodies.append(r.json())
+    assert statuses[10] == 429
+    assert bodies[10]["code"] == "rate_limited"
 
 
 def test_route_can_override_code_via_dict_detail(client):

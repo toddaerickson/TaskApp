@@ -115,6 +115,23 @@ def client(_db_url):
 
 
 @pytest.fixture
+def rate_limit_on():
+    """Re-enable the slowapi limiter for one test, with auto-teardown.
+
+    The `client` fixture disables the process-wide limiter so the per-IP
+    cap doesn't leak across the suite. Tests that need to assert the cap
+    actually fires take this fixture and the limiter is flipped back on
+    for their duration, then reset + disabled in teardown."""
+    from app.rate_limit import limiter
+    limiter.enabled = True
+    try:
+        yield limiter
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+
+@pytest.fixture
 def auth_client(client):
     """A client preauthenticated as a fresh user; returns (client, token, user_id)."""
     r = client.post("/auth/register", json={"email": "tester@x.com", "password": "pw12345!"})

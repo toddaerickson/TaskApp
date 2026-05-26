@@ -8,11 +8,12 @@ arbitrary IPs to that header, which would defeat the limit. In tests the
 conftest disables the limiter entirely; a handful of tests re-enable it
 to assert the cap fires.
 """
+from starlette.requests import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 
-def _client_ip_key(request) -> str:
+def _client_ip_key(request: Request) -> str:
     fly_ip = request.headers.get("fly-client-ip")
     if fly_ip:
         return fly_ip
