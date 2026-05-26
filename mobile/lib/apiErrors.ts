@@ -22,6 +22,10 @@ const CODE_MESSAGES: Record<string, string> = {
   not_found: "That item couldn't be found. It may have been removed.",
   conflict: "This action conflicts with a recent change. Refresh and try again.",
   internal_error: "Something went wrong on our end. Please try again.",
+  // PR-Y9: backend rejects new-set inserts after `ended_at` is set so
+  // the suggestion algorithm's stats stay stable. Surfaces if the user
+  // hits "Log set" on a session that another device already finished.
+  session_ended: "This session is finished. Start a new session to log more sets.",
 };
 
 /**
