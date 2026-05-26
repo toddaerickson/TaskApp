@@ -53,6 +53,13 @@ export default function RoutineDetailScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<api.RoutineSuggestion[]>([]);
 
+  // PR-Y13: split the reload into routine-only vs everything. Inline
+  // dose edits and exercise reorders bump `updated_at` on the routine
+  // row but don't change suggestions (those move when a session
+  // completes). The screen previously fired BOTH getRoutine and
+  // getRoutineSuggestions on every onSaved callback; a screen visit
+  // with three small edits triggered six round trips. Now inline
+  // edits use `reload`; focus + return-from-session use `reloadAll`.
   const reload = useCallback(() => {
     if (!routineId) return;
     const id = Number(routineId);
@@ -63,13 +70,18 @@ export default function RoutineDetailScreen() {
         console.warn('[routine] getRoutine failed:', e);
         setLoadError(describeApiErrorDetailed(e, 'Could not load this routine.'));
       });
+  }, [routineId]);
+  const reloadAll = useCallback(() => {
+    reload();
+    if (!routineId) return;
+    const id = Number(routineId);
     // Suggestions are best-effort — a failure here is not a screen-level
     // error, it just means the "Next: …" hint row doesn't render.
     api.getRoutineSuggestions(id).then(setSuggestions).catch(() => setSuggestions([]));
-  }, [routineId]);
-  // Reload on focus so returning from a finished session picks up the new
-  // suggestion immediately, not the pre-workout one.
-  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+  }, [reload, routineId]);
+  // Refresh-all on focus so returning from a finished session picks up
+  // the new suggestion immediately, not the pre-workout one.
+  useFocusEffect(useCallback(() => { reloadAll(); }, [reloadAll]));
 
   const moveExercise = async (idx: number, dir: -1 | 1) => {
     if (!routine) return;

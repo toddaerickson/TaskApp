@@ -192,7 +192,13 @@ export function DragHandle({
     <GestureDetector gesture={ctx.gesture}>
       <View
         style={[{ paddingHorizontal: 8, paddingVertical: 6 }, style]}
-        accessibilityRole="button"
+        // PR-Y13: was `accessibilityRole="button"`, which made VoiceOver
+        // announce "double-tap to activate" — but tapping does nothing,
+        // the real interaction is long-press-then-drag. Dropped the role
+        // entirely so the label + hint describe what the handle does
+        // without claiming an action that isn't there. The WCAG non-drag
+        // alternative is the sibling Move-to chevron / sheet (per the
+        // PR-D1 plan review).
         accessibilityLabel={accessibilityLabel}
         accessibilityHint="Long-press, then drag to a folder to move."
         // RN-Web exposes hitSlop on Pressable, not View; the wrapping
