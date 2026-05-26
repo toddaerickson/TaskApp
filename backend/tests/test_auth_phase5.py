@@ -79,3 +79,78 @@ def test_login_rate_limited(client):
     finally:
         limiter.enabled = False
         limiter.reset()
+
+
+def test_register_rate_limited(client):
+    from app.rate_limit import limiter
+    limiter.enabled = True
+    try:
+        statuses = []
+        for i in range(6):
+            r = client.post(
+                "/auth/register",
+                json={"email": f"reg{i}@x.com", "password": "pw12345!"},
+            )
+            statuses.append(r.status_code)
+
+        assert statuses[:5] == [200] * 5, statuses
+        assert statuses[5] == 429, statuses
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+
+def test_change_password_rate_limited(client):
+    from app.rate_limit import limiter
+    # Register + login while the limiter is still off so setup doesn't
+    # eat into the change-password budget.
+    client.post("/auth/register", json={"email": "cp@x.com", "password": "pw12345!"})
+    tok = client.post(
+        "/auth/login", json={"email": "cp@x.com", "password": "pw12345!"}
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}"}
+
+    limiter.enabled = True
+    try:
+        # 5 wrong-current-password attempts return 401; the 6th is throttled.
+        statuses = []
+        for _ in range(6):
+            r = client.post(
+                "/auth/change-password",
+                json={"current_password": "wrong", "new_password": "pw_new99!"},
+                headers=headers,
+            )
+            statuses.append(r.status_code)
+
+        assert statuses[:5] == [401] * 5, statuses
+        assert statuses[5] == 429, statuses
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+
+def test_xff_header_does_not_bypass_limiter(client):
+    """Spoofing X-Forwarded-For must not give an attacker fresh buckets.
+    Our key_func reads Fly-Client-IP (set by Fly's edge, not user) and
+    falls back to the socket peer — never XFF."""
+    from app.rate_limit import limiter
+    limiter.enabled = True
+    try:
+        client.post("/auth/register", json={"email": "xff@x.com", "password": "pw12345!"})
+
+        statuses = []
+        for i in range(11):
+            r = client.post(
+                "/auth/login",
+                json={"email": "xff@x.com", "password": "wrong"},
+                # Rotate XFF every request — a working bypass would yield
+                # 11x 401. We expect the 11th to be 429 anyway.
+                headers={"X-Forwarded-For": f"203.0.113.{i}"},
+            )
+            statuses.append(r.status_code)
+
+        assert statuses[:10] == [401] * 10, statuses
+        assert statuses[10] == 429, statuses
+    finally:
+        limiter.enabled = False
+        limiter.reset()
