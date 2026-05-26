@@ -139,7 +139,7 @@ export async function getMe() {
   return data;
 }
 
-export async function changePassword(currentPassword: string, newPassword: string) {
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ access_token: string; token_type: string }> {
   const { data } = await api.post('/auth/change-password', {
     current_password: currentPassword,
     new_password: newPassword,

@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     display_name TEXT,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -520,6 +521,9 @@ def init_db():
         _ensure_columns(cur, "exercise_images", [
             ("content_hash", "TEXT"),
             ("alt_text", "TEXT"),
+        ])
+        _ensure_columns(cur, "users", [
+            ("token_version", "INTEGER NOT NULL DEFAULT 0"),
         ])
 
 
