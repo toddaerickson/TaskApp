@@ -225,13 +225,30 @@ def log_set(session_id: int, req: SessionSetCreate, user_id: int = Depends(get_c
             with get_db() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT id, tracks_symptoms FROM workout_sessions "
+                    "SELECT id, tracks_symptoms, ended_at FROM workout_sessions "
                     "WHERE id = ? AND user_id = ?",
                     (session_id, user_id),
                 )
                 session_row = cur.fetchone()
                 if not session_row:
                     raise HTTPException(404, "Session not found")
+                # Reject new-set inserts after the session is officially
+                # finished. The suggestion algorithm reads N sets per
+                # ended session and walks them forward; letting sets
+                # appear after ended_at would silently mutate the inputs
+                # under it (test_session_flow_e2e.py:137 documented this
+                # policy; PR-Y9 enforced it). PATCH + DELETE on existing
+                # sets are still allowed — those are backfill paths for
+                # the pain-chip UX. To re-open a session, the user has
+                # to start a new one.
+                if session_row["ended_at"] is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "session_ended",
+                            "detail": "Session is finished; start a new session to log more sets.",
+                        },
+                    )
                 # Only persist pain_score when the session was started
                 # under a pain-monitored routine. Strength sessions that
                 # stray a value through the client get silently dropped

@@ -134,8 +134,11 @@ def test_full_session_happy_path(client, seeded_globals):
 
 
 def test_cannot_log_set_after_finish(client, seeded_globals):
-    """Once ended_at is set, writes to the session should be rejected —
-    this protects the suggestion algorithm from stats mutating under it."""
+    """Once ended_at is set, new-set inserts to the session are rejected
+    — this protects the suggestion algorithm from stats mutating under
+    it. PR-Y9 made this enforcement deterministic (was 200/400/409
+    before). PATCH + DELETE on existing sets remain allowed; those are
+    backfill paths used by the pain-chip UX."""
     r = client.post(
         "/auth/register",
         json={"email": "f2@x.com", "password": "pw1234567!"},
@@ -168,6 +171,55 @@ def test_cannot_log_set_after_finish(client, seeded_globals):
         headers=_h(tok),
         json={"exercise_id": bridge_ex_id, "reps": 5},
     )
-    # If server enforces this: 400/409. If not yet enforced, test documents
-    # current behavior and catches regressions when it's added later.
-    assert r.status_code in (200, 400, 409), r.text
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["code"] == "session_ended"
+    assert "finished" in body["detail"].lower()
+
+
+def test_can_patch_and_delete_sets_after_session_ended(client, seeded_globals):
+    """PR-Y9 explicitly scoped the rejection to new-set INSERTs (POST).
+    The pain-chip UX backfills via PATCH after the session is finished —
+    that path must keep working, as must DELETE (user catches a typo
+    in a logged set after wrapping up)."""
+    r = client.post(
+        "/auth/register",
+        json={"email": "f3@x.com", "password": "pw1234567!"},
+    ).json()
+    tok = r["access_token"]
+    routine = client.post(
+        "/routines",
+        headers=_h(tok),
+        json={
+            "name": "R",
+            "exercises": [{"exercise_id": seeded_globals["bridge"], "target_sets": 1, "target_reps": 5}],
+        },
+    ).json()
+    sid = client.post(
+        "/sessions", headers=_h(tok), json={"routine_id": routine["id"]}
+    ).json()["id"]
+    # Log a set, then finish.
+    set_id = client.post(
+        f"/sessions/{sid}/sets",
+        headers=_h(tok),
+        json={"exercise_id": seeded_globals["bridge"], "reps": 5},
+    ).json()["id"]
+    client.put(
+        f"/sessions/{sid}",
+        headers=_h(tok),
+        json={"ended_at": "2026-04-17T12:00:00Z"},
+    )
+
+    # PATCH still works after end.
+    r = client.patch(
+        f"/sessions/sets/{set_id}",
+        headers=_h(tok),
+        json={"reps": 6, "notes": "corrected"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["reps"] == 6
+    assert r.json()["notes"] == "corrected"
+
+    # DELETE still works after end.
+    r = client.delete(f"/sessions/sets/{set_id}", headers=_h(tok))
+    assert r.status_code == 200, r.text
