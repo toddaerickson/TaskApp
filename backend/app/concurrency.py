@@ -16,7 +16,10 @@ is canonical and a future PUT route doesn't fork its own coercion.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
+
+from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 
 
 def parse_ts(v) -> Optional[datetime]:
@@ -55,3 +58,23 @@ def is_conflict(current: Optional[datetime], expected: Optional[datetime]) -> bo
     if expected is None or current is None:
         return False
     return current.replace(microsecond=0) > expected.replace(microsecond=0)
+
+
+def raise_conflict(current: Any, label: str) -> None:
+    """Raise the canonical 409 conflict shape that PUT routes return
+    when the row has moved past the client's snapshot. The client gets
+    the current server-side row embedded so it can reconcile in a
+    single round-trip (used by mobile's `askConflict` prompt).
+
+    `current` is the hydrated row (any JSON-serializable shape);
+    `label` is the human-readable noun for the prompt ("routine",
+    "task", "exercise", "session"). Three PUT routes inlined this
+    pattern before PR-Y3 consolidated it here."""
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "conflict",
+            "detail": f"{label.capitalize()} changed since you loaded it.",
+            "current": jsonable_encoder(current),
+        },
+    )

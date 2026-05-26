@@ -360,7 +360,8 @@ CREATE TABLE IF NOT EXISTS workout_sessions (
     mood INTEGER CHECK (mood BETWEEN 1 AND 5),
     notes TEXT,
     tracks_symptoms INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS session_sets (
@@ -507,6 +508,7 @@ def init_db():
         ])
         _ensure_columns(cur, "workout_sessions", [
             ("tracks_symptoms", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("updated_at", "TEXT"),
         ])
         _ensure_columns(cur, "session_sets", [
             ("pain_score", "INTEGER"),

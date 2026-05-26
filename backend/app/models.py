@@ -543,6 +543,10 @@ class SessionUpdate(BaseModel):
     rpe: Optional[int] = None
     mood: Optional[int] = None
     notes: Optional[str] = None
+    # PR-Y3 optimistic concurrency — mirrors TaskUpdate / RoutineUpdate.
+    # Opt-in: legacy callers stay last-write-wins. The two-device "End
+    # session" + "Add notes" race silently clobbered before this.
+    expected_updated_at: Optional[datetime] = None
 
 class SessionResponse(BaseModel):
     id: int
@@ -556,6 +560,11 @@ class SessionResponse(BaseModel):
     # Session-time snapshot of the starting routine's tracks_symptoms.
     # Clients read this to decide whether to render pain UX.
     tracks_symptoms: bool = False
+    # PR-Y3: surfaced so clients can echo it back as expected_updated_at
+    # on the next PUT for the optimistic-concurrency check. Optional so
+    # legacy rows backfilled to NULL on the SQLite leg don't blow up the
+    # response validator.
+    updated_at: Optional[datetime] = None
     sets: list[SessionSetResponse] = []
 
 
