@@ -50,6 +50,33 @@ def test_routines_cursor_returns_next_page(auth_client):
     assert [r["id"] for r in second] == ids[2:4]
 
 
+def test_routines_cursor_survives_mixed_sort_order(auth_client):
+    """PR-Y4 regression. Old cursor predicate was `id > cursor` while the
+    ORDER BY was `(sort_order, id) ASC`. If a low-id routine had a high
+    sort_order, it sorted AFTER the cursor row but was excluded by the
+    `id > cursor` filter — the row vanished from page 2 forever.
+
+    Setup: create A (sort=10), B (sort=0), C (sort=0) — ids 1,2,3.
+    Composite order is [B(0,2), C(0,3), A(10,1)].
+    Page-1 limit=2 → [B, C], cursor=3.
+    Page-2 OLD shape (id>3) → []; A is lost.
+    Page-2 NEW shape ((sort,id)>(0,3)) → [A].
+    """
+    client, token, _ = auth_client
+    a_id = client.post("/routines", json={"name": "A", "sort_order": 10}, headers=_h(token)).json()["id"]
+    b_id = client.post("/routines", json={"name": "B", "sort_order": 0}, headers=_h(token)).json()["id"]
+    c_id = client.post("/routines", json={"name": "C", "sort_order": 0}, headers=_h(token)).json()["id"]
+
+    first = client.get("/routines?limit=2", headers=_h(token)).json()
+    assert [r["id"] for r in first] == [b_id, c_id], \
+        f"expected composite-sorted [B,C], got {[(r['id'], r['sort_order']) for r in first]}"
+
+    cursor = first[-1]["id"]
+    second = client.get(f"/routines?limit=2&cursor={cursor}", headers=_h(token)).json()
+    assert [r["id"] for r in second] == [a_id], \
+        f"cursor lost A (id={a_id}, sort=10); got {[(r['id'], r['sort_order']) for r in second]}"
+
+
 def test_routines_limit_max_clamped(auth_client):
     client, token, _ = auth_client
     _seed_routines(client, token, 2)
