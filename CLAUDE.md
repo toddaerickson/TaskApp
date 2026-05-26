@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Backend:** FastAPI + SQLite (dev) / PostgreSQL (prod dual-support in
   `app/database.py`). Auth via HS256 JWT (30-day expiry) + bcrypt password hashing.
+  No `/auth/verify-password` endpoint — it existed for the PinGate reset flow,
+  removed with PinGate in #180. Don't recreate it unless there's a new caller
+  that genuinely needs read-only credential re-verification.
 - **Mobile:** Expo + React Native + expo-router. Axios client (`mobile/lib/api.ts`).
   Zustand stores. Expo SecureStore for the JWT.
 - **No ORM** — raw SQL with parameterized queries. Shared hydration helpers
