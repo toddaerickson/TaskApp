@@ -22,6 +22,24 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 
+def utc_now_text() -> str:
+    """Canonical server-side timestamp for TEXT/TIMESTAMPTZ columns.
+
+    Produces `'YYYY-MM-DD HH:MM:SS'` — naive UTC, space separator,
+    second granularity. Matches SQLite's `datetime('now')` default so
+    any future TEXT lex compare on the SQLite leg behaves correctly
+    (the PR #190 / S4 / S7 trap class). PG stores it as TIMESTAMPTZ
+    either way; this is the producer-side guard.
+
+    Use this anywhere a route writes `updated_at` / `completed_at` /
+    `ended_at` from a server-generated `now`. Don't reinvent the
+    pattern — inline `datetime.now(timezone.utc).isoformat(sep=' ',
+    timespec='seconds')` still leaks a `+00:00` tail because the
+    datetime is tz-aware.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
+
+
 def parse_ts(v) -> Optional[datetime]:
     """Coerce a DB timestamp (SQLite TEXT or PG datetime) into a
     timezone-aware datetime for comparison.

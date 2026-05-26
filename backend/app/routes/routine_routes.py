@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import get_db
 from app.auth import get_current_user_id
-from app.concurrency import parse_ts, is_conflict, raise_conflict
+from app.concurrency import parse_ts, is_conflict, raise_conflict, utc_now_text
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -346,7 +346,7 @@ def update_routine(routine_id: int, req: RoutineUpdate, user_id: int = Depends(g
 
         if fields:
             # Always bump updated_at alongside the caller's fields.
-            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+            fields["updated_at"] = utc_now_text()
             # Allow-list the columns — hardens the dynamic UPDATE against
             # a future Pydantic config that lets extra fields through.
             fields = {k: v for k, v in fields.items() if k in _ROUTINE_UPDATE_COLUMNS}
@@ -433,7 +433,7 @@ def update_routine_exercise(
         # fields through.
         fields = {k: v for k, v in fields.items() if k in _ROUTINE_EXERCISE_UPDATE_COLUMNS}
         if fields:
-            fields["updated_at"] = datetime.now(timezone.utc).isoformat(sep=" ", timespec="seconds")
+            fields["updated_at"] = utc_now_text()
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(
                 f"UPDATE routine_exercises SET {sets} WHERE id = ?",

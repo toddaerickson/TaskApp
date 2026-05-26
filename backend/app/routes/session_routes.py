@@ -1,8 +1,7 @@
-from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import get_db, is_unique_violation
 from app.auth import get_current_user_id
-from app.concurrency import parse_ts, is_conflict, raise_conflict
+from app.concurrency import parse_ts, is_conflict, raise_conflict, utc_now_text
 from app.models import (
     SessionCreate, SessionUpdate, SessionResponse,
     SessionSetCreate, SessionSetResponse, SessionSetUpdate,
@@ -187,14 +186,16 @@ def update_session(session_id: int, req: SessionUpdate, user_id: int = Depends(g
         # interpolate a column name that wasn't hand-approved here.
         fields = {k: v for k, v in all_fields.items() if k in _SESSION_UPDATE_COLUMNS}
         if "ended_at" in fields and fields["ended_at"] is not None:
-            # Strip tz + use ' '-separator so SQLite stores 'YYYY-MM-DD
-            # HH:MM:SS' matching `started_at`'s `datetime('now')` default
-            # — PR-Y2 / silent-killer S4.
+            # Client-supplied tz-aware datetime → naive UTC TEXT shape
+            # matching `started_at`'s `datetime('now')` default. The
+            # `utc_now_text()` helper is for server-`now`; this branch
+            # keeps the client's actual moment, just stripped to second
+            # granularity + sans tz tail.
             fields["ended_at"] = fields["ended_at"].replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
         if fields:
             # Always bump updated_at alongside caller fields so the
             # next PUT's concurrency check sees the new snapshot.
-            fields["updated_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ", timespec="seconds")
+            fields["updated_at"] = utc_now_text()
             sets = ", ".join(f"{k} = ?" for k in fields)
             cur.execute(f"UPDATE workout_sessions SET {sets} WHERE id = ?",
                         tuple(list(fields.values()) + [session_id]))

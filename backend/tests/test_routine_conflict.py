@@ -71,6 +71,30 @@ def test_update_with_stale_expected_returns_409(auth_client):
     assert body["current"]["name"] == "other-tab-wins"
 
 
+def test_routine_update_writes_updated_at_in_sqlite_shape(auth_client):
+    """PR-Y8 regression. `update_routine` used to write
+    `datetime.now(timezone.utc).isoformat(sep=' ', timespec='seconds')`
+    which leaks a `+00:00` tail because the datetime is tz-aware.
+    Latent because `updated_at` is parsed via `parse_ts` for the
+    concurrency check, not lex-compared — but it's the same bug class
+    as PR #190 / S4 / S7, and any future TEXT lex compare on the
+    SQLite leg would inherit the bug. PG stores TIMESTAMPTZ either
+    way; SQLite-only assertion."""
+    from app.database import get_db, DB_TYPE
+    client, token, _ = auth_client
+    rid = _seed_routine(client, token)
+    client.put(f"/routines/{rid}", json={"name": "renamed"}, headers=_h(token))
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT updated_at FROM routines WHERE id = ?", (rid,))
+        row = cur.fetchone()
+    if DB_TYPE != "sqlite":
+        return
+    val = str(row["updated_at"])
+    assert "T" not in val and "+" not in val, \
+        f"updated_at carries T/tz: {val!r}"
+
+
 def test_routine_exercise_update_conflict(auth_client, seeded_globals):
     import time
     client, token, _ = auth_client
