@@ -1,6 +1,7 @@
 import { colors } from "@/lib/colors";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/lib/stores';
 import { describeApiError } from '@/lib/apiErrors';
@@ -9,8 +10,11 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
   const registerFn = useAuthStore((s) => s.register);
   const router = useRouter();
 
@@ -59,11 +63,17 @@ export default function RegisterScreen() {
           value={name}
           onChangeText={setName}
           autoCapitalize="words"
+          autoComplete="name"
+          textContentType="name"
+          returnKeyType="next"
+          blurOnSubmit={false}
+          onSubmitEditing={() => emailRef.current?.focus()}
           placeholderTextColor={colors.placeholder}
         />
 
         <Text style={styles.label}>Email</Text>
         <TextInput
+          ref={emailRef}
           style={styles.input}
           placeholder="you@example.com"
           accessibilityLabel="Email"
@@ -71,23 +81,40 @@ export default function RegisterScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
+          returnKeyType="next"
+          blurOnSubmit={false}
+          onSubmitEditing={() => passwordRef.current?.focus()}
           placeholderTextColor={colors.placeholder}
         />
 
         <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="At least 8 characters"
-          accessibilityLabel="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoComplete="new-password"
-          placeholderTextColor={colors.placeholder}
-          onSubmitEditing={handleRegister}
-          returnKeyType="go"
-        />
+        <View style={styles.passwordRow}>
+          <TextInput
+            ref={passwordRef}
+            style={[styles.input, styles.passwordInput]}
+            placeholder="At least 8 characters"
+            accessibilityLabel="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            autoComplete="new-password"
+            textContentType="newPassword"
+            placeholderTextColor={colors.placeholder}
+            onSubmitEditing={handleRegister}
+            returnKeyType="go"
+          />
+          <Pressable
+            onPress={() => setShowPassword((s) => !s)}
+            style={styles.eyeToggle}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            hitSlop={8}
+          >
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
+          </Pressable>
+        </View>
 
         {error ? (
           <Text style={styles.error} accessibilityLiveRegion="polite">{error}</Text>
@@ -120,6 +147,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.borderInput, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.text,
     backgroundColor: colors.surface,
+  },
+  passwordRow: { position: 'relative' },
+  passwordInput: { paddingRight: 44 },
+  eyeToggle: {
+    position: 'absolute', right: 8, top: 0, bottom: 0,
+    width: 36, justifyContent: 'center', alignItems: 'center',
   },
   error: { color: colors.dangerText, fontSize: 13, marginTop: 8 },
   button: {
