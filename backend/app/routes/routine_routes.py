@@ -73,22 +73,39 @@ def list_routines(
     limit: int = Query(50, ge=1, le=200),
     cursor: int | None = Query(
         None,
-        description="Routine id from the previous page's last item. Returns "
-                    "routines with id > cursor (sort_order, id ASC).",
+        description="Routine id from the previous page's last item. Server "
+                    "looks up that row's sort_order and returns rows ranked "
+                    "after (sort_order, id) under the same ORDER BY.",
     ),
     user_id: int = Depends(get_current_user_id),
 ):
     """List a user's routines. Paginated: `limit` caps page size (default 50,
-    max 200), `cursor` is the id of the last routine on the prior page so
-    the client can request id > cursor for the next page. Ordering is
-    `(sort_order ASC, id ASC)` so pagination is deterministic."""
+    max 200), `cursor` is the id of the last routine on the prior page.
+    Ordering is `(sort_order ASC, id ASC)` so pagination is deterministic.
+
+    Cursor handling resolves the cursor row's sort_order and uses a
+    row-value comparison `(sort_order, id) > (cursor_sort, cursor_id)`.
+    A bare `id > cursor` predicate (the pre-PR-Y4 shape) skipped rows
+    whose id was ≤ cursor but whose composite rank was after the cursor —
+    e.g. user drags a low-id routine to a higher sort position, then
+    pages: the dragged routine vanishes from page-2.
+    """
     with get_db() as conn:
         cur = conn.cursor()
         sql = "SELECT * FROM routines WHERE user_id = ?"
         params: list = [user_id]
         if cursor is not None:
-            sql += " AND id > ?"
-            params.append(cursor)
+            # Resolve the cursor row's sort_order in Python so a deleted-
+            # between-pages cursor falls back to "no cursor" instead of
+            # returning an empty page forever.
+            cur.execute(
+                "SELECT sort_order FROM routines WHERE id = ? AND user_id = ?",
+                (cursor, user_id),
+            )
+            cursor_row = cur.fetchone()
+            if cursor_row is not None:
+                sql += " AND (sort_order, id) > (?, ?)"
+                params.extend([cursor_row["sort_order"], cursor])
         sql += " ORDER BY sort_order ASC, id ASC LIMIT ?"
         params.append(limit)
         cur.execute(sql, tuple(params))
