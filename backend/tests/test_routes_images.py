@@ -48,7 +48,7 @@ def test_bulk_images_appends_to_existing(auth_client, seeded_globals):
     ]})
     assert r.status_code == 200
     body = r.json()
-    assert body == [{"slug": "wall_ankle_dorsiflexion", "status": "ok", "added": 2, "replaced": 0}]
+    assert body == [{"slug": "wall_ankle_dorsiflexion", "status": "ok", "added": 2, "replaced": 0, "failed": 0}]
     fetched = c.get(f"/exercises/{seeded_globals['wall']}", headers=_h(tok)).json()
     urls = [i["url"] for i in fetched["images"]]
     assert "https://example.com/existing.jpg" in urls
@@ -72,7 +72,7 @@ def test_bulk_images_unknown_slug_reports_not_found(auth_client):
     r = c.post("/exercises/images/bulk", headers=_h(tok), json={"entries": [
         {"slug": "does_not_exist", "urls": ["https://example.com/x.jpg"]},
     ]})
-    assert r.json() == [{"slug": "does_not_exist", "status": "not_found", "added": 0, "replaced": 0}]
+    assert r.json() == [{"slug": "does_not_exist", "status": "not_found", "added": 0, "replaced": 0, "failed": 0}]
 
 
 # ---------- Dedup by content_hash ----------
