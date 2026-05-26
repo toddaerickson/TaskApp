@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
@@ -362,7 +362,6 @@ REPEAT_DELTAS = {
 
 @router.post("/{task_id}/complete", response_model=TaskResponse)
 def complete_task(task_id: int, user_id: int = Depends(get_current_user_id)):
-    now = datetime.now(timezone.utc)
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
