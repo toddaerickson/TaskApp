@@ -13,8 +13,8 @@ ruff>=0.6
 # Error telemetry. Wired in app/sentry_setup.py; only initializes when
 # SENTRY_DSN is set in the environment, so dev runs don't phone home.
 sentry-sdk[fastapi]>=2.0
-# Cloudflare R2 client (S3-compatible). Wired in app/r2_storage.py but
-# not yet called from any route — PR-A2b switches admin uploads to R2,
-# PR-A2c migrates existing https: rows. Added in advance so the import
-# is resolvable when the routes start using it.
+# Cloudflare R2 client (S3-compatible). Live since PR-A2b (#153):
+# exercise_routes.add_image + bulk_images call R2Storage.put_object
+# when config.r2_configured(); backfill_exercise_images.py --storage=r2
+# migrates old https: rows.
 boto3>=1.34

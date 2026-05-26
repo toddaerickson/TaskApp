@@ -20,31 +20,7 @@ import ErrorCard from '@/components/ErrorCard';
 import * as api from '@/lib/api';
 import { describeApiErrorDetailed } from '@/lib/apiErrors';
 import { tokenizeDose, DoseTokenKind } from '@/lib/doseTokens';
-
-/** Two-choice conflict prompt. Resolves with the user's decision rather
- *  than blocking state. Web uses confirm() because there's no native
- *  modal affordance we share; iOS/Android get a proper destructive
- *  Alert.alert with distinct labels. */
-function askConflict(label: string): Promise<'overwrite' | 'reload'> {
-  return new Promise((resolve) => {
-    const msg = `The ${label} changed since you loaded it. Overwrite your changes would replace the newer version. Reload discards yours.`;
-    if (Platform.OS === 'web') {
-      // eslint-disable-next-line no-alert
-      const overwrite = window.confirm(`${msg}\n\nOK = Overwrite anyway. Cancel = Discard & reload.`);
-      resolve(overwrite ? 'overwrite' : 'reload');
-    } else {
-      Alert.alert(`This ${label} changed`, msg, [
-        { text: 'Discard & reload', style: 'cancel', onPress: () => resolve('reload') },
-        { text: 'Overwrite anyway', style: 'destructive', onPress: () => resolve('overwrite') },
-      ]);
-    }
-  });
-}
-
-function isConflict(err: unknown): err is { response: { status: 409 } } {
-  const e = err as { response?: { status?: number } };
-  return e?.response?.status === 409;
-}
+import { askConflict, isConflict } from '@/lib/conflictPrompt';
 
 /** Yes/no confirm dialog for destructive actions. Web-vs-native split
  *  kept inline for simplicity. */

@@ -115,10 +115,12 @@ manually via the Agent tool with `subagent_type=general-purpose`.
 
   The script is idempotent + content-addressed, so reruns only fetch
   URLs that haven't been self-hosted yet. **Auto-self-hosting on save
-  was deliberately punted** — at 1-5 image uploads/month the manual
-  step is cheaper than wiring GitHub Contents API + admin gating +
-  background tasks. Revisit (and pick R2 / S3, not git) if upload
-  volume ever climbs past ~50/month.
+  is now live** — PR-A2b (#153) wired `add_image` + `bulk_images`
+  through `R2Storage.put_object` when `config.r2_configured()`. The
+  git-backed `backfill_exercise_images.py` script is now strictly the
+  migrate-old-rows tool; new admin uploads land in R2 immediately on
+  R2-configured deploys. Dev (no R2 secrets) stays in URL-passthrough
+  mode.
 - **Routine reminders (V1)** — `GET /routines/missed-reminders` returns
   routines whose `reminder_time` already passed today (in operator
   TZ) and the user hasn't started yet. Surfaces as a banner at the
@@ -225,9 +227,11 @@ manually via the Agent tool with `subagent_type=general-purpose`.
   **PG client pin lives in two workflows** (`backup-neon.yml` +
   `backup-restore-drill.yml`). They MUST move together when Neon
   majors-upgrade. The pre-flight step in publish (PR #139) fails
-  loudly with the bump-the-pin recipe when this is needed; obey
-  it. A workflow lint to enforce the two pins match is on the
-  open list — not yet built.
+  loudly with the bump-the-pin recipe when this is needed; obey it.
+  The `Postgres client pin matches across backup workflows` job in
+  `workflow-lint.yml` (lines 27–50) greps both files and fails CI
+  with `::error::PG client pin mismatch` if they diverge — keeps
+  the two pins in sync without operator memory.
 
   **R2 mirror is opt-in** — set the four `R2_*` repo secrets
   (recipe in `docs/DISASTER_RECOVERY.md` § Required secrets) to
