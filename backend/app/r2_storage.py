@@ -100,24 +100,3 @@ class R2Storage:
         except Exception as e:
             raise RuntimeError(f"R2 delete_object failed for {filename}") from e
 
-    def head_object(self, filename: str) -> bool:
-        """Existence check. Returns True if the key exists, False on
-        404. Raises only on transport failure (so a smoke-test workflow
-        can distinguish "bucket misconfigured" from "object missing")."""
-        try:
-            self._client.head_object(Bucket=self._bucket, Key=filename)
-            return True
-        except Exception as e:
-            # boto3 raises ClientError with response['Error']['Code'] ==
-            # '404' for missing objects; everything else is a real error.
-            err = getattr(e, "response", {}).get("Error", {})
-            if err.get("Code") in ("404", "NoSuchKey", "NotFound"):
-                return False
-            raise RuntimeError(f"R2 head_object failed for {filename}") from e
-
-    def public_url(self, filename: str) -> str:
-        """Build the public URL for a stored object. Used by the
-        resolver in image_urls.py once `r2:<filename>` sentinels start
-        appearing (PR-A2b).
-        """
-        return f"{self._public_url}/{filename}"

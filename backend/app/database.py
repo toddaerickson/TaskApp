@@ -32,14 +32,12 @@ def is_unique_violation(exc: Exception) -> bool:
     return getattr(exc, "pgcode", None) == "23505"
 
 
-class DictRow(dict):
-    """Make SQLite rows behave like psycopg2 RealDictRow."""
-    def __getitem__(self, key):
-        return super().__getitem__(key)
-
-
 def _dict_factory(cursor, row):
-    return DictRow({col[0]: row[idx] for idx, col in enumerate(cursor.description)})
+    """SQLite row factory that yields plain dicts so callers can use
+    `row["col"]` like psycopg2's RealDictRow. PR-Y6 deleted a no-op
+    `DictRow(dict)` wrapper here — its `__getitem__` was identical to
+    the parent's."""
+    return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
 
 
 def _adapt_sql_for_pg(sql: str, *, has_params: bool) -> str:
@@ -526,24 +524,13 @@ def init_db():
 
 
 def _ensure_columns(cur, table: str, columns: list[tuple[str, str]]) -> None:
-    """Add columns to `table` if they don't already exist. Safe to run on
-    every startup.
-
-    Postgres path emits `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` directly
-    so two Fly machines booting concurrently during a rolling deploy can't
-    race a SELECT-then-ALTER against each other and crash the second
-    instance with `DuplicateColumn`. PG 9.6+ takes the right catalog lock
-    inside `IF NOT EXISTS`, so the second runner is a no-op.
-
-    SQLite (dev only, single process) keeps the read-then-write path
-    because older SQLite versions don't support `ADD COLUMN IF NOT EXISTS`
-    consistently."""
-    if DB_TYPE == "sqlite":
-        cur.execute(f"PRAGMA table_info({table})")
-        have = {r["name"] for r in cur.fetchall()}
-        for name, typ in columns:
-            if name not in have:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
-        return
+    """SQLite-only: add columns to `table` if they don't already exist.
+    Safe to run on every startup. Used only by `init_db()`'s SQLite path
+    (PG goes through the numbered migrator and early-returns out of
+    init_db before this is reached) — the PG branch this used to carry
+    was unreachable and removed in PR-Y6."""
+    cur.execute(f"PRAGMA table_info({table})")
+    have = {r["name"] for r in cur.fetchall()}
     for name, typ in columns:
-        cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {typ}")
+        if name not in have:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
