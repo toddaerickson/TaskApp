@@ -19,9 +19,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Workouts** — exercises (global + per-user), routines, sessions, set
   logging, symptom tracking. See `app/routes/{exercise,routine,session}_routes.py`
   and `mobile/app/workout/`.
-- **PinGate** — 4-digit PIN on app launch, hashed in SecureStore, optional
-  Face ID / Touch ID, 4-hour soft timeout. See `mobile/components/PinGate.tsx`
-  and `mobile/lib/{pin,biometric}.ts`.
+- **Auth** — email/password (bcrypt) + 30-day JWT. No in-app PIN gate;
+  rely on the device passcode + the JWT lifetime. PinGate was removed
+  as redundant.
 
 ## Skills
 

@@ -80,55 +80,18 @@ function isAuthRoute(url: string): boolean {
   return url.includes('/auth/');
 }
 
-// Active-use extends the PIN unlock window. Any successful authed API
-// call calls touchUnlock() so a user who's continuously interacting
-// doesn't get kicked to PinGate mid-session when the 8-hour window
-// expires. The re-lock on AppState foreground transition (see
-// _layout.tsx) still catches a real "walked away and came back" case.
-//
-// Deliberately fire-and-forget: we don't want response delivery to
-// wait on a SecureStore write. Also skip on /auth/* endpoints so a
-// failed login doesn't refresh a window the user no longer has.
-function maybeTouchUnlock(url: string) {
-  if (isAuthRoute(url)) return;
-  // Lazy require so the module stays tree-shakeable. Platform-safe.
-  // Swallow errors: the worst case is that the user re-enters their
-  // PIN eight hours from now, not nine.
-  try {
-    const pin = require('./pin');
-    pin.touchUnlock?.().catch(() => { /* noop */ });
-  } catch {
-    /* noop */
-  }
-}
-
 // Global 401 handler. If the server rejects a request that carried an
 // Authorization header, the stored token is dead — clear it and let the
 // UI layer (subscribed via sessionExpiry) show a modal + route to /login.
 // 401s on /auth/login itself are expected (wrong password) — skip those
 // so we don't trigger the expired-session flow on a fresh login attempt.
 api.interceptors.response.use(
-  (response) => {
-    const url: string = response?.config?.url || '';
-    const hadAuth = Boolean(response?.config?.headers?.Authorization);
-    if (hadAuth) maybeTouchUnlock(url);
-    return response;
-  },
+  (response) => response,
   async (error) => {
     const status = error?.response?.status;
     const url: string = error?.config?.url || '';
     const hadAuth = Boolean(error?.config?.headers?.Authorization);
     const isAuthEndpoint = isAuthRoute(url);
-    // Extend the PIN unlock window on error responses too, not only on
-    // 2xx. A user stuck on a flaky network (airplane-mode train tunnel,
-    // captive wifi) still counts as "actively using the app" — forcing
-    // them to re-enter the PIN mid-workout because their requests
-    // 5xx'd is punishing the wrong failure. Skip when the status is a
-    // real 401 (token is actually dead; re-auth is correct) and skip
-    // on /auth/* endpoints (the unlock window is downstream of auth).
-    if (hadAuth && status !== 401 && !isAuthEndpoint) {
-      maybeTouchUnlock(url);
-    }
     if (status === 401 && hadAuth && !isAuthEndpoint) {
       try {
         if (Platform.OS === 'web') {
@@ -182,21 +145,6 @@ export async function changePassword(currentPassword: string, newPassword: strin
     new_password: newPassword,
   });
   return data;
-}
-
-// Used by the mobile Reset PIN flow. Returns true on a 200, false on
-// a 401 (wrong password). Throws on network errors / 5xx so the caller
-// can distinguish "you typed the wrong password" from "we couldn't
-// reach the server" — the former is recoverable in-place, the latter
-// should keep the lockout intact.
-export async function verifyPassword(password: string): Promise<boolean> {
-  try {
-    await api.post('/auth/verify-password', { password });
-    return true;
-  } catch (e: any) {
-    if (e?.response?.status === 401) return false;
-    throw e;
-  }
 }
 
 export async function updateProfile(patch: { display_name?: string | null }) {

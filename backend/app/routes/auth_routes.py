@@ -6,7 +6,7 @@ from app.auth import (
 )
 from app.models import (
     RegisterRequest, LoginRequest, TokenResponse, UserResponse,
-    ChangePasswordRequest, ProfileUpdate, VerifyPasswordRequest,
+    ChangePasswordRequest, ProfileUpdate,
 )
 from app.rate_limit import limiter
 
@@ -112,32 +112,4 @@ def change_password(req: ChangePasswordRequest, user_id: int = Depends(get_curre
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (hash_password(req.new_password), user_id),
         )
-    return {"ok": True}
-
-
-@router.post("/verify-password")
-@limiter.limit("10/minute")
-def verify_password_endpoint(
-    request: Request,
-    req: VerifyPasswordRequest,
-    user_id: int = Depends(get_current_user_id),
-):
-    """Verify the current user's password without changing state. Used
-    by the mobile Reset PIN flow: before clearing pin.hash on the
-    device, the client posts the user's account password here. A 200
-    response means the holder of the device also knows the account
-    credential and is authorized to reset the PIN; a 401 means the
-    PinGate lockout stands.
-
-    Rate-limited at 10/min (matches /login) — a brute-forcer who's
-    already through PinGate would still be capped here when trying
-    passwords."""
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(404, "User not found")
-        if not verify_password(req.password, row["password_hash"]):
-            raise HTTPException(401, "Invalid password")
     return {"ok": True}

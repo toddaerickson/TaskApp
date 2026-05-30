@@ -4,9 +4,9 @@
  *   runtime. Stays exactly as it was before we added RN component tests.
  *
  * `rn-components` — React Native component tests that actually render
- *   (PinGate, login/register forms). Uses jest-expo preset so imports
- *   like `react-native` and `expo-*` resolve against the Expo SDK's
- *   jest mocks instead of failing at import time.
+ *   (login/register forms). Uses jest-expo preset so imports like
+ *   `react-native` and `expo-*` resolve against the Expo SDK's jest
+ *   mocks instead of failing at import time.
  *
  * Keeping them separate avoids paying the RN bootstrap cost for the 45
  * pure-function tests that never needed it.

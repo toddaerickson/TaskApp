@@ -1,33 +1,27 @@
 /**
- * Settings → Account sub-screen. Three adjacent operations that
- * previously required direct DB / SecureStore edits:
+ * Settings → Account sub-screen. Two adjacent operations that
+ * previously required direct DB edits:
  *
  *  - Change password (server-side bcrypt rotate via POST /auth/change-password)
- *  - Change PIN (device-local via lib/pin.ts; no server round-trip)
  *  - Edit display name (PUT /auth/me)
  *
  * Each section lives in its own card. Errors are rendered inline (no
  * Alert modals) so the user's place in the form survives a validation
  * bounce. No session invalidation on password change — single-user
- * self-hosted; PinGate mitigates the stolen-device case.
+ * self-hosted; 30-day JWT is the session gate.
  */
 import { useState } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet, ScrollView,
-  ActivityIndicator, Platform, Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from 'expo-router';
 import { colors } from '@/lib/colors';
 import * as api from '@/lib/api';
 import { useAuthStore } from '@/lib/stores';
-import {
-  isPinSet, verifyPin, setPin as writePin, clearPin,
-} from '@/lib/pin';
 
 export default function AccountSettingsScreen() {
-  const router = useRouter();
-  const { user, logout, setDisplayName: storeSetDisplayName } = useAuthStore();
+  const { user, setDisplayName: storeSetDisplayName } = useAuthStore();
 
   // --- Change password --------------------------------------------------
   const [curPw, setCurPw] = useState('');
@@ -67,94 +61,6 @@ export default function AccountSettingsScreen() {
       }
     } finally {
       setPwBusy(false);
-    }
-  };
-
-  // --- Change PIN -------------------------------------------------------
-  // Single view with a small step cursor so the user can re-type without
-  // losing context. pinHasBeenSet skips step 1 for users who haven't set
-  // a PIN yet.
-  const [pinStep, setPinStep] = useState<'current' | 'new' | 'confirm'>('current');
-  const [pinCurrent, setPinCurrent] = useState('');
-  const [pinNew, setPinNew] = useState('');
-  const [pinConfirm, setPinConfirm] = useState('');
-  const [pinStatus, setPinStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [pinBusy, setPinBusy] = useState(false);
-  const [pinHasBeenSet, setPinHasBeenSet] = useState<boolean | null>(null);
-
-  const ensurePinStatusLoaded = async () => {
-    if (pinHasBeenSet === null) {
-      const has = await isPinSet();
-      setPinHasBeenSet(has);
-      if (!has) setPinStep('new');
-    }
-  };
-
-  // Kick the check off once on mount without useEffect overhead — it's a
-  // single storage read and we don't need to re-run it.
-  if (pinHasBeenSet === null) ensurePinStatusLoaded();
-
-  const submitPinChange = async () => {
-    setPinStatus(null);
-    if (pinHasBeenSet && pinStep === 'current') {
-      if (!/^\d{4}$/.test(pinCurrent)) {
-        setPinStatus({ kind: 'err', text: 'Enter your 4-digit current PIN.' });
-        return;
-      }
-      setPinBusy(true);
-      try {
-        const ok = await verifyPin(pinCurrent);
-        if (!ok) {
-          setPinStatus({ kind: 'err', text: 'Current PIN is incorrect.' });
-          return;
-        }
-        setPinStep('new');
-      } finally {
-        setPinBusy(false);
-      }
-      return;
-    }
-    if (pinStep === 'new') {
-      if (!/^\d{4}$/.test(pinNew)) {
-        setPinStatus({ kind: 'err', text: 'New PIN must be 4 digits.' });
-        return;
-      }
-      setPinStep('confirm');
-      return;
-    }
-    // confirm step
-    if (pinNew !== pinConfirm) {
-      setPinStatus({ kind: 'err', text: 'PINs don\'t match. Try again.' });
-      return;
-    }
-    setPinBusy(true);
-    try {
-      await writePin(pinNew);
-      setPinCurrent(''); setPinNew(''); setPinConfirm('');
-      setPinStep(pinHasBeenSet ? 'current' : 'new');
-      setPinHasBeenSet(true);
-      setPinStatus({ kind: 'ok', text: 'PIN updated.' });
-    } catch (e: any) {
-      setPinStatus({ kind: 'err', text: e?.message || 'Could not save PIN.' });
-    } finally {
-      setPinBusy(false);
-    }
-  };
-
-  const handleForgotPin = () => {
-    const runClear = async () => {
-      await clearPin();
-      await logout();
-      router.replace('/(auth)/login');
-    };
-    const msg = 'This signs you out and clears the PIN on this device. You\'ll need to log in and set a new PIN.';
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Clear PIN and sign out?\n\n${msg}`)) runClear();
-    } else {
-      Alert.alert('Clear PIN?', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear & sign out', style: 'destructive', onPress: runClear },
-      ]);
     }
   };
 
@@ -264,88 +170,6 @@ export default function AccountSettingsScreen() {
         </Pressable>
       </View>
 
-      {/* PIN */}
-      <Text style={styles.sectionLabel}>
-        {pinHasBeenSet === false ? 'Set PIN' : 'Change PIN'}
-      </Text>
-      <View style={styles.card}>
-        {pinHasBeenSet && pinStep === 'current' && (
-          <TextInput
-            key="pin-current"
-            style={styles.input}
-            value={pinCurrent}
-            onChangeText={(t) => setPinCurrent(t.replace(/\D/g, '').slice(0, 4))}
-            placeholder="Current PIN"
-            placeholderTextColor="#bbb"
-            accessibilityLabel="Current PIN"
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={4}
-          />
-        )}
-        {pinStep === 'new' && (
-          <TextInput
-            key="pin-new"
-            style={styles.input}
-            value={pinNew}
-            onChangeText={(t) => setPinNew(t.replace(/\D/g, '').slice(0, 4))}
-            placeholder="New 4-digit PIN"
-            placeholderTextColor="#bbb"
-            accessibilityLabel="New PIN"
-            keyboardType="number-pad"
-            secureTextEntry
-            autoFocus
-            maxLength={4}
-          />
-        )}
-        {pinStep === 'confirm' && (
-          <TextInput
-            key="pin-confirm"
-            style={styles.input}
-            value={pinConfirm}
-            onChangeText={(t) => setPinConfirm(t.replace(/\D/g, '').slice(0, 4))}
-            placeholder="Confirm new PIN"
-            placeholderTextColor="#bbb"
-            accessibilityLabel="Confirm new PIN"
-            keyboardType="number-pad"
-            secureTextEntry
-            autoFocus
-            maxLength={4}
-          />
-        )}
-        {pinStatus && (
-          <Text style={pinStatus.kind === 'ok' ? styles.okText : styles.errText}>
-            {pinStatus.text}
-          </Text>
-        )}
-        <Pressable
-          style={[styles.saveBtn, pinBusy && { opacity: 0.6 }]}
-          onPress={submitPinChange}
-          disabled={pinBusy}
-          accessibilityRole="button"
-        >
-          {pinBusy
-            ? <ActivityIndicator size="small" color="#fff" />
-            : (
-              <Text style={styles.saveBtnText}>
-                {pinStep === 'current' ? 'Next'
-                  : pinStep === 'new' ? 'Next'
-                  : 'Save PIN'}
-              </Text>
-            )}
-        </Pressable>
-        {pinHasBeenSet && (
-          <Pressable
-            style={styles.forgotBtn}
-            onPress={handleForgotPin}
-            accessibilityRole="button"
-          >
-            <Ionicons name="help-circle-outline" size={16} color={colors.danger} />
-            <Text style={styles.forgotText}>Forgot PIN — clear &amp; sign out</Text>
-          </Pressable>
-        )}
-      </View>
-
       <View style={{ height: 20 }} />
     </ScrollView>
   );
@@ -376,10 +200,4 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   okText: { color: colors.success, fontSize: 13 },
   errText: { color: colors.danger, fontSize: 13 },
-  forgotBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    justifyContent: 'center', paddingVertical: 8,
-    cursor: 'pointer' as any,
-  },
-  forgotText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
 });

@@ -262,10 +262,9 @@ Vercel build log for "Service worker cache version: …".
 
 1. Open `https://taskapp-workout.vercel.app` in Safari on iOS.
 2. Share → **Add to Home Screen**. The icon now looks like an app.
-3. Tap it anywhere, anytime — PIN gate, login, your routines.
+3. Tap it anywhere, anytime — login, your routines.
 
 Caveats:
-- Face ID doesn't work through Safari (the Web Authentication API doesn't expose it for site-specific auth). You'll use the PIN. The PinGate "locked" state shows a Reset PIN button after 5 wrong attempts (clearPin → re-setup) so you're not bricked.
 - Live push notifications for routine reminders are deliberately deferred. Instead, the **missed-reminder banner** at the top of the Workouts tab surfaces any routine whose `reminder_time` already passed today (in `TASKAPP_TZ`) and you haven't started yet — open the app and you'll see what you missed, with [Start] / [Dismiss for today]. The TestFlight build below adds true push if you ever need it.
 
 ---
@@ -534,7 +533,7 @@ versions of these has been resolved.
 
 A real SDK upgrade (52 → 56) is its own multi-day project, not a
 maintenance PR — expo-router has API changes, RN 0.76 → 0.77+ has
-deprecations, and the `lib/biometric.ts` / `lib/routineReminders.ts`
-/ `lib/pin.ts` / `lib/stores.ts` lazy-requires for native-only
-modules need re-verification under the new SDK. Run the multi-agent
-plan-review convention from CLAUDE.md before starting.
+deprecations, and the `lib/routineReminders.ts` / `lib/stores.ts`
+lazy-requires for native-only modules need re-verification under
+the new SDK. Run the multi-agent plan-review convention from
+CLAUDE.md before starting.
