@@ -321,7 +321,17 @@ def health():
     # quota error blocked the release_command, freezing deploys at
     # the 2026-05-10 image for ~15 days before anyone noticed).
     # DB reachability lives on /health/detailed for operator curl.
-    return {"status": "ok"}
+    #
+    # build_sha + build_time are baked at image-build time via Docker
+    # ARG → ENV in backend/Dockerfile. Public exposure is safe — the
+    # git SHA is already public in the repo, and operators want a
+    # one-tap "is the live backend on the post-merge commit?" check
+    # from the Settings tab without burning a bearer-token round-trip.
+    return {
+        "status": "ok",
+        "build_sha": os.environ.get("TASKAPP_BUILD_SHA", "dev"),
+        "build_time": os.environ.get("TASKAPP_BUILD_TIME", ""),
+    }
 
 
 @app.get("/health/detailed")
@@ -393,4 +403,6 @@ def health_detailed(authorization: str | None = Header(default=None)):
         # the secret is set (web stays functional via same-origin
         # relative URLs).
         "public_url_configured": not _public_url_misconfigured,
+        "build_sha": os.environ.get("TASKAPP_BUILD_SHA", "dev"),
+        "build_time": os.environ.get("TASKAPP_BUILD_TIME", ""),
     }

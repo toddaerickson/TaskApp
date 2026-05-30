@@ -20,6 +20,16 @@ COPY scripts ./scripts
 # seed_data/ is optional — the fresh-env fallback path kicks in if absent.
 COPY seed_data ./seed_data
 
+# Build-time metadata baked into the image so /health can echo back
+# "which commit is actually running." Mirrors the frontend pattern in
+# mobile/scripts/build-web.sh — both surfaces feed the Settings-tab
+# build-stamp diagnostic. Defaults to "dev" when the build arg isn't
+# passed (local `docker build` without --build-arg).
+ARG BUILD_SHA=dev
+ARG BUILD_TIME=
+ENV TASKAPP_BUILD_SHA=${BUILD_SHA}
+ENV TASKAPP_BUILD_TIME=${BUILD_TIME}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8080

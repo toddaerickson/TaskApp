@@ -17,7 +17,15 @@ def test_health_returns_ok(auth_client):
     c, _tok, _uid = auth_client
     r = c.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    body = r.json()
+    assert body["status"] == "ok"
+    # Build stamp is "dev" when TASKAPP_BUILD_SHA is unset (local +
+    # CI), and a 12-char commit prefix in production. Either is valid
+    # as long as the key exists — the Settings tab reads it as-is.
+    assert "build_sha" in body
+    assert "build_time" in body
+    assert isinstance(body["build_sha"], str) and body["build_sha"]
+    assert isinstance(body["build_time"], str)
 
 
 def test_health_is_unauthenticated(auth_client):
@@ -54,6 +62,8 @@ def test_health_detailed_with_correct_token_returns_full_body(auth_client):
     assert body["jwt_secret_configured"] is True
     assert isinstance(body["sentry_configured"], bool)
     assert body["public_url_configured"] is True
+    assert isinstance(body["build_sha"], str) and body["build_sha"]
+    assert isinstance(body["build_time"], str)
 
 
 def test_health_detailed_never_leaks_secret_values(auth_client):

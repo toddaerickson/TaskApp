@@ -31,7 +31,15 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy
         working-directory: backend
-        run: flyctl deploy --remote-only
+        # Pass the commit SHA + build timestamp as Docker build args so
+        # the Dockerfile bakes them in as ENV. /health then echoes them
+        # back, giving operators a one-tap check of "is the live backend
+        # on the post-merge commit?" — mirrors the frontend build-stamp
+        # diagnostic from PR #127.
+        run: |
+          flyctl deploy --remote-only \
+            --build-arg BUILD_SHA="${GITHUB_SHA:0:12}" \
+            --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
