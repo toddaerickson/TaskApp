@@ -19,6 +19,16 @@ on:
       - '.github/workflows/fly-deploy.yml'
   workflow_dispatch:
 
+# Least-privilege per CLAUDE.md guidance. issues: write is needed by the
+# alert-on-failure step at the bottom so a silent deploy outage (the
+# April 2026 class — auto-deploy quietly failed for 4 days while 6
+# backend PRs accumulated in master) gets a GitHub issue + email instead
+# of a red badge nobody looks at.
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
 jobs:
   deploy:
     name: Deploy app
@@ -111,3 +121,81 @@ jobs:
           echo "Last response body:" >&2
           cat /tmp/health.json >&2 || true
           exit 1
+
+      - name: Alert on failure
+        # Closes the RUNTIME class of silent deploy outage (the April
+        # 2026 incident: auto-deploy failed 4 nights in a row while
+        # 6 backend PRs piled up in master; only the red Actions badge
+        # signaled it, and nobody was watching). GitHub doesn't email
+        # on push-triggered workflow failure for the repo owner by
+        # default, but issue notifications fire under everyone's
+        # defaults. Mirrors the alert pattern from backup-neon.yml.
+        #
+        # De-dup: if an open `[deploy]` failure issue already exists,
+        # comment on it instead of opening a new one. Without this,
+        # 7 nights of failure → 7 issues, which is noise that trains
+        # people to ignore the signal.
+        #
+        # Differentiated alert: surfaces the first failed step name so
+        # operators can triage from the issue thread without clicking
+        # into the run. "Deploy" vs "Post-deploy smoke" is a sharp
+        # diagnostic split — the former is "fly build broke," the
+        # latter is "fly built fine but the new release is sick."
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TITLE="[deploy] Backend deploy is failing"
+          NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          SHORT_SHA="${SHA:0:12}"
+          FAILED_STEP=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '[.jobs[].steps[]? | select(.conclusion == "failure")][0].name // "unknown"' \
+              2>/dev/null || echo "unknown")
+          COMMENT="Failed run: $RUN_URL  (UTC $NOW)
+          Commit: \`$SHORT_SHA\`
+          Failed step: \`$FAILED_STEP\`"
+          EXISTING=$(gh issue list \
+              --state open \
+              --search "in:title \"$TITLE\"" \
+              --json number \
+              --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Appending to existing alert issue #$EXISTING"
+            gh issue comment "$EXISTING" --body "$COMMENT"
+          else
+            echo "Opening new alert issue"
+            BODY=$(cat <<EOF
+          The backend auto-deploy to Fly has failed.
+
+          $COMMENT
+
+          **Why this matters:** any backend PR merged to \`main\` while
+          this issue stays open is **not running in production**. The
+          public API is serving the last-successful release. The Settings
+          tab build-stamp footer (frontend SHA vs backend SHA) will visibly
+          diverge while the gap persists.
+
+          **First diagnostic:** open the failed run above and look at
+          \`Failed step\`. The most common failure modes are:
+          - \`Deploy\` (flyctl) — \`fly.toml release_command\` shlex bug
+            (must be wrapped in \`sh -c\` per CLAUDE.md), missing/expired
+            \`FLY_API_TOKEN\`, Neon compute quota exhausted, or a
+            Dockerfile build error.
+          - \`Post-deploy smoke\` — Fly built + released fine, but the
+            new image's \`/health/detailed\` returned non-200 or a sick
+            body. Often a missing Fly secret on the new release
+            (\`JWT_SECRET\`, \`DATABASE_URL\`, etc.) or a migration
+            that failed to run inside \`release_command\`.
+
+          **Close this issue** once a green deploy lands. Subsequent
+          failures will comment on the still-open one so the alert
+          thread stays consolidated.
+          EOF
+          )
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
