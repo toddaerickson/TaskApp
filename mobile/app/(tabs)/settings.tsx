@@ -1,5 +1,5 @@
 import { colors } from "@/lib/colors";
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/lib/stores';
@@ -21,6 +21,18 @@ export default function SettingsScreen() {
   const [importing, setImporting] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [homeTab, setHomeTab] = useState<HomeTab>(() => loadHomeTab());
+  // Backend build stamp. Fetched once on mount; failure silently falls
+  // back to "—". Pairs with the bundled frontend BUILD_SHA so a single
+  // tap on Settings tells you whether frontend + backend are on the
+  // same commit. Mirrors the diagnostic from PR #127 onto the backend.
+  const [backendSha, setBackendSha] = useState<string>('…');
+  useEffect(() => {
+    let cancelled = false;
+    api.getHealth().then((h) => {
+      if (!cancelled) setBackendSha(h?.build_sha || '—');
+    }).catch(() => { if (!cancelled) setBackendSha('—'); });
+    return () => { cancelled = true; };
+  }, []);
 
   const changeHomeTab = (tab: HomeTab) => {
     setHomeTab(tab);
@@ -215,10 +227,13 @@ export default function SettingsScreen() {
 
       <Text
         style={styles.buildStamp}
-        accessibilityLabel={`Build ${BUILD_SHA}${BUILD_TIME ? ', built ' + BUILD_TIME : ''}`}
+        accessibilityLabel={
+          `Frontend build ${BUILD_SHA}${BUILD_TIME ? ', built ' + BUILD_TIME : ''}. ` +
+          `Backend build ${backendSha}.`
+        }
       >
-        Build {BUILD_SHA}
-        {BUILD_TIME ? ` · ${BUILD_TIME}` : ''}
+        Frontend {BUILD_SHA}{BUILD_TIME ? ` · ${BUILD_TIME}` : ''}
+        {'\n'}Backend {backendSha}
       </Text>
     </ScrollView>
   );

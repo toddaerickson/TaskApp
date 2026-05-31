@@ -123,6 +123,16 @@ api.interceptors.response.use(
   },
 );
 
+// --- Health ---
+// Public liveness endpoint that also echoes the backend's build SHA +
+// build timestamp (baked into the Docker image via ARG → ENV). Read by
+// the Settings tab so the operator can confirm frontend SHA == backend
+// SHA in one tap.
+export async function getHealth(): Promise<{ status: string; build_sha: string; build_time: string }> {
+  const { data } = await api.get('/health');
+  return data;
+}
+
 // --- Auth ---
 export async function register(email: string, password: string, displayName?: string) {
   const { data } = await api.post('/auth/register', { email, password, display_name: displayName });

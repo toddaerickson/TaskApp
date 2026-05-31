@@ -40,4 +40,9 @@ def test_successful_requests_do_not_leak_request_id_in_body(client):
     envelope — happy-path responses should keep their original shape so
     existing clients don't break."""
     r = client.get("/health")
-    assert r.json() == {"status": "ok"}
+    body = r.json()
+    assert body["status"] == "ok"
+    # /health also returns build_sha + build_time; the contract that
+    # matters here is that request_id is NOT injected into successful
+    # response bodies.
+    assert "request_id" not in body
