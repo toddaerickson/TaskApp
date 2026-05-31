@@ -59,19 +59,21 @@ first hop.
 
 ### 3. Forgotten-credentials lockout has no escape hatch
 **Source:** Acknowledged limitation in PR #176 description.
-**Status:** Documented, not fixed.
-**Risk:** If the owner forgets BOTH PIN and account password, the only
-recovery is `fly ssh console` → manual SQL. No password-reset flow, no
-recovery email, no in-app escape. Mostly theoretical for a single-user
-deploy, but a real cliff.
-**Fix options:**
+**Status:** V1 doc-only workaround shipped (`docs/DISASTER_RECOVERY.md`
+§ "Scenario 4 — Forgotten account password (lockout escape hatch)").
+Real recovery flow (magic link or recovery code) still open.
+**Risk:** If the owner forgets the account password, the V1 path is
+`fly ssh console` → run a small Python snippet that resets the bcrypt
+hash and bumps `token_version`. ~5-minute recovery. The fallback if
+flyctl itself is also lost: provision a new Fly app + restore from
+backup (Scenario 3). No password-reset flow, no recovery email, no
+in-app escape — mostly theoretical for a single-user deploy.
+**Fix options (V2):**
 - Magic-link / email-based password reset (requires an SMTP provider —
   adds a dependency).
-- Recovery code printed during PIN setup, stored offline (lower-friction,
-  fits the self-hosted model).
-- Document the `fly ssh` recipe in `docs/DISASTER_RECOVERY.md` as the V1
-  workaround (cheapest).
-**Estimated:** XS for the doc, M for either real recovery flow.
+- Recovery code printed during account setup, stored offline
+  (lower-friction, fits the self-hosted model).
+**Estimated:** M for either V2 path.
 
 ### 4. JWT has no revocation / `token_version` claim
 **Source:** Audit SEVERE (4-agent review, May 2026).

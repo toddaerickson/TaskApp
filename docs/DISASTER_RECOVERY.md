@@ -187,6 +187,49 @@ Recovery window: **2-4 hours**. Use when losing both the Fly app and the Neon pr
 4. **Provision Vercel project**: import from GitHub, set `EXPO_PUBLIC_API_URL` to the new Fly URL in project → Settings → Environment Variables → Production + Preview.
 5. **Verify end-to-end**: register a new user, create a task, start a workout, log a set, refresh. Confirm `/health/detailed` shows `db_reachable: true` and `cors_origins_configured: true`.
 
+## Scenario 4 — Forgotten account password (lockout escape hatch)
+
+Recovery window: **5 minutes**. Use when the owner can no longer log in because the account password was forgotten. There is **no in-app password reset** today (no SMTP provider, no recovery email flow); this V1 workaround uses `fly ssh` to reset the bcrypt hash directly. A real recovery flow (magic link or recovery code) is tracked as `docs/followups-2026-05.md` item #3.
+
+**Pre-requisites:** operator has `flyctl` installed locally and `fly auth whoami` returns the account that owns `taskapp-workout`.
+
+1. **SSH into the running Fly machine.**
+   ```bash
+   fly ssh console -a taskapp-workout
+   ```
+
+2. **Rewrite the password hash for your account.** Inside the SSH session:
+   ```bash
+   cd /app
+   python - <<'PY'
+   from app.auth import hash_password
+   from app.database import get_db
+
+   EMAIL = "you@example.com"        # ← edit
+   NEW_PASSWORD = "<temporary>"     # ← edit, then rotate via Settings → Account after login
+
+   with get_db() as conn:
+       cur = conn.cursor()
+       cur.execute(
+           "UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE email = ?",
+           (hash_password(NEW_PASSWORD), EMAIL),
+       )
+       if cur.rowcount != 1:
+           raise SystemExit(f"Expected 1 row updated, got {cur.rowcount} — check the email exists")
+   print(f"Password reset for {EMAIL}.")
+   PY
+   ```
+
+   The `token_version` bump invalidates any pre-existing JWT (PR #209), so a leaked token from before the reset can't outlive the lockout event.
+
+3. **Log in with the temporary password**, then **immediately rotate it** via Settings → Account → Change password. The shell-set password lives in your terminal scrollback; treat it as compromised.
+
+4. **Exit the SSH session.** Fly machines are ephemeral — no cleanup needed.
+
+**Don't do this while the owner is actively logged in on another device** unless you intend to log them out — the `token_version` bump signs out every existing session immediately.
+
+**If `flyctl` access itself is lost** (compromised Fly account, MFA-locked, etc.), this scenario degrades to "provision a new Fly app + restore from backup" — see Scenario 3.
+
 ## Verification after any restore
 
 In order — stop at the first red flag.
