@@ -9,6 +9,7 @@ from app.models import (
     ChangePasswordRequest, ProfileUpdate,
 )
 from app.rate_limit import limiter
+from app.seed_user import seed_default_folders
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -27,18 +28,7 @@ def register(request: Request, req: RegisterRequest):
                 (req.email, hash_password(req.password), req.display_name),
             )
             user_id = cur.lastrowid
-
-            # Create default GTD folders
-            defaults = [
-                ("Critical", 0), ("1. Capture", 1), ("2. Do Now", 2),
-                ("3. Delegate (Waiting)", 3), ("4. Defer (Follow-up)", 4),
-                ("5. Social", 5), ("6. Someday/Maybe", 6), ("7. Reference", 7),
-            ]
-            for name, order in defaults:
-                cur.execute(
-                    "INSERT INTO folders (user_id, name, sort_order) VALUES (?, ?, ?)",
-                    (user_id, name, order),
-                )
+            seed_default_folders(cur, user_id)
     except HTTPException:
         raise
     except Exception as exc:
