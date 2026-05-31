@@ -258,6 +258,50 @@ The backup pipeline is **two workflows + one alert thread**:
 - **Bump the PG client pin when Neon majors-upgrade.** The "Pre-flight client/server version compat" step in `backup-neon.yml` will fail loudly when this is needed and tell you which version to bump to. Update the pin in **both** workflow files (the drill mirrors the same pin) and ship as one PR.
 - **R2 lifecycle drift.** If you change the workflow's `RETENTION_DAYS=30` or the R2 bucket's lifecycle rule, update the other to match. They're not auto-synced.
 
+### Rotating `BACKUP_PASSPHRASE`
+
+`BACKUP_PASSPHRASE` is a single static GPG passphrase shared across the entire 30-day retention window. If it leaks (e.g. logs leak, password-manager compromise, accidental commit to a public repo), **every retained backup is compromised** — they're all encrypted with the same key. Rotation is a multi-step operator procedure; don't improvise it during the moment of a leak.
+
+**Recovery window:** ~30 minutes operator time + one nightly cycle for the new key to start producing fresh backups.
+
+1. **Generate the new passphrase** (≥ 32 random chars):
+   ```bash
+   openssl rand -base64 48
+   ```
+   Save to your password manager + the offline copy **before** any other step. Losing the new key mid-rotation strands you.
+
+2. **Decrypt every retained backup with the OLD key, re-encrypt with the NEW key.** Run from a trusted local machine — `BACKUP_PASSPHRASE_OLD` should never live in CI:
+   ```bash
+   mkdir -p /tmp/backup-rotate && cd /tmp/backup-rotate
+   gh release list --repo toddaerickson/TaskApp --limit 60 \
+     | awk '/^backup-/{print $1}' > tags.txt
+   while read -r TAG; do
+     gh release download "$TAG" --repo toddaerickson/TaskApp -p '*.gpg' -D "$TAG"
+     gpg --decrypt --batch --yes --passphrase "$BACKUP_PASSPHRASE_OLD" \
+         "$TAG/backup.dump.gpg" > "$TAG/backup.dump"
+     gpg --symmetric --batch --yes --cipher-algo AES256 \
+         --passphrase "$BACKUP_PASSPHRASE_NEW" \
+         --output "$TAG/backup.dump.gpg.new" "$TAG/backup.dump"
+     gh release upload "$TAG" "$TAG/backup.dump.gpg.new" \
+        --repo toddaerickson/TaskApp --clobber
+     rm -f "$TAG/backup.dump"
+   done < tags.txt
+   ```
+   This downloads each Release asset, decrypts with the OLD key, re-encrypts with the NEW key, and uploads in-place with `--clobber`. `schema_state.txt` is plaintext and doesn't need re-encryption.
+
+3. **Repeat for R2** (if the mirror is configured). Same loop, swap `gh release` for `aws s3 cp` against the R2 bucket — the asset names match.
+
+4. **Update the GitHub secret.** Repo Settings → Secrets and variables → Actions → `BACKUP_PASSPHRASE` → Update value to the new passphrase. The next nightly `backup-neon.yml` run will encrypt with the new key.
+
+5. **Verify on the next scheduled drill.** `backup-restore-drill.yml` runs Mondays 09:00 UTC. Confirm it lands green — that proves the new key decrypts and restores cleanly end-to-end. If the rotation happened Mon–Sun, you can also manually trigger the drill via `workflow_dispatch` to avoid waiting up to a week.
+
+6. **Wipe the old passphrase** from your password manager and the offline copy **only after** the next backup has been verified restorable with the new key. Until that's done, the old key is your safety net.
+
+**Anti-patterns:**
+- Don't rotate by deleting old backups and waiting 30 days for the retention window to roll over — that leaves you backup-less if anything happens to the current Neon DB in the interim.
+- Don't store `BACKUP_PASSPHRASE_OLD` in CI for the re-encryption step. The whole point is to assume the old key is compromised; putting it back into CI undoes the rotation.
+- Don't rotate `BACKUP_PASSPHRASE` and `JWT_SECRET` in the same operator session — both touch user-visible state (logged-out users on JWT, key-mismatch alerts on backup) and you want to be able to attribute any post-rotation breakage cleanly.
+
 ### What replaced the manual quarterly drill
 
 The original plan called for an operator-run quarterly drill. It was demonstrably skipped in practice — the publish workflow ran red 9 nights in a row (2026-04-22 → 2026-05-01) before anyone noticed, and there was no "is this dump even restorable" check beyond byte-count > 1KB. The weekly automated drill (PR #138) replaces the manual one. Keep an eye on it — if the drill itself stops running, all the publish-side safety nets become "the file exists" theatre again.
